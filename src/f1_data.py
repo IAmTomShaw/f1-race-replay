@@ -8,7 +8,7 @@ from datetime import timedelta
 from src.lib.tyres import get_tyre_compound_int
 
 # Enable local cache (adjust path if you prefer)
-fastf1.Cache.enable_cache('.fastf1-cache')
+fastf1.Cache.enable_cache('/Users/subhashh/Developer/f1-race-replay-main/cache')
 
 FPS = 25
 DT = 1 / FPS
