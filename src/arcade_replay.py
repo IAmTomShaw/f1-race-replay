@@ -224,13 +224,17 @@ class F1ReplayWindow(arcade.Window):
         arcade.Text(f"Race Time: {time_str}", 
                          20, self.height - 80, 
                          arcade.color.WHITE, 20, anchor_y="top").draw()
+        
+        arcade.Text(f"Track Status: {current_track_status}", 
+                         20, self.height - 120, 
+                         arcade.color.WHITE, 20, anchor_y="top").draw()
 
         # --- NEW: Playback status & speed (Top-left, under Race Time) ---
         # Use a small label showing Pause/Play and the playback multiplier
         status_text = "⏸ Paused" if self.paused else f"▶ Playing  ×{self.playback_speed:.2f}"
         # Draw a subtle background box for readability
-        box_x = 18
-        box_y = self.height - 120
+        box_x = 16
+        box_y = self.height - 160
         arcade.draw_text(status_text, box_x + 10, box_y - 8, arcade.color.WHITE, 14, anchor_y="top")
 
         # Draw Leaderboard - Top Right
@@ -312,15 +316,15 @@ class F1ReplayWindow(arcade.Window):
                 )
 
         # Controls Legend - Bottom Left
-        legend_x = 80
+        legend_x = 20
         legend_y = 150 # Height of legend block
         legend_lines = [
             "Controls:",
-            "[SPACE]       Pause/Resume",
-            "[←/→]         Rewind / FastForward",
-            "[ENTER]       Jump to Start",
-            "[↑/↓]        Speed +/- (0.5x, 1x, 2x, 4x)",
-            "[BACKSPACE]  Reset speed",
+            "[SPACE]             Pause/Resume",
+            "[←/→]              Rewind / FastForward",
+            "[ENTER]            Jump to Start",
+            "[↑/↓]              Speed +/- (0.5x, 1x, 2x, 4x)",
+            "[BACKSPACE]   Reset speed",
         ]
         
         for i, line in enumerate(legend_lines):
