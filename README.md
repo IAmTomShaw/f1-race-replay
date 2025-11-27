@@ -2,7 +2,9 @@
 
 A Python application for visualizing Formula 1 race telemetry and replaying race events with interactive controls and a graphical interface.
 
-![Race Replay Preview](./resources/preview.png)
+![Race Replay Selection](./resources/GP selection.png)
+![Data Loading](./resources/Loading.png)
+![Race Replay Preview](./resources/race preview.png)
 
 ## Features
 
