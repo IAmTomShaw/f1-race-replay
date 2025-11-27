@@ -225,6 +225,14 @@ class F1ReplayWindow(arcade.Window):
                          20, self.height - 80, 
                          arcade.color.WHITE, 20, anchor_y="top").draw()
 
+        # --- NEW: Playback status & speed (Top-left, under Race Time) ---
+        # Use a small label showing Pause/Play and the playback multiplier
+        status_text = "⏸ Paused" if self.paused else f"▶ Playing  ×{self.playback_speed:.2f}"
+        # Draw a subtle background box for readability
+        box_x = 18
+        box_y = self.height - 120
+        arcade.draw_text(status_text, box_x + 10, box_y - 8, arcade.color.WHITE, 14, anchor_y="top")
+
         # Draw Leaderboard - Top Right
         leaderboard_x = self.width - 220
         leaderboard_y = self.height - 40
@@ -308,9 +316,11 @@ class F1ReplayWindow(arcade.Window):
         legend_y = 150 # Height of legend block
         legend_lines = [
             "Controls:",
-            "[SPACE]  Pause/Resume",
-            "[←/→]    Rewind / FastForward",
-            "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
+            "[SPACE]      Pause/Resume",
+            "[←/→]        Rewind / FastForward",
+            "[ENTER]      Jump to Start",
+            "[↑/↓]        Speed +/- (0.5x, 1x, 2x, 4x)",
+            "[BACKSPACE]  Reset speed",
         ]
         
         for i, line in enumerate(legend_lines):
@@ -425,6 +435,10 @@ class F1ReplayWindow(arcade.Window):
             self.playback_speed = 2.0
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
+        elif symbol == arcade.key.BACKSPACE:
+            self.playback_speed = 1.0
+        elif symbol == arcade.key.ENTER:
+            self.frame_index = 0.0
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # Default: clear selection
