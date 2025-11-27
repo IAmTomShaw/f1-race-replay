@@ -60,12 +60,12 @@ def get_race_telemetry(session):
     global_t_min = None
     global_t_max = None
     
-
+    count = 0
     # 1. Get all of the drivers telemetry data
     for driver_no in drivers:
         code = driver_codes[driver_no]
-
-        print("Getting telemetry for driver:", code)
+        count = count + 1
+        print(f"{count}/{len(drivers)} Getting telemetry for driver: {code}")
 
         laps_driver = session.laps.pick_drivers(driver_no)
         if laps_driver.empty:

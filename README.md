@@ -35,6 +35,8 @@ pip install -r requirements.txt
 
 ## Usage
 
+Create `.fastf1-cache` folder in root directory of project
+
 Run the main script and specify the year and round:
 ```bash
 python main.py --year 2025 --round 12
