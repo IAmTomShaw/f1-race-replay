@@ -175,15 +175,21 @@ class F1ReplayWindow(arcade.Window):
             "VSC": (180, 100,  30),      # virtual safety car / amber-brown
             "SC": (220, 180,   0),       # safety car (treat like yellow)
         }
+
         track_color = STATUS_COLORS.get("GREEN")
+        track_display = ""
 
         if current_track_status == "2":
+            track_display = "Track Status: Yellow Flag"
             track_color = STATUS_COLORS.get("YELLOW")
         elif current_track_status == "4":
+            track_display = "Track Status: Safety Car"
             track_color = STATUS_COLORS.get("SC")
         elif current_track_status == "5":
-            track_color = STATUS_COLORS.get("RED")
+            track_display = "Track Status: Red Flag"
+            track_color = STATUS_COLORS.get("Red Flag")
         elif current_track_status == "6" or current_track_status == "7":
+            track_display = "Track Status: Virtual Safety Car"
             track_color = STATUS_COLORS.get("VSC")
  
         if len(self.screen_inner_points) > 1:
@@ -225,7 +231,7 @@ class F1ReplayWindow(arcade.Window):
                          20, self.height - 80, 
                          arcade.color.WHITE, 20, anchor_y="top").draw()
         
-        arcade.Text(f"Track Status: {current_track_status}", 
+        arcade.Text(f"{track_display}", 
                          20, self.height - 120, 
                          arcade.color.WHITE, 20, anchor_y="top").draw()
 
