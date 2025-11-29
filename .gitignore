@@ -1,11 +1,23 @@
 
+.venv/
+venv/
+env/
+ENV/
 
-output_animation.mp4
-.fastf1-cache
-still_frame.png
 
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
 
-computed_data/
 
 .DS_Store
+
+
+.fastf1-cache/
+computed_data/
+output_animation.mp4
+still_frame.png
+
+
+.vscode/

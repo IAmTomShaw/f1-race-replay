@@ -248,55 +248,105 @@ def get_race_telemetry(session):
             'end_time': end_time, 
         })
 
+    # Decide on the battle gap
+    BATTLE_GAP_THRESHOLD = 1.0          # seconds to car ahead
+    MIN_BATTLE_SPEED_KMH = 120.0        # only count as battle if both are above this
+
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
 
     for i, t in enumerate(timeline):
         snapshot = []
         for code, d in resampled_data.items():
-          snapshot.append({
-            "code": code,
-            "dist": float(d["dist"][i]),
-            "x": float(d["x"][i]),
-            "y": float(d["y"][i]),
-            "lap": int(round(d["lap"][i])),
-            "rel_dist": float(d["rel_dist"][i]),
-            "tyre": d["tyre"][i],
-            "speed": d['speed'][i],
-            "gear": int(d['gear'][i]),
-            "drs": int(d['drs'][i]),
-          })
+            snapshot.append({
+                "code": code,
+                "dist": float(d["dist"][i]),
+                "x": float(d["x"][i]),
+                "y": float(d["y"][i]),
+                "lap": int(round(d["lap"][i])),
+                "rel_dist": float(d["rel_dist"][i]),
+                "tyre": d["tyre"][i],
+                "speed": d["speed"][i],
+                "gear": int(d["gear"][i]),
+                "drs": int(d["drs"][i]),
+            })
 
         # If for some reason we have no drivers at this instant
         if not snapshot:
             continue
 
-        # 5b. Sort by race distance to get POSITIONS (1–20)
-        # Leader = largest race distance covered
+        # Sort by race distance to get POSITIONS (leader first)
         snapshot.sort(key=lambda r: r["dist"], reverse=True)
 
         leader = snapshot[0]
         leader_lap = leader["lap"]
 
-        # 5c. Compute gap to car in front in SECONDS
         frame_data = {}
+
+        # Pre-calc leader speed in m/s for gap_to_leader
+        leader_speed_kmh = leader.get("speed", 0.0) or 0.0
+        leader_speed_mps = leader_speed_kmh * (1000.0 / 3600.0) if leader_speed_kmh > 1 else None
 
         for idx, car in enumerate(snapshot):
             code = car["code"]
             position = idx + 1
 
-            # include speed, gear, drs_active in frame driver dict
+            # Defaults
+            gap_to_ahead = None
+            gap_to_leader = 0.0 if idx == 0 else None
+            in_battle = False
+            battle_with = None
+
+            # Current car speed
+            speed_kmh = car.get("speed", 0.0) or 0.0
+            speed_mps = speed_kmh * (1000.0 / 3600.0) if speed_kmh > 1 else None
+
+            # ---- Gap to leader (for GAP column) ----
+            if idx == 0:
+                gap_to_leader = 0.0
+            else:
+                # approximate using this car's own speed; fall back to leader speed if needed
+                ref_speed_mps = speed_mps or leader_speed_mps
+                if ref_speed_mps and ref_speed_mps > 0:
+                    dist_gap_leader = leader["dist"] - car["dist"]
+                    gap_to_leader = dist_gap_leader / ref_speed_mps
+
+            # ---- Gap to car ahead (for battle detection) ----
+            if idx > 0:
+                car_ahead = snapshot[idx - 1]
+                dist_gap_ahead = car_ahead["dist"] - car["dist"]  # > 0 if behind
+
+                speed_ahead_kmh = car_ahead.get("speed", 0.0) or 0.0
+                speed_ahead_mps = speed_ahead_kmh * (1000.0 / 3600.0) if speed_ahead_kmh > 1 else None
+
+                if speed_mps and speed_mps > 0:
+                    gap_to_ahead = dist_gap_ahead / speed_mps
+
+                # Only flag as battle if small gap and both are at racing speed
+                if (
+                    gap_to_ahead is not None
+                    and gap_to_ahead <= BATTLE_GAP_THRESHOLD
+                    and speed_kmh >= MIN_BATTLE_SPEED_KMH
+                    and speed_ahead_kmh >= MIN_BATTLE_SPEED_KMH
+                ):
+                    in_battle = True
+                    battle_with = car_ahead["code"]
+
             frame_data[code] = {
                 "x": car["x"],
                 "y": car["y"],
-                "dist": car["dist"],    
+                "dist": car["dist"],
                 "lap": car["lap"],
                 "rel_dist": round(car["rel_dist"], 6),
                 "tyre": car["tyre"],
                 "position": position,
-                "speed": car['speed'],
-                "gear": car['gear'],
-                "drs": car['drs'],
+                "speed": car["speed"],
+                "gear": car["gear"],
+                "drs": car["drs"],
+                "gap_to_leader": gap_to_leader,
+                "gap_to_ahead": gap_to_ahead,
+                "in_battle": in_battle,
+                "battle_with": battle_with,
             }
 
         frames.append({
@@ -304,8 +354,11 @@ def get_race_telemetry(session):
             "lap": leader_lap,   # leader’s lap at this time
             "drivers": frame_data,
         })
+
     print("completed telemetry extraction...")
+    print("Number of frames generated:", len(frames))
     print("Saving to JSON file...")
+
     # If computed_data/ directory doesn't exist, create it
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
