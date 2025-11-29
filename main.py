@@ -2,9 +2,9 @@ from src.f1_data import get_race_telemetry, get_driver_colors, load_race_session
 from src.arcade_replay import run_arcade_replay
 import sys
 
-def main(year=None, round_number=None, playback_speed=1):
+def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
-  session = load_race_session(year, round_number)
+  session = load_race_session(year, round_number, session_type)
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']}")
 
   # Enable cache for fastf1
@@ -12,7 +12,7 @@ def main(year=None, round_number=None, playback_speed=1):
 
   # Get the drivers who participated in the race
 
-  race_telemetry = get_race_telemetry(session)
+  race_telemetry = get_race_telemetry(session, session_type=session_type)
 
   # Get example lap for track layout
 
@@ -27,7 +27,7 @@ def main(year=None, round_number=None, playback_speed=1):
     drivers=drivers,
     playback_speed=1.0,
     driver_colors=race_telemetry['driver_colors'],
-    title=f"{session.event['EventName']} - Race"
+    title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}"
   )
 
 if __name__ == "__main__":
@@ -48,4 +48,7 @@ if __name__ == "__main__":
 
   playback_speed = 1
 
-  main(year, round_number, playback_speed)
+# Session type selection
+  session_type = 'S' if "--sprint" in sys.argv else 'R'
+  
+  main(year, round_number, playback_speed, session_type=session_type)

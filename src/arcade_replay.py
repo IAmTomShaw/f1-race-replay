@@ -175,7 +175,7 @@ class F1ReplayWindow(arcade.Window):
             "VSC": (200, 130,  50),      # virtual safety car / amber-brown
             "SC": (180, 100,  30),       # safety car (darker brown)
         }
-        track_color = STATUS_COLORS.get("GREEN")
+        track_color = STATUS_COLORS.get("GREEN", (150, 150, 150))
 
         if current_track_status == "2":
             track_color = STATUS_COLORS.get("YELLOW")
@@ -245,7 +245,6 @@ class F1ReplayWindow(arcade.Window):
             arcade.Text(status_text, 
                              20, self.height - 120, 
                              arcade.color.BROWN, 24, bold=True, anchor_y="top").draw()
-
 
         # Draw Leaderboard - Top Right
         leaderboard_x = self.width - 220
@@ -333,6 +332,7 @@ class F1ReplayWindow(arcade.Window):
             "[SPACE]  Pause/Resume",
             "[←/→]    Rewind / FastForward",
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
+            "[R]       Restart",
         ]
         
         for i, line in enumerate(legend_lines):
@@ -447,6 +447,9 @@ class F1ReplayWindow(arcade.Window):
             self.playback_speed = 2.0
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
+        elif symbol == arcade.key.R:
+            self.frame_index = 0.0
+            self.playback_speed = 1.0
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # Default: clear selection
