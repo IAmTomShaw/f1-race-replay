@@ -2,6 +2,9 @@ from src.f1_data import get_race_telemetry, get_driver_colors, load_race_session
 from src.arcade_replay import run_arcade_replay
 import sys
 
+from src.lib.utils.arg_parser import parse_args
+
+
 def main(year=None, round_number=None, playback_speed=1):
 
   session = load_race_session(year, round_number)
@@ -25,27 +28,17 @@ def main(year=None, round_number=None, playback_speed=1):
     track_statuses=race_telemetry['track_statuses'],
     example_lap=example_lap,
     drivers=drivers,
-    playback_speed=1.0,
+    playback_speed=playback_speed,
     driver_colors=race_telemetry['driver_colors'],
     title=f"{session.event['EventName']} - Race"
   )
 
+
 if __name__ == "__main__":
+  args = parse_args()
 
-  # Get the year and round number from user input
-
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
-
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
-
-  playback_speed = 1
-
-  main(year, round_number, playback_speed)
+  main(
+    year=args.year,
+    round_number=args.round,
+    playback_speed=args.speed
+  )
