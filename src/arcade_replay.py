@@ -248,18 +248,26 @@ class F1ReplayWindow(arcade.Window):
 
 
         # Draw Leaderboard - Top Right
-        leaderboard_x = self.width - 220
+        leaderboard_x = self.width - 260
         leaderboard_y = self.height - 40
-        
-        arcade.Text("Leaderboard", leaderboard_x, leaderboard_y, 
-                         arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+
+        arcade.Text(
+            "Leaderboard",
+            leaderboard_x,
+            leaderboard_y,
+            arcade.color.WHITE,
+            20,
+            bold=True,
+            anchor_x="left",
+            anchor_y="top",
+        ).draw()
 
         driver_list = []
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
             driver_list.append((code, color, pos))
-        
-        # Sort by distance
+
+        # Sort by distance (leader first)
         driver_list.sort(key=lambda x: x[2].get("dist", 999), reverse=True)
 
         # Reset recorded rects each frame
@@ -267,62 +275,114 @@ class F1ReplayWindow(arcade.Window):
 
         row_height = 25
         entry_width = 240  # clickable width for each entry
-        for i, (code, color, pos) in enumerate(driver_list):
+
+        # Column positions
+        col_pos = leaderboard_x            # "1."
+        col_code = leaderboard_x + 30      # "VER"
+        col_battle_icon = leaderboard_x + 110   # 🔥
+        col_gap = leaderboard_x + 130      # "+3.2s" (GAP to leader)
+
+        for i, (code, base_color, pos) in enumerate(driver_list):
             current_pos = i + 1
-            if pos.get("rel_dist", 0) == 1:
-                text = f"{current_pos}. {code}   OUT"
-            else:
-                tyre = pos.get("tyre", "?")
-                text = f"{current_pos}. {code}"
-            
-            # Compute bounding box for this entry (match how text is positioned)
+            is_out = pos.get("rel_dist", 0) == 1
+
+            in_battle = pos.get("in_battle", False) and not is_out
+            gap_to_leader = pos.get("gap_to_leader", None)
+
+            # Row geometry
             top_y = leaderboard_y - 30 - (i * row_height)
             bottom_y = top_y - row_height
             left_x = leaderboard_x
             right_x = leaderboard_x + entry_width
 
-            # Save for mouse hit-testing
+            # Save for mouse hit-testing (whole row clickable)
             self.leaderboard_rects.append((code, left_x, bottom_y, right_x, top_y))
 
-            # Highlight if selected
+            # Highlight background if selected
             if code == self.selected_driver:
-                # subtle highlight behind the text
-                rect = arcade.XYWH((left_x + right_x) / 2,
+                rect = arcade.XYWH(
+                    (left_x + right_x) / 2,
                     (top_y + bottom_y) / 2,
                     right_x - left_x,
-                    top_y - bottom_y,)
-                arcade.draw_rect_filled(
-                    rect,
-                    arcade.color.LIGHT_GRAY,
+                    top_y - bottom_y,
                 )
-                text_color = arcade.color.BLACK
-            else:
-                text_color = color
+                arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
 
+            # ----- Position -----
             arcade.Text(
-                text,
-                left_x,
+                f"{current_pos:2d}.",
+                col_pos,
                 top_y,
-                text_color,
+                arcade.color.WHITE,
                 16,
-                anchor_x="left", anchor_y="top"
+                anchor_x="left",
+                anchor_y="top",
             ).draw()
 
-            # Tyre Icons
+            # ----- Driver code -----
+            code_color = base_color
+            if code == self.selected_driver:
+                code_color = arcade.color.BLACK
+
+            arcade.Text(
+                code,
+                col_code,
+                top_y,
+                code_color,
+                16,
+                anchor_x="left",
+                anchor_y="top",
+            ).draw()
+
+            # ----- GAP to leader column -----
+            if is_out:
+                gap_text = "OUT"
+                gap_color = arcade.color.LIGHT_GRAY if code != self.selected_driver else arcade.color.BLACK
+            else:
+                if current_pos == 1:
+                    gap_text = "LEAD"
+                elif gap_to_leader is not None:
+                    gap_text = f"+{gap_to_leader:.1f}s"
+                else:
+                    gap_text = ""
+                gap_color = arcade.color.LIGHT_GRAY if code != self.selected_driver else arcade.color.BLACK
+
+            arcade.Text(
+                gap_text,
+                col_gap,
+                top_y,
+                gap_color,
+                14,
+                anchor_x="left",
+                anchor_y="top",
+            ).draw()
+
+            # ----- Battle icon column -----
+            if in_battle and not is_out and current_pos > 1:
+                arcade.Text(
+                    "🔥",
+                    col_battle_icon,
+                    top_y,
+                    arcade.color.RED,
+                    16,
+                    anchor_x="left",
+                    anchor_y="top",
+                ).draw()
+
+            # ----- Tyre icon on the far right -----
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
-            if tyre_texture:
+            if tyre_texture and not is_out:
                 tyre_icon_x = self.width - 30
                 tyre_icon_y = top_y - 12
                 icon_size = 16
 
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
 
-                # Draw the textured rect
                 arcade.draw_texture_rect(
                     rect=rect,
                     texture=tyre_texture,
                     angle=0,
-                    alpha=255
+                    alpha=255,
                 )
 
         # Controls Legend - Bottom Left
@@ -333,6 +393,7 @@ class F1ReplayWindow(arcade.Window):
             "[SPACE]  Pause/Resume",
             "[←/→]    Rewind / FastForward",
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
+            "🔥 Battle: < 1.0s to car ahead"
         ]
         
         for i, line in enumerate(legend_lines):
