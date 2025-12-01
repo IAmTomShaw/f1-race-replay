@@ -65,6 +65,85 @@ def get_race_telemetry(session, session_type='R'):
         for num in drivers
     }
 
+    # Extract race results and driver status from session
+    print("Extracting race results and driver status...")
+    results = session.results
+    driver_status_map = {}  # {driver_code: {'status': str, 'classification': int/str, 'laps': int}}
+
+    for _, driver_result in results.iterrows():
+        code = driver_result.get('Abbreviation')
+        if code:
+            status = driver_result.get('Status', 'Unknown')
+            classification = driver_result.get('ClassifiedPosition', 'N')
+            laps_completed = driver_result.get('Laps', 0)
+
+            # Determine if driver finished normally or DNF'd
+            # A driver "finished" if they completed the race, even if lapped
+            is_finished = 'Finished' in str(status) or '+' in str(status) or 'Lap' in str(status)
+            # DNF only if classified as R/D/E/W/N (Retired, Disqualified, Excluded, Withdrawn, Not classified)
+            is_dnf = classification in ['R', 'D', 'E', 'W', 'N']
+
+            driver_status_map[code] = {
+                'status': str(status),
+                'classification': str(classification) if isinstance(classification, str) else int(classification),
+                'laps_completed': int(laps_completed) if laps_completed else 0,
+                'is_finished': is_finished,
+                'is_dnf': is_dnf
+            }
+
+    print(f"Driver status extracted for {len(driver_status_map)} drivers")
+
+    # Extract penalty information from race control messages
+    print("Extracting penalty information...")
+    penalties = []
+    race_control_msgs = session.race_control_messages
+
+    # Look for penalty-related messages
+    penalty_keywords = ['PENALTY', 'PENALISED', 'PENALIZED']
+    for _, msg_row in race_control_msgs.iterrows():
+        message = str(msg_row.get('Message', ''))
+        for keyword in penalty_keywords:
+            if keyword in message.upper() and 'SERVED' not in message.upper():
+                # Parse penalty information
+                # Example: "FIA STEWARDS: 5 SECOND TIME PENALTY FOR CAR 5 (BOR) - UNSAFE RELEASE"
+                try:
+                    # Extract driver code (looks for pattern like "CAR X (CODE)")
+                    import re
+                    car_match = re.search(r'CAR\s+\d+\s+\(([A-Z]{3})\)', message)
+                    if car_match:
+                        driver_code = car_match.group(1)
+
+                        # Extract penalty type
+                        penalty_type = "Unknown"
+                        if "TIME PENALTY" in message.upper():
+                            time_match = re.search(r'(\d+)\s+SECOND', message.upper())
+                            if time_match:
+                                penalty_type = f"+{time_match.group(1)}s"
+                        elif "POSITION" in message.upper():
+                            pos_match = re.search(r'(\d+)\s+POSITION', message.upper())
+                            if pos_match:
+                                penalty_type = f"-{pos_match.group(1)} pos"
+                        elif "DISQUALIF" in message.upper():
+                            penalty_type = "DSQ"
+                        elif "REPRIMAND" in message.upper():
+                            penalty_type = "Reprimand"
+
+                        # Extract reason (text after the dash)
+                        reason = "N/A"
+                        if " - " in message:
+                            reason = message.split(" - ", 1)[1].strip()
+
+                        penalties.append({
+                            'driver': driver_code,
+                            'type': penalty_type,
+                            'reason': reason
+                        })
+                except Exception as e:
+                    print(f"Error parsing penalty message: {e}")
+                break
+
+    print(f"Found {len(penalties)} penalties")
+
     driver_data = {}
 
     global_t_min = None
@@ -248,6 +327,11 @@ def get_race_telemetry(session, session_type='R'):
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
 
+    # Track when each driver completes their final lap
+    driver_last_seen_lap = {code: 0 for code in resampled_data.keys()}
+    driver_finish_frame = {}  # {driver_code: frame_index}
+    race_leader_finished_frame = None
+
     for i, t in enumerate(timeline):
         snapshot = []
         for code, d in resampled_data.items():
@@ -274,6 +358,32 @@ def get_race_telemetry(session, session_type='R'):
 
         leader = snapshot[0]
         leader_lap = leader["lap"]
+        leader_code = leader["code"]
+
+        # Detect when leader finishes (crosses finish line AFTER completing final lap)
+        if leader_code in driver_status_map:
+            leader_final_laps = driver_status_map[leader_code]['laps_completed']
+            # Mark as finished when they COMPLETE the final lap (i.e., start lap final_laps + 1)
+            if leader_lap > leader_final_laps and race_leader_finished_frame is None:
+                race_leader_finished_frame = i
+                driver_finish_frame[leader_code] = i
+
+        # 5c. Detect when each driver completes their final lap
+        for car in snapshot:
+            code = car["code"]
+            current_lap = car["lap"]
+
+            # Check if driver completed their final lap (based on session.results)
+            if code in driver_status_map:
+                final_laps = driver_status_map[code]['laps_completed']
+
+                # Driver finished: crossed finish line AFTER completing all their laps
+                # This happens when current_lap becomes final_laps + 1
+                if current_lap > final_laps and code not in driver_finish_frame:
+                    if driver_status_map[code]['is_finished']:
+                        driver_finish_frame[code] = i
+
+            driver_last_seen_lap[code] = current_lap
 
         # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
 
@@ -288,7 +398,7 @@ def get_race_telemetry(session, session_type='R'):
             frame_data[code] = {
                 "x": car["x"],
                 "y": car["y"],
-                "dist": car["dist"],    
+                "dist": car["dist"],
                 "lap": car["lap"],
                 "rel_dist": round(car["rel_dist"], 4),
                 "tyre": car["tyre"],
@@ -300,8 +410,10 @@ def get_race_telemetry(session, session_type='R'):
 
         frames.append({
             "t": float(t),
-            "lap": leader_lap,   # leader’s lap at this time
+            "lap": leader_lap,   # leader's lap at this time
             "drivers": frame_data,
+            "race_finished": race_leader_finished_frame is not None,
+            "leader_finished_frame": race_leader_finished_frame,
         })
     print("completed telemetry extraction...")
     print("Saving to JSON file...")
@@ -315,6 +427,9 @@ def get_race_telemetry(session, session_type='R'):
             "frames": frames,
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
+            "driver_status": driver_status_map,
+            "driver_finish_frames": driver_finish_frame,
+            "penalties": penalties,
         }, f, indent=2)
 
     print("Saved Successfully!")
@@ -323,4 +438,7 @@ def get_race_telemetry(session, session_type='R'):
         "frames": frames,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
+        "driver_status": driver_status_map,
+        "driver_finish_frames": driver_finish_frame,
+        "penalties": penalties,
     }
