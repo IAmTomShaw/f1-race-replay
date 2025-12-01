@@ -42,6 +42,11 @@ Run the main script and specify the year and round:
 python main.py --year 2025 --round 12
 ```
 
+To run a Sprint session (if the event has one), add `--sprint`:
+```bash
+python main.py --year 2025 --round 12 --sprint
+```
+
 The application will load a pre-computed telemetry dataset if you have run it before for the same event. To force re-computation of telemetry data, use the `--refresh-data` flag:
 ```bash
 python main.py --year 2025 --round 12 --refresh-data

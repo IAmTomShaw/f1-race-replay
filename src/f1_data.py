@@ -18,8 +18,9 @@ def enable_cache():
 FPS = 25
 DT = 1 / FPS
 
-def load_race_session(year, round_number):
-    session = fastf1.get_session(year, round_number, 'R')
+def load_race_session(year, round_number, session_type='R'):
+    # session_type: 'R' (Race), 'S' (Sprint) etc.
+    session = fastf1.get_session(year, round_number, session_type)
     session.load(telemetry=True)
     return session
 
@@ -36,17 +37,18 @@ def get_driver_colors(session):
     return rgb_colors
 
 
-def get_race_telemetry(session):
+def get_race_telemetry(session, session_type='R'):
 
     event_name = str(session).replace(' ', '_')
+    cache_suffix = 'sprint' if session_type == 'S' else 'race'
 
     # Check if this data has already been computed
 
     try:
         if "--refresh-data" not in os.sys.argv:
-            with open(f"computed_data/{event_name}_race_telemetry.json", "r") as f:
+            with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.json", "r") as f:
                 frames = json.load(f)
-                print("Loaded precomputed race telemetry data.")
+                print(f"Loaded precomputed {cache_suffix} telemetry data.")
                 print("The replay should begin in a new window shortly!")
                 return frames
     except FileNotFoundError:
@@ -370,7 +372,7 @@ def get_race_telemetry(session):
         os.makedirs("computed_data")
 
     # Save to file
-    with open(f"computed_data/{event_name}_race_telemetry.json", "w") as f:
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.json", "w") as f:
         json.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
