@@ -18,8 +18,9 @@ def enable_cache():
 FPS = 25
 DT = 1 / FPS
 
-def load_race_session(year, round_number):
-    session = fastf1.get_session(year, round_number, 'R')
+def load_race_session(year, round_number, session_type='R'):
+    # session_type: 'R' (Race), 'S' (Sprint) etc.
+    session = fastf1.get_session(year, round_number, session_type)
     session.load(telemetry=True)
     return session
 
@@ -35,18 +36,22 @@ def get_driver_colors(session):
         rgb_colors[driver] = rgb
     return rgb_colors
 
+def get_circuit_rotation(session):
+    circuit = session.get_circuit_info()
+    return circuit.rotation
 
-def get_race_telemetry(session):
+def get_race_telemetry(session, session_type='R'):
 
     event_name = str(session).replace(' ', '_')
+    cache_suffix = 'sprint' if session_type == 'S' else 'race'
 
     # Check if this data has already been computed
 
     try:
         if "--refresh-data" not in os.sys.argv:
-            with open(f"computed_data/{event_name}_race_telemetry.json", "r") as f:
+            with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.json", "r") as f:
                 frames = json.load(f)
-                print("Loaded precomputed race telemetry data.")
+                print(f"Loaded precomputed {cache_suffix} telemetry data.")
                 print("The replay should begin in a new window shortly!")
                 return frames
     except FileNotFoundError:
@@ -143,8 +148,6 @@ def get_race_telemetry(session):
 
     global_t_min = None
     global_t_max = None
-    
-
     # 1. Get all of the drivers telemetry data
     for driver_no in drivers:
         code = driver_codes[driver_no]
@@ -187,14 +190,8 @@ def get_race_telemetry(session):
             gear_lap = lap_tel["nGear"].to_numpy()
             drs_lap = lap_tel["DRS"].to_numpy()
 
-            # normalise lap distance to start at 0
-            d_lap = d_lap - d_lap.min()
-            lap_length = d_lap.max()  # approx. circuit length for this lap
-
             # race distance = distance before this lap + distance within this lap
             race_d_lap = total_dist_so_far + d_lap
-
-            total_dist_so_far += lap_length
 
             t_all.append(t_lap)
             x_all.append(x_lap)
@@ -388,7 +385,9 @@ def get_race_telemetry(session):
 
             driver_last_seen_lap[code] = current_lap
 
-        # 5d. Build frame data
+        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
+
+        # 5c. Compute gap to car in front in SECONDS
         frame_data = {}
 
         for idx, car in enumerate(snapshot):
@@ -401,7 +400,7 @@ def get_race_telemetry(session):
                 "y": car["y"],
                 "dist": car["dist"],
                 "lap": car["lap"],
-                "rel_dist": round(car["rel_dist"], 6),
+                "rel_dist": round(car["rel_dist"], 4),
                 "tyre": car["tyre"],
                 "position": position,
                 "speed": car['speed'],
@@ -423,7 +422,7 @@ def get_race_telemetry(session):
         os.makedirs("computed_data")
 
     # Save to file
-    with open(f"computed_data/{event_name}_race_telemetry.json", "w") as f:
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.json", "w") as f:
         json.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),

@@ -42,6 +42,11 @@ Run the main script and specify the year and round:
 python main.py --year 2025 --round 12
 ```
 
+To run a Sprint session (if the event has one), add `--sprint`:
+```bash
+python main.py --year 2025 --round 12 --sprint
+```
+
 The application will load a pre-computed telemetry dataset if you have run it before for the same event. To force re-computation of telemetry data, use the `--refresh-data` flag:
 ```bash
 python main.py --year 2025 --round 12 --refresh-data
@@ -66,7 +71,7 @@ python main.py --year 2025 --round 12 --refresh-data
 
 # Known Issues
 
-- Occasional telemetry data gaps cause accuracy issues with the leaderboard
+- The leaderboard appears to be inaccurate for the first few corners of the race. The leaderboard is also temporarily affected by a driver going in the pits. At the end of the race the leadeboard is sometimes affected by the drivers final x,y positions being further ahead than other drivers. These issues are known issues caused by innacuracies in the telemetry and being worked on for future releases. Its likely that these issues will be fixed in stages as improving the leaderboard accuracy is a complex task.
 
 ## 📝 License
 

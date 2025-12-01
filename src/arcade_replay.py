@@ -42,8 +42,8 @@ def build_track_from_example_lap(example_lap, track_width=200):
 
 class F1ReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
-                 playback_speed=1.0, driver_colors=None, driver_status=None, driver_finish_frames=None, penalties=None,
-                 year=None, round_number=None):
+                 playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
+                 left_ui_margin=340, right_ui_margin=260):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -60,22 +60,14 @@ class F1ReplayWindow(arcade.Window):
         self.paused = False
         self._tyre_textures = {}
 
-        # Store year and round for leaderboard verification
-        self.year = year
-        self.round_number = round_number
-
-        # Debug: Print if we have pre-computed data
-        if self.driver_status:
-            print(f"✓ Loaded driver status data for {len(self.driver_status)} drivers")
-            for code, info in list(self.driver_status.items())[:3]:
-                print(f"  {code}: DNF={info.get('is_dnf')}, Finished={info.get('is_finished')}, Laps={info.get('laps_completed')}")
-        else:
-            print("⚠ WARNING: No driver status data found! Run with --refresh-data to regenerate cache.")
-
-        if self.driver_finish_frames:
-            print(f"✓ Loaded finish frames for {len(self.driver_finish_frames)} drivers")
-        else:
-            print("⚠ WARNING: No driver finish frames found! Run with --refresh-data to regenerate cache.")
+        # Rotation (degrees) to apply to the whole circuit around its centre
+        self.circuit_rotation = circuit_rotation
+        self._rot_rad = float(np.deg2rad(self.circuit_rotation)) if self.circuit_rotation else 0.0
+        self._cos_rot = float(np.cos(self._rot_rad))
+        self._sin_rot = float(np.sin(self._rot_rad))
+        self.finished_drivers = []
+        self.left_ui_margin = left_ui_margin
+        self.right_ui_margin = right_ui_margin
 
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
@@ -99,8 +91,19 @@ class F1ReplayWindow(arcade.Window):
          self.x_min, self.x_max,
          self.y_min, self.y_max) = build_track_from_example_lap(example_lap)
 
+        # Build a dense reference polyline (used for projecting car (x,y) -> along-track distance)
+        ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
+        # store as numpy arrays for vectorized ops
+        self._ref_xs = np.array([p[0] for p in ref_points])
+        self._ref_ys = np.array([p[1] for p in ref_points])
+
+        # cumulative distances along the reference polyline (metres)
+        diffs = np.sqrt(np.diff(self._ref_xs)**2 + np.diff(self._ref_ys)**2)
+        self._ref_seg_len = diffs
+        self._ref_cumdist = np.concatenate(([0.0], np.cumsum(diffs)))
+        self._ref_total_length = float(self._ref_cumdist[-1]) if len(self._ref_cumdist) > 0 else 0.0
+
         # Pre-calculate interpolated world points ONCE (optimization)
-        # We store these as 'world' coordinates, not screen coordinates
         self.world_inner_points = self._interpolate_points(self.x_inner, self.y_inner)
         self.world_outer_points = self._interpolate_points(self.x_outer, self.y_outer)
 
@@ -137,12 +140,39 @@ class F1ReplayWindow(arcade.Window):
         self.leaderboard_verified = False  # Flag to track if API verification has been performed
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
-        """Generates smooth points in WORLD coordinates."""
         t_old = np.linspace(0, 1, len(xs))
         t_new = np.linspace(0, 1, interp_points)
         xs_i = np.interp(t_new, t_old, xs)
         ys_i = np.interp(t_new, t_old, ys)
         return list(zip(xs_i, ys_i))
+
+    def _project_to_reference(self, x, y):
+        if self._ref_total_length == 0.0:
+            return 0.0
+
+        # Vectorized nearest-point to dense polyline points (sufficient for our purposes)
+        dx = self._ref_xs - x
+        dy = self._ref_ys - y
+        d2 = dx * dx + dy * dy
+        idx = int(np.argmin(d2))
+
+        # For a slightly better estimate, optionally project onto the adjacent segment
+        if idx < len(self._ref_xs) - 1:
+            x1, y1 = self._ref_xs[idx], self._ref_ys[idx]
+            x2, y2 = self._ref_xs[idx+1], self._ref_ys[idx+1]
+            vx, vy = x2 - x1, y2 - y1
+            seg_len2 = vx*vx + vy*vy
+            if seg_len2 > 0:
+                t = ((x - x1) * vx + (y - y1) * vy) / seg_len2
+                t_clamped = max(0.0, min(1.0, t))
+                proj_x = x1 + t_clamped * vx
+                proj_y = y1 + t_clamped * vy
+                # distance along segment from x1,y1
+                seg_dist = np.sqrt((proj_x - x1)**2 + (proj_y - y1)**2)
+                return float(self._ref_cumdist[idx] + seg_dist)
+
+        # Fallback: return the cumulative distance at the closest dense sample
+        return float(self._ref_cumdist[idx])
 
     def update_scaling(self, screen_w, screen_h):
         """
@@ -150,10 +180,39 @@ class F1ReplayWindow(arcade.Window):
         perfectly within the new screen dimensions while maintaining aspect ratio.
         """
         padding = 0.05
-        world_w = max(1.0, self.x_max - self.x_min)
-        world_h = max(1.0, self.y_max - self.y_min)
+        # If a rotation is applied, we must compute the rotated bounds
+        world_cx = (self.x_min + self.x_max) / 2
+        world_cy = (self.y_min + self.y_max) / 2
+
+        def _rotate_about_center(x, y):
+            # Translate to centre, rotate, translate back
+            tx = x - world_cx
+            ty = y - world_cy
+            rx = tx * self._cos_rot - ty * self._sin_rot
+            ry = tx * self._sin_rot + ty * self._cos_rot
+            return rx + world_cx, ry + world_cy
+
+        # Build rotated extents from inner/outer world points
+        rotated_points = []
+        for x, y in self.world_inner_points:
+            rotated_points.append(_rotate_about_center(x, y))
+        for x, y in self.world_outer_points:
+            rotated_points.append(_rotate_about_center(x, y))
+
+        xs = [p[0] for p in rotated_points]
+        ys = [p[1] for p in rotated_points]
+        world_x_min = min(xs) if xs else self.x_min
+        world_x_max = max(xs) if xs else self.x_max
+        world_y_min = min(ys) if ys else self.y_min
+        world_y_max = max(ys) if ys else self.y_max
+
+        world_w = max(1.0, world_x_max - world_x_min)
+        world_h = max(1.0, world_y_max - world_y_min)
         
-        usable_w = screen_w * (1 - 2 * padding)
+        # Reserve left/right UI margins before applying padding so the track
+        # never overlaps side UI elements (leaderboard, telemetry, legends).
+        inner_w = max(1.0, screen_w - self.left_ui_margin - self.right_ui_margin)
+        usable_w = inner_w * (1 - 2 * padding)
         usable_h = screen_h * (1 - 2 * padding)
 
         # Calculate scale to fit whichever dimension is the limiting factor
@@ -161,10 +220,10 @@ class F1ReplayWindow(arcade.Window):
         scale_y = usable_h / world_h
         self.world_scale = min(scale_x, scale_y)
 
-        # Center the world in the screen
-        world_cx = (self.x_min + self.x_max) / 2
-        world_cy = (self.y_min + self.y_max) / 2
-        screen_cx = screen_w / 2
+        # Center the world in the screen (rotation done about original centre)
+        # world_cx/world_cy are unchanged by rotation about centre
+        # Center within the available inner area (left_ui_margin .. screen_w - right_ui_margin)
+        screen_cx = self.left_ui_margin + inner_w / 2
         screen_cy = screen_h / 2
 
         self.tx = screen_cx - self.world_scale * world_cx
@@ -180,6 +239,17 @@ class F1ReplayWindow(arcade.Window):
         self.update_scaling(width, height)
 
     def world_to_screen(self, x, y):
+        # Rotate around the track centre (if rotation is set), then scale+translate
+        world_cx = (self.x_min + self.x_max) / 2
+        world_cy = (self.y_min + self.y_max) / 2
+
+        if self._rot_rad:
+            tx = x - world_cx
+            ty = y - world_cy
+            rx = tx * self._cos_rot - ty * self._sin_rot
+            ry = tx * self._sin_rot + ty * self._cos_rot
+            x, y = rx + world_cx, ry + world_cy
+
         sx = self.world_scale * x + self.tx
         sy = self.world_scale * y + self.ty
         return sx, sy
@@ -351,7 +421,7 @@ class F1ReplayWindow(arcade.Window):
             "VSC": (200, 130,  50),      # virtual safety car / amber-brown
             "SC": (180, 100,  30),       # safety car (darker brown)
         }
-        track_color = STATUS_COLORS.get("GREEN")
+        track_color = STATUS_COLORS.get("GREEN", (150, 150, 150))
 
         if current_track_status == "2":
             track_color = STATUS_COLORS.get("YELLOW")
@@ -369,20 +439,37 @@ class F1ReplayWindow(arcade.Window):
 
         # 4. Draw Cars
         for code, pos in frame["drivers"].items():
-            if pos.get("rel_dist", 0) == 1:
-                continue 
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
             arcade.draw_circle_filled(sx, sy, 6, color)
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
-        # Determine Leader info
-        leader_code = max(
-            frame["drivers"],
-            key=lambda c: (frame["drivers"][c].get("lap", 1), frame["drivers"][c].get("dist", 0))
-        )
-        leader_lap = frame["drivers"][leader_code].get("lap", 1)
+        # Determine Leader info using projected along-track distance (more robust than dist)
+        # Use the progress metric in metres for each driver and use that to order the leaderboard.
+        driver_progress = {}
+        for code, pos in frame["drivers"].items():
+            # parse lap defensively
+            lap_raw = pos.get("lap", 1)
+            try:
+                lap = int(lap_raw)
+            except Exception:
+                lap = 1
+
+            # Project (x,y) to reference and combine with lap count
+            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            # progress in metres since race start: (lap-1) * lap_length + projected_m
+            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+
+            driver_progress[code] = progress_m
+
+        # Leader is the one with greatest progress_m
+        if driver_progress:
+            leader_code = max(driver_progress, key=lambda c: driver_progress[c])
+            leader_lap = frame["drivers"][leader_code].get("lap", 1)
+        else:
+            leader_code = None
+            leader_lap = 1
 
         # Time Calculation
         t = frame["t"]
@@ -396,7 +483,7 @@ class F1ReplayWindow(arcade.Window):
                          20, self.height - 40, 
                          arcade.color.WHITE, 24, anchor_y="top").draw()
         
-        arcade.Text(f"Race Time: {time_str}", 
+        arcade.Text(f"Race Time: {time_str} (x{self.playback_speed})", 
                          20, self.height - 80, 
                          arcade.color.WHITE, 20, anchor_y="top").draw()
         
@@ -422,8 +509,8 @@ class F1ReplayWindow(arcade.Window):
                              arcade.color.BROWN, 24, bold=True, anchor_y="top").draw()
 
 
-        # Draw Leaderboard - Top Right
-        leaderboard_x = self.width - 220
+        # Draw Leaderboard - Top Right (inside the reserved right UI margin)
+        leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         leaderboard_y = self.height - 40
         
         arcade.Text("Leaderboard", leaderboard_x, leaderboard_y, 
@@ -432,36 +519,26 @@ class F1ReplayWindow(arcade.Window):
         driver_list = []
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            driver_list.append((code, color, pos))
+            progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
+            driver_list.append((code, color, pos, progress_m))
 
-        # Sort by distance or final positions if race is finished
-        if self.race_finished and self.final_positions:
-            # Sort by final positions to maintain accurate standings
-            driver_list.sort(key=lambda x: self.final_positions.get(x[0], 999))
-        else:
-            # Sort by distance during the race
-            driver_list.sort(key=lambda x: x[2].get("dist", 999), reverse=True)
+        # Sort by computed progress (metres) so ordering matches on-track x/y positions
+        driver_list.sort(key=lambda x: x[3], reverse=True)
 
         # Reset recorded rects each frame
         self.leaderboard_rects = []
 
         row_height = 25
         entry_width = 240  # clickable width for each entry
-        for i, (code, color, pos) in enumerate(driver_list):
-            # Use final positions if race is finished, otherwise use current position
-            if self.race_finished and code in self.final_positions:
-                current_pos = self.final_positions[code]
-            else:
-                current_pos = i + 1
-
+        for i, (code, color, pos, progress_m) in enumerate(driver_list):
+            current_pos = i + 1
             if pos.get("rel_dist", 0) == 1:
                 text = f"{current_pos}. {code}   OUT"
             else:
-                tyre = pos.get("tyre", "?")
                 text = f"{current_pos}. {code}"
-
+    
             # Compute bounding box for this entry (match how text is positioned)
-            top_y = leaderboard_y - 30 - (i * row_height)
+            top_y = leaderboard_y - 30 - ((current_pos - 1) * row_height)
             bottom_y = top_y - row_height
             left_x = leaderboard_x
             right_x = leaderboard_x + entry_width
@@ -493,94 +570,33 @@ class F1ReplayWindow(arcade.Window):
                 anchor_x="left", anchor_y="top"
             ).draw()
 
-            # DNF Status Indicator and Finish Status
-            is_dnf = self.driver_dnf_status.get(code, False)
-            is_finished = self.driver_finished_status.get(code, False)
+            # Tyre Icons
+            tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
+            if tyre_texture:
+                # position tyre icon inside the leaderboard area so it doesn't collide with track
+                tyre_icon_x = leaderboard_x + entry_width - 10
+                tyre_icon_y = top_y - 12
+                icon_size = 16
 
-            # Position for status indicators (right side where tire icon normally is)
-            status_icon_x = self.width - 30
-            status_icon_y = top_y - 12
-            icon_size = 16
+                rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
 
-            if is_dnf:
-                # Display DNF in red on the right side
-                arcade.Text(
-                    "DNF",
-                    status_icon_x,
-                    top_y,
-                    arcade.color.RED,
-                    14,
-                    bold=True,
-                    anchor_x="center", anchor_y="top"
-                ).draw()
-            elif is_finished:
-                # Check if driver is lapped (completed fewer laps than leader)
-                driver_info = self.driver_status.get(code, {})
-                driver_laps = driver_info.get('laps_completed', pos.get("lap", 0))
+                # Draw the textured rect
+                arcade.draw_texture_rect(
+                    rect=rect,
+                    texture=tyre_texture,
+                    angle=0,
+                    alpha=255
+                )
 
-                # Get leader's lap count from driver_status_map
-                leader_laps = 0
-                for leader_code, leader_pos in frame["drivers"].items():
-                    leader_info = self.driver_status.get(leader_code, {})
-                    leader_candidate_laps = leader_info.get('laps_completed', 0)
-                    if leader_candidate_laps > leader_laps:
-                        leader_laps = leader_candidate_laps
-
-                lap_difference = leader_laps - driver_laps
-
-                if lap_difference > 0:
-                    # Display lap difference AND chequered flag for lapped drivers
-                    lap_text = f"+{lap_difference} Lap" if lap_difference == 1 else f"+{lap_difference} Laps"
-
-                    # Draw chequered flag icon
-                    if self.chequered_flag_icon:
-                        rect = arcade.XYWH(status_icon_x, status_icon_y, icon_size, icon_size)
-                        arcade.draw_texture_rect(
-                            rect=rect,
-                            texture=self.chequered_flag_icon,
-                            angle=0,
-                            alpha=255
-                        )
-
-                    # Draw lap difference text to the left of the flag
-                    arcade.Text(
-                        lap_text,
-                        status_icon_x - 45,
-                        top_y,
-                        arcade.color.LIGHT_GRAY,
-                        12,
-                        anchor_x="right", anchor_y="top"
-                    ).draw()
-                else:
-                    # Display chequered flag icon only for drivers who finished on the lead lap
-                    if self.chequered_flag_icon:
-                        rect = arcade.XYWH(status_icon_x, status_icon_y, icon_size, icon_size)
-                        arcade.draw_texture_rect(
-                            rect=rect,
-                            texture=self.chequered_flag_icon,
-                            angle=0,
-                            alpha=255
-                        )
-            else:
-                # Display tyre icon for drivers still racing
-                tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
-                if tyre_texture:
-                    rect = arcade.XYWH(status_icon_x, status_icon_y, icon_size, icon_size)
-                    arcade.draw_texture_rect(
-                        rect=rect,
-                        texture=tyre_texture,
-                        angle=0,
-                        alpha=255
-                    )
-
-        # Controls Legend - Bottom Left
-        legend_x = 20
+        # Controls Legend - Bottom Left (keeps small offset from left UI edge)
+        legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
         legend_y = 150 # Height of legend block
         legend_lines = [
             "Controls:",
             "[SPACE]  Pause/Resume",
             "[←/→]    Rewind / FastForward",
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
+            "[R]       Restart",
         ]
         
         for i, line in enumerate(legend_lines):
@@ -769,6 +785,9 @@ class F1ReplayWindow(arcade.Window):
             self.playback_speed = 2.0
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
+        elif symbol == arcade.key.R:
+            self.frame_index = 0.0
+            self.playback_speed = 1.0
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # Default: clear selection
@@ -784,7 +803,7 @@ class F1ReplayWindow(arcade.Window):
         else:
             self.selected_driver = new_selection
 
-def run_arcade_replay(frames, track_statuses, example_lap, drivers, title, playback_speed=1.0, driver_colors=None, driver_status=None, driver_finish_frames=None, penalties=None, year=None, round_number=None):
+def run_arcade_replay(frames, track_statuses, example_lap, drivers, title, playback_speed=1.0, driver_colors=None, circuit_rotation=0.0):
     window = F1ReplayWindow(
         frames=frames,
         track_statuses=track_statuses,
@@ -792,11 +811,7 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title, playb
         drivers=drivers,
         playback_speed=playback_speed,
         driver_colors=driver_colors,
-        driver_status=driver_status,
-        penalties=penalties,
-        driver_finish_frames=driver_finish_frames,
         title=title,
-        year=year,
-        round_number=round_number
+        circuit_rotation=circuit_rotation,
     )
     arcade.run()
