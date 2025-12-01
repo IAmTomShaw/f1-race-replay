@@ -81,7 +81,7 @@ class F1ReplayWindow(arcade.Window):
 
         # Load chequered flag icon for finished drivers
         self.chequered_flag_icon = None
-        chequered_flag_path = os.path.join("images", "tyres", "5.0.png")
+        chequered_flag_path = os.path.join("images", "flags", "chequered_flag.png")
         if os.path.exists(chequered_flag_path):
             self.chequered_flag_icon = arcade.load_texture(chequered_flag_path)
 
