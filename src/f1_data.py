@@ -62,6 +62,32 @@ def get_race_telemetry(session, session_type='R'):
         for num in drivers
     }
 
+    # Extract race results and driver status from session
+    print("Extracting race results and driver status...")
+    results = session.results
+    driver_status_map = {}  # {driver_code: {'status': str, 'classification': int/str, 'laps': int}}
+
+    for _, driver_result in results.iterrows():
+        code = driver_result.get('Abbreviation')
+        if code:
+            status = driver_result.get('Status', 'Unknown')
+            classification = driver_result.get('ClassifiedPosition', 'N')
+            laps_completed = driver_result.get('Laps', 0)
+
+            # Determine if driver finished normally or DNF'd
+            is_finished = 'Finished' in str(status) or '+' in str(status)
+            is_dnf = classification in ['R', 'D', 'E', 'W', 'N'] or (not is_finished and laps_completed > 0)
+
+            driver_status_map[code] = {
+                'status': str(status),
+                'classification': str(classification) if isinstance(classification, str) else int(classification),
+                'laps_completed': int(laps_completed) if laps_completed else 0,
+                'is_finished': is_finished,
+                'is_dnf': is_dnf
+            }
+
+    print(f"Driver status extracted for {len(driver_status_map)} drivers")
+
     driver_data = {}
 
     global_t_min = None
@@ -253,6 +279,11 @@ def get_race_telemetry(session, session_type='R'):
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
 
+    # Track when each driver completes their final lap
+    driver_last_seen_lap = {code: 0 for code in resampled_data.keys()}
+    driver_finish_frame = {}  # {driver_code: frame_index}
+    race_leader_finished_frame = None
+
     for i, t in enumerate(timeline):
         snapshot = []
         for code, d in resampled_data.items():
@@ -279,8 +310,34 @@ def get_race_telemetry(session, session_type='R'):
 
         leader = snapshot[0]
         leader_lap = leader["lap"]
+        leader_code = leader["code"]
 
-        # 5c. Compute gap to car in front in SECONDS
+        # Detect when leader finishes (crosses finish line AFTER completing final lap)
+        if leader_code in driver_status_map:
+            leader_final_laps = driver_status_map[leader_code]['laps_completed']
+            # Mark as finished when they COMPLETE the final lap (i.e., start lap final_laps + 1)
+            if leader_lap > leader_final_laps and race_leader_finished_frame is None:
+                race_leader_finished_frame = i
+                driver_finish_frame[leader_code] = i
+
+        # 5c. Detect when each driver completes their final lap
+        for car in snapshot:
+            code = car["code"]
+            current_lap = car["lap"]
+
+            # Check if driver completed their final lap (based on session.results)
+            if code in driver_status_map:
+                final_laps = driver_status_map[code]['laps_completed']
+
+                # Driver finished: crossed finish line AFTER completing all their laps
+                # This happens when current_lap becomes final_laps + 1
+                if current_lap > final_laps and code not in driver_finish_frame:
+                    if driver_status_map[code]['is_finished']:
+                        driver_finish_frame[code] = i
+
+            driver_last_seen_lap[code] = current_lap
+
+        # 5d. Build frame data
         frame_data = {}
 
         for idx, car in enumerate(snapshot):
@@ -291,7 +348,7 @@ def get_race_telemetry(session, session_type='R'):
             frame_data[code] = {
                 "x": car["x"],
                 "y": car["y"],
-                "dist": car["dist"],    
+                "dist": car["dist"],
                 "lap": car["lap"],
                 "rel_dist": round(car["rel_dist"], 6),
                 "tyre": car["tyre"],
@@ -303,8 +360,10 @@ def get_race_telemetry(session, session_type='R'):
 
         frames.append({
             "t": float(t),
-            "lap": leader_lap,   # leader’s lap at this time
+            "lap": leader_lap,   # leader's lap at this time
             "drivers": frame_data,
+            "race_finished": race_leader_finished_frame is not None,
+            "leader_finished_frame": race_leader_finished_frame,
         })
     print("completed telemetry extraction...")
     print("Saving to JSON file...")
@@ -318,6 +377,8 @@ def get_race_telemetry(session, session_type='R'):
             "frames": frames,
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
+            "driver_status": driver_status_map,
+            "driver_finish_frames": driver_finish_frame,
         }, f, indent=2)
 
     print("Saved Successfully!")
@@ -326,4 +387,6 @@ def get_race_telemetry(session, session_type='R'):
         "frames": frames,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
+        "driver_status": driver_status_map,
+        "driver_finish_frames": driver_finish_frame,
     }
