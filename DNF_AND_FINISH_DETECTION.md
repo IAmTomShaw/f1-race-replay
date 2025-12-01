@@ -15,41 +15,41 @@ When building a frame-by-frame race replay system, we need to detect two critica
 
 ### Why Pure Distance Delta Detection Fails
 
-Initially, we tried using only distance telemetry to detect these events:
+Initially, I tried using only distance telemetry to detect these events:
 
 ```python
-# ❌ FLAWED APPROACH: Distance-only detection
+#  FLAWED APPROACH: Distance-only detection
 if all 10 recent distance values are the same:
     mark_driver_as_dnf()
 ```
 
 **Problems with this approach:**
-- ❌ **False positives during slow corners**: Cars naturally slow down at tight corners (e.g., Monaco hairpin)
-- ❌ **False positives during safety car periods**: All cars maintain constant low speeds
-- ❌ **False positives at race start**: Formation lap and slow race starts trigger premature finish flags
-- ❌ **False positives during pit stops**: Car stops moving briefly while being serviced
+- **False positives during slow corners**: Cars naturally slow down at tight corners (e.g., Monaco hairpin)
+- **False positives during safety car periods**: All cars maintain constant low speeds
+- **False positives at race start**: Formation lap and slow race starts trigger premature finish flags
+- **False positives during pit stops**: Car stops moving briefly while being serviced
 
 ### Why Pure API Data Fails
 
-Next, we tried using only FastF1's `session.results` API data:
+Next, I tried using only FastF1's `session.results` API data:
 
 ```python
-# ❌ FLAWED APPROACH: API-only detection
+#  FLAWED APPROACH: API-only detection
 if driver_result['ClassifiedPosition'] in ['R', 'D', 'E', 'W', 'N']:
     mark_driver_as_dnf()
 ```
 
 **Problems with this approach:**
-- ❌ **Poor timing accuracy**: API tells us a driver DNF'd on lap 23, but not the exact frame/second
-- ❌ **Misalignment with telemetry**: API lap numbers don't always sync with real-time telemetry lap counters
-- ❌ **Premature flag display**: Flags appear at the wrong moment, breaking immersion
-- ❌ **No real-time detection**: Can't show "live" updates as events unfold frame-by-frame
+- **Poor timing accuracy**: API tells us a driver DNF'd on lap 23, but not the exact frame/second
+- **Misalignment with telemetry**: API lap numbers don't always sync with real-time telemetry lap counters
+- **Premature flag display**: Flags appear at the wrong moment, breaking immersion
+- **No real-time detection**: Can't show "live" updates as events unfold frame-by-frame
 
 ---
 
 ## The Hybrid Solution
 
-Our system combines **API accuracy** with **distance delta timing** to eliminate false positives while maintaining frame-perfect detection.
+This system combines **API accuracy** with **distance delta timing** to eliminate false positives while maintaining frame-perfect detection.
 
 ### Architecture Diagram
 
@@ -105,10 +105,10 @@ if is_dnf_per_api and code not in self.driver_dnf_status:
 ```
 
 **Key Benefits:**
-- ✅ **No false positives**: Only drivers who actually DNF (per API) are monitored
-- ✅ **Frame-accurate timing**: Distance deltas pinpoint the exact frame when the car stopped
-- ✅ **Immune to slow corners**: Drivers not flagged as DNF by API never trigger false alerts
-- ✅ **Immune to safety cars**: Same principle - API filters who to watch
+- **No false positives**: Only drivers who actually DNF (per API) are monitored
+- **Frame-accurate timing**: Distance deltas pinpoint the exact frame when the car stopped
+- **Immune to slow corners**: Drivers not flagged as DNF by API never trigger false alerts
+- **Immune to safety cars**: Same principle - API filters who to watch
 
 #### 2. Race Finish Detection (Hybrid)
 
@@ -131,10 +131,10 @@ if leader_lap >= leader_final_laps:
 ```
 
 **Key Benefits:**
-- ✅ **No premature flags**: Only monitors for finish after API confirms correct lap
-- ✅ **Frame-accurate crossing**: Detects the exact frame when leader crosses the line
-- ✅ **Proper chequered flag timing**: Flags appear at the moment of crossing, not one lap early
-- ✅ **Prevents false positives at race start**: Won't trigger until leader reaches final lap
+- **No premature flags**: Only monitors for finish after API confirms correct lap
+- **Frame-accurate crossing**: Detects the exact frame when leader crosses the line
+- **Proper chequered flag timing**: Flags appear at the moment of crossing, not one lap early
+- **Prevents false positives at race start**: Won't trigger until leader reaches final lap
 
 ---
 
@@ -219,9 +219,9 @@ else:
 ```
 
 **Priority hierarchy:**
-1. ✅ Finished drivers show chequered flag (never overridden)
-2. ⚠️ DNF drivers show red "DNF" text
-3. 🏁 Racing drivers show tire compound icon
+1. Finished drivers show chequered flag 🏁 (never overridden)
+2. DNF drivers show red "DNF" text
+3. Racing drivers show tire compound icon
 
 ---
 
@@ -234,28 +234,10 @@ else:
 - **DNF detection**: O(1) for distance comparison (fixed 10 values)
 - **Memory usage**: ~200 bytes per driver for distance cache
 
-### Data Loading Strategy
 
-```python
-# First run: Compute and cache to JSON
-python main.py --year 2025 --round 12
-
-# Subsequent runs: Load from cache (instant)
-python main.py --year 2025 --round 12
-
-# Force refresh API data
-python main.py --year 2025 --round 12 --refresh-data
-```
-
-**Pre-computation benefits:**
-- ✅ FastF1 API data fetched once and cached
-- ✅ Driver status map saved in JSON
-- ✅ Replay starts instantly on subsequent runs
-- ✅ No network requests during playback
 
 ---
 
-## Accuracy Guarantees
 
 ### DNF Detection Accuracy
 
@@ -269,19 +251,7 @@ python main.py --year 2025 --round 12 --refresh-data
 | **False positive rate** | **~15-25%** | **0%** | **0%** |
 | **Timing accuracy** | **±0.04s** | **±2-5s** | **±0.04s** |
 
-### Race Finish Detection Accuracy
 
-| Scenario | Pure Distance | Pure API | Hybrid |
-|----------|---------------|----------|--------|
-| Leader crosses finish line (final lap) | ✅ Detected | ✅ Detected | ✅ Detected |
-| Leader slows before final lap | ❌ False positive | ✅ Ignored | ✅ Ignored |
-| Safety car finish | ❌ False positive | ✅ Detected | ✅ Detected |
-| Red flag finish | ❌ Missed | ✅ Detected | ✅ Detected |
-| Flag appears one lap early | ❌ Common issue | ❌ Possible | ✅ Prevented |
-| **False positive rate** | **~10-20%** | **0%** | **0%** |
-| **Timing accuracy** | **±0.04s** | **±5-10s** | **±0.04s** |
-
----
 
 ## Code Files Modified
 
@@ -369,10 +339,10 @@ def on_update(self, delta_time):
 
 ### Test Cases Verified
 
-1. ✅ **2024 Australian GP**: Multiple DNFs (SAI - engine, ALB - collision) detected accurately
-2. ✅ **2024 Monaco GP**: No false positives during slow corner sections
-3. ✅ **2024 Italian GP**: Safety car finish handled correctly
-4. ✅ **2025 Hungarian GP**: Chequered flags appear at correct frame (not one lap early)
+1. **2024 Australian GP**: Multiple DNFs (SAI - engine, ALB - collision) detected accurately.
+2. **2024 Monaco GP**: No false positives during slow corner sections
+3. **2024 Italian GP**: Safety car finish handled correctly
+4. **2025 Australian GP**:  No time or position penalties were given so the final leaderboard is accurate
 
 ### Manual Verification Steps
 
@@ -384,42 +354,6 @@ def on_update(self, delta_time):
 
 ---
 
-## Future Enhancements
-
-### Possible Improvements
-
-1. **Configurable detection threshold**: Allow users to adjust the 1.0m distance threshold
-2. **Animated transitions**: Fade-in effects when DNF/finish flags appear
-3. **Audio cues**: Sound effects when drivers DNF or finish
-4. **Detailed DNF reasons**: Show specific failure (e.g., "Gearbox", "Collision") from API
-5. **Replay controls**: Pause/rewind to review DNF moments
-
-### Scalability Considerations
-
-- System tested with 20 drivers (F1 grid size)
-- Distance cache memory usage: ~4KB total for full grid
-- Frame rate maintained at 60+ FPS during testing
-- Scales linearly with number of drivers: O(n)
-
----
-
-## Conclusion
-
-The **hybrid detection system** achieves the best of both worlds:
-
-| Metric | Result |
-|--------|--------|
-| **False positive rate** | 0% (eliminated) |
-| **Timing accuracy** | ±0.04s (frame-perfect at 25 FPS) |
-| **API reliability** | 100% (ground truth data) |
-| **Computational overhead** | O(n) per frame |
-| **Memory footprint** | ~200 bytes per driver |
-
-By combining FastF1's authoritative race outcome data with real-time distance telemetry, we eliminate false positives from slow corners, safety cars, and race starts while maintaining frame-accurate detection timing.
-
-**Key Innovation**: API data answers "WHO", distance deltas answer "WHEN" — together they provide both **accuracy** and **precision**.
-
----
 
 ## References
 
@@ -430,4 +364,4 @@ By combining FastF1's authoritative race outcome data with real-time distance te
 ---
 
 *Last Updated: December 2025*
-*Author: F1 Race Replay Development Team*
+*Author:   Ajibola Ganiyu*
