@@ -7,7 +7,7 @@ import threading
 from functools import partial
 from src.f1_data import FPS, load_race_session, get_race_telemetry
 
-SCREEN_WIDTH = 1200
+SCREEN_WIDTH = 1400
 SCREEN_HEIGHT = 900
 SCREEN_TITLE = "F1 Replay - Visual Dashboard"
 
@@ -88,12 +88,34 @@ class F1ReplayWindow(arcade.Window):
 
     def _load_textures(self):
         tyres_folder = os.path.join("images", "tyres")
+
+        # [핵심] 파일명(0.0)을 우리가 쓸 이름(soft)으로 연결해주는 족보
+        # 님 파일명에 맞춰서 0.0 -> soft 로 연결했습니다.
+        name_mapping = {
+            '0.0': 'soft', '0': 'soft',
+            '1.0': 'medium', '1': 'medium',
+            '2.0': 'hard', '2': 'hard',
+            '3.0': 'intermediate', '3': 'intermediate',
+            '4.0': 'wet', '4': 'wet'
+        }
+
+        self._tyre_textures = {}  # 초기화
+
         if os.path.exists(tyres_folder):
             for filename in os.listdir(tyres_folder):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-                    name = os.path.splitext(filename)[0]
+                    # 파일명에서 확장자 떼고 이름만 가져옴 (예: "0.0")
+                    raw_name = os.path.splitext(filename)[0].lower()
+
+                    # 족보에 있으면 그 이름으로, 없으면 원래 이름대로 저장
+                    key = name_mapping.get(raw_name, raw_name)
+
                     path = os.path.join(tyres_folder, filename)
-                    self._tyre_textures[name] = arcade.load_texture(path)
+                    try:
+                        self._tyre_textures[key] = arcade.load_texture(path)
+                        print(f"  > Loaded tyre: {filename} as '{key}'")  # 로딩 확인용
+                    except Exception as e:
+                        print(f"Error loading {filename}: {e}")
 
         bg_path = os.path.join("resources", "background.png")
         if os.path.exists(bg_path):
@@ -480,17 +502,18 @@ class F1ReplayWindow(arcade.Window):
 
         MARGIN = 20
 
-        # 1. 레이스 컨트롤 (우측 최상단)
+        # 1. 레이스 컨트롤
         rc_w = 300
         rc_h = 100
         rc_x_center = self.width - MARGIN - (rc_w / 2)
         rc_y_center = self.height - MARGIN - (rc_h / 2)
 
         rc_rect = arcade.XYWH(rc_x_center, rc_y_center, rc_w, rc_h)
-        arcade.draw_rect_filled(rc_rect, (0,0,0,180))
+        arcade.draw_rect_filled(rc_rect, (0, 0, 0, 180))
         arcade.draw_rect_outline(rc_rect, arcade.color.WHITE, 1)
 
-        arcade.Text("Race Control", rc_x_center, rc_y_center + rc_h/2 - 10, arcade.color.ORANGE, 12, bold=True, anchor_x="center", anchor_y="top").draw()
+        arcade.Text("Race Control", rc_x_center, rc_y_center + rc_h / 2 - 10, arcade.color.ORANGE, 12, bold=True,
+                    anchor_x="center", anchor_y="top").draw()
 
         rc_msgs = [m for m in self.race_control_messages if m['time'] <= current_time]
         rc_msgs.sort(key=lambda x: x['time'], reverse=True)
@@ -500,9 +523,10 @@ class F1ReplayWindow(arcade.Window):
             y_offset = (i * 25) + 30
             msg_text = msg['message']
             if len(msg_text) > 40: msg_text = msg_text[:37] + "..."
-            arcade.Text(msg_text, rc_x_center, rc_y_center + rc_h/2 - y_offset, arcade.color.WHITE, 10, anchor_x="center", anchor_y="top").draw()
+            arcade.Text(msg_text, rc_x_center, rc_y_center + rc_h / 2 - y_offset, arcade.color.WHITE, 10,
+                        anchor_x="center", anchor_y="top").draw()
 
-        # 2. 리더보드 (우측, 레이스 컨트롤 아래)
+        # 2. 리더보드
         rc_bottom = rc_y_center - (rc_h / 2)
         leaderboard_y_start = rc_bottom - MARGIN
         leaderboard_w = 300
@@ -517,64 +541,128 @@ class F1ReplayWindow(arcade.Window):
 
         driver_list.sort(key=lambda x: x[2].get("dist", -1), reverse=True)
 
+        leader_data = driver_list[0][2]
+        leader_lap = leader_data.get("lap", 0)
+
         for i, (code, color, pos) in enumerate(driver_list):
             y_pos = leaderboard_y_start - 30 - (i * 25)
+
+            # [추가] 상태 확인
+            is_out = pos.get("is_out", False)
+
+            # 1. 순위 및 이름 그리기
             text = f"{i + 1}. {code}"
-            if pos.get("rel_dist", 0) == 1: text += " OUT"
 
-            if self.selected_driver == code:
-                arcade.Text(text, leaderboard_x, y_pos, arcade.color.YELLOW, 16, anchor_y="top", bold=True).draw()
+            # 리타이어면 "OUT" 붙이고 색상 어둡게
+            if is_out:
+                text += " OUT"
+                text_color = arcade.color.DARK_GRAY
+            elif self.selected_driver == code:
+                text_color = arcade.color.YELLOW
             else:
-                arcade.Text(text, leaderboard_x, y_pos, color, 16, anchor_y="top").draw()
+                text_color = color
 
-            gap_val = pos.get('gap', 0)
-            if i > 0 and gap_val > 0:
-                gap_text = f"+{gap_val:.1f}s"
-                arcade.Text(gap_text, leaderboard_x + 160, y_pos, arcade.color.LIGHT_GRAY, 12, anchor_x="right", anchor_y="top").draw()
+            arcade.Text(text, leaderboard_x, y_pos, text_color, 16, anchor_y="top",
+                        bold=(self.selected_driver == code)).draw()
 
-            tyre = str(pos.get("tyre", "")).upper()
-            tyre_life = pos.get("tyre_life", 0)
+            # [핵심 변경] 리타이어(OUT)가 아닐 때만 나머지 정보 표시
+            if not is_out:
 
-            icon_x = self.width - 30
-            if tyre in self._tyre_textures:
-                rect = arcade.XYWH(icon_x, y_pos - 12, 16, 16)
-                arcade.draw_texture_rect(self._tyre_textures[tyre], rect)
+                # 2. 갭 정보 (Interval)
+                if i > 0:
+                    interval_val = pos.get('interval', 0)
+                    gap_text = ""
+                    if interval_val > 0:
+                        gap_text = f"+{interval_val:.1f}s"
 
-            arcade.Text(f"{tyre_life}L", icon_x - 15, y_pos - 12, arcade.color.LIGHT_GRAY, 10, anchor_x="right", anchor_y="center").draw()
+                    my_lap = pos.get("lap", 0)
+                    lap_diff = leader_lap - my_lap
 
-        # 3. 드라이버 정보 패널 (좌측 중단)
+                    if lap_diff > 0:
+                        gap_text += f" (+{lap_diff}L)"
+
+                    arcade.Text(gap_text, leaderboard_x + 160, y_pos,
+                                arcade.color.LIGHT_GRAY, 12, anchor_x="right", anchor_y="top").draw()
+
+                # 3. 타이어 정보 (기존 코드 그대로, 들여쓰기만 주의!)
+                tyre_code = pos.get("tyre", 0)
+                tyre_life = pos.get("tyre_life", 0)
+                icon_x = self.width - 30
+
+                # 정수/문자열 코드를 텍스처 키(이름)로 변환
+                key_map = {0: 'soft', 1: 'medium', 2: 'hard', 3: 'intermediate', 4: 'wet'}
+
+                t_str = str(tyre_code).lower()
+                if 'soft' in t_str:
+                    texture_key = 'soft'
+                elif 'medium' in t_str:
+                    texture_key = 'medium'
+                elif 'hard' in t_str:
+                    texture_key = 'hard'
+                elif 'inter' in t_str:
+                    texture_key = 'intermediate'
+                elif 'wet' in t_str:
+                    texture_key = 'wet'
+                else:
+                    texture_key = key_map.get(tyre_code, 'soft')
+
+                drawn = False
+                # (A) 이미지 그리기: 사용자 버전 호환 (rect 객체 생성)
+                if texture_key in self._tyre_textures:
+                    # [수정됨] XYWH 객체를 만들어서 draw_texture_rect에 전달
+                    # 텍스처, 사각형 객체 순서
+                    rect = arcade.XYWH(icon_x, y_pos - 12, 16, 16)
+                    arcade.draw_texture_rect(self._tyre_textures[texture_key], rect)
+                    drawn = True
+
+                # (B) 이미지 없으면 색깔 원 그리기 (비상용)
+                if not drawn:
+                    fallback_colors = {
+                        'soft': arcade.color.RED,
+                        'medium': arcade.color.YELLOW,
+                        'hard': arcade.color.WHITE,
+                        'intermediate': arcade.color.GREEN,
+                        'wet': arcade.color.BLUE
+                    }
+                    color = fallback_colors.get(texture_key, arcade.color.GRAY)
+                    arcade.draw_circle_filled(icon_x, y_pos - 6, 6, color)
+                    arcade.draw_circle_outline(icon_x, y_pos - 6, 6, arcade.color.BLACK, 1)
+
+                arcade.Text(f"{tyre_life}L", icon_x - 15, y_pos - 12, arcade.color.LIGHT_GRAY, 10, anchor_x="right",
+                            anchor_y="center").draw()
+
+        # 3. 드라이버 정보 패널
         if self.selected_driver and self.selected_driver in frame["drivers"]:
             team_color = self.driver_colors.get(self.selected_driver, arcade.color.GRAY)
-
             d_data = frame["drivers"][self.selected_driver]
 
             panel_w = 220
             panel_h = 160
             panel_x = MARGIN + (panel_w / 2)
             panel_y = self.height / 2
-
-            center_x = panel_x
-            center_y = panel_y
+            center_x, center_y = panel_x, panel_y
 
             full_rect = arcade.XYWH(center_x, center_y, panel_w, panel_h)
             arcade.draw_rect_outline(full_rect, team_color, 1)
 
             header_h = 30
-            header_rect = arcade.XYWH(center_x, center_y + (panel_h/2) - (header_h/2), panel_w, header_h)
+            header_rect = arcade.XYWH(center_x, center_y + (panel_h / 2) - (header_h / 2), panel_w, header_h)
             arcade.draw_rect_filled(header_rect, team_color)
 
-            arcade.Text(f"Driver: {self.selected_driver}", center_x - (panel_w/2) + 10, center_y + (panel_h/2) - 22,
+            arcade.Text(f"Driver: {self.selected_driver}", center_x - (panel_w / 2) + 10, center_y + (panel_h / 2) - 22,
                         arcade.color.BLACK, 14, bold=True).draw()
 
             body_h = panel_h - header_h
-            body_rect = arcade.XYWH(center_x, center_y - (header_h/2), panel_w, body_h)
+            body_rect = arcade.XYWH(center_x, center_y - (header_h / 2), panel_w, body_h)
             arcade.draw_rect_filled(body_rect, (0, 0, 0, 200))
 
-            info_y_start = center_y + (panel_h/2) - header_h - 20
-            left_align = center_x - (panel_w/2) + 10
+            info_y_start = center_y + (panel_h / 2) - header_h - 20
+            left_align = center_x - (panel_w / 2) + 10
 
-            arcade.Text(f"Speed: {d_data.get('speed', 0):.0f} km/h", left_align, info_y_start, arcade.color.WHITE, 12).draw()
-            arcade.Text(f"Gear: {d_data.get('gear', '-')}", left_align, info_y_start - 20, arcade.color.WHITE, 12).draw()
+            arcade.Text(f"Speed: {d_data.get('speed', 0):.0f} km/h", left_align, info_y_start, arcade.color.WHITE,
+                        12).draw()
+            arcade.Text(f"Gear: {d_data.get('gear', '-')}", left_align, info_y_start - 20, arcade.color.WHITE,
+                        12).draw()
 
             drs_on = d_data.get('drs', 0)
             if drs_on in [10, 12, 14]:
@@ -590,20 +678,24 @@ class F1ReplayWindow(arcade.Window):
             bar_h_rect = 8
 
             arcade.Text("THR", left_align, bar_y, arcade.color.WHITE, 10).draw()
-            arcade.draw_rect_filled(arcade.XYWH(left_align + 80, bar_y+5, bar_w_max, bar_h_rect), arcade.color.DARK_GRAY)
+            arcade.draw_rect_filled(arcade.XYWH(left_align + 80, bar_y + 5, bar_w_max, bar_h_rect),
+                                    arcade.color.DARK_GRAY)
             th_w = (throttle_val / 100) * bar_w_max
-            arcade.draw_rect_filled(arcade.XYWH(left_align + 30 + (th_w/2), bar_y+5, th_w, bar_h_rect), arcade.color.GREEN)
+            arcade.draw_rect_filled(arcade.XYWH(left_align + 30 + (th_w / 2), bar_y + 5, th_w, bar_h_rect),
+                                    arcade.color.GREEN)
 
             arcade.Text("BRK", left_align, bar_y - 20, arcade.color.WHITE, 10).draw()
-            arcade.draw_rect_filled(arcade.XYWH(left_align + 80, bar_y - 15, bar_w_max, bar_h_rect), arcade.color.DARK_GRAY)
+            arcade.draw_rect_filled(arcade.XYWH(left_align + 80, bar_y - 15, bar_w_max, bar_h_rect),
+                                    arcade.color.DARK_GRAY)
             br_w = brake_val * bar_w_max
             if brake_val > 0:
-                arcade.draw_rect_filled(arcade.XYWH(left_align + 30 + (br_w/2), bar_y - 15, br_w, bar_h_rect), arcade.color.RED)
+                arcade.draw_rect_filled(arcade.XYWH(left_align + 30 + (br_w / 2), bar_y - 15, br_w, bar_h_rect),
+                                        arcade.color.RED)
 
         # 4. HUD
         hud_y_start = self.height - 80
-
-        leader_code = max(frame["drivers"], key=lambda c: (frame["drivers"][c].get("lap", 1), frame["drivers"][c].get("dist", 0)))
+        leader_code = max(frame["drivers"],
+                          key=lambda c: (frame["drivers"][c].get("lap", 1), frame["drivers"][c].get("dist", 0)))
         leader_lap = frame["drivers"][leader_code].get("lap", 1)
 
         t = frame["t"]
