@@ -1,4 +1,4 @@
-from src.f1_data import get_race_telemetry, load_race_session, enable_cache, get_circuit_rotation
+from src.f1_data import get_race_telemetry, load_race_session, enable_cache, get_circuit_rotation,download_driver_headshots_img
 from src.arcade_replay import run_arcade_replay
 import sys
 
@@ -19,6 +19,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
   example_lap = session.laps.pick_fastest().get_telemetry()
 
   drivers = session.drivers
+  download_driver_headshots_img(session,drivers)
 
   # Get circuit rotation
 

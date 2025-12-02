@@ -55,6 +55,7 @@ class F1ReplayWindow(arcade.Window):
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
         self._tyre_textures = {}
+        self._driver_textures = {}
         self.total_laps = total_laps
 
         # Rotation (degrees) to apply to the whole circuit around its centre
@@ -74,6 +75,15 @@ class F1ReplayWindow(arcade.Window):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(tyres_folder, filename)
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
+
+        # Import the tyre textures from the images/drivers folder (all files)
+        drivers_folder = os.path.join("images", "drivers")
+        if os.path.exists(drivers_folder):
+            for filename in os.listdir(drivers_folder):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    texture_name = os.path.splitext(filename)[0]
+                    texture_path = os.path.join(drivers_folder, filename)
+                    self._driver_textures[texture_name] = arcade.load_texture(texture_path)
 
         # Build track geometry (Raw World Coordinates)
         (self.plot_x_ref, self.plot_y_ref,
@@ -496,6 +506,23 @@ class F1ReplayWindow(arcade.Window):
                 name_rect,
                 driver_color
             )
+
+            driver_texture = self._driver_textures.get(self.selected_driver)
+            if driver_texture:
+                img_size = 130
+                img_rect = arcade.XYWH(
+                    info_x + box_width/1.3,
+                    info_y + box_height - 220,
+                    img_size,
+                    img_size
+                )
+                arcade.draw_texture_rect(
+                    rect=img_rect,
+                    texture= driver_texture,
+                    angle=0,
+                    alpha=255
+                )
+
             arcade.Text(
                 f"Driver: {self.selected_driver}",
                 info_x + 10,
