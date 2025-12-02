@@ -1,6 +1,5 @@
 import os
 import fastf1
-import fastf1.plotting
 import numpy as np
 import json
 from datetime import timedelta
@@ -18,40 +17,99 @@ def enable_cache():
 FPS = 25
 DT = 1 / FPS
 
-def load_race_session(year, round_number, session_type='R'):
-    # session_type: 'R' (Race), 'S' (Sprint) etc.
-    session = fastf1.get_session(year, round_number, session_type)
+def load_race_session(year, round_number):
+    session = fastf1.get_session(year, round_number, 'R')
     session.load(telemetry=True)
     return session
 
 
 def get_driver_colors(session):
-    color_mapping = fastf1.plotting.get_driver_color_mapping(session)
-    
-    # Convert hex colors to RGB tuples
-    rgb_colors = {}
-    for driver, hex_color in color_mapping.items():
-        hex_color = hex_color.lstrip('#')
-        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-        rgb_colors[driver] = rgb
-    return rgb_colors
+    """
+    Get driver colors with fallback if matplotlib/plotting import fails.
+    """
+    # Try to use fastf1.plotting if available
+    try:
+        import fastf1.plotting
+        color_mapping = fastf1.plotting.get_driver_color_mapping(session)
+        
+        # Convert hex colors to RGB tuples
+        rgb_colors = {}
+        for driver, hex_color in color_mapping.items():
+            hex_color = hex_color.lstrip('#')
+            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            rgb_colors[driver] = rgb
+        return rgb_colors
+    except (ImportError, AttributeError):
+        # Fallback: Get colors from team data if plotting fails
+        print("Warning: Could not import fastf1.plotting, using fallback color scheme.")
+        rgb_colors = {}
+        
+        # Default color palette for F1 teams (fallback)
+        default_colors = [
+            (220, 20, 60),    # Red (Ferrari-like)
+            (0, 210, 190),    # Cyan (Aston Martin-like)
+            (255, 135, 0),    # Orange (McLaren-like)
+            (0, 111, 98),     # Dark Teal (Mercedes-like)
+            (237, 28, 36),    # Bright Red
+            (6, 0, 239),      # Blue
+            (255, 245, 0),    # Yellow
+            (255, 255, 255),  # White
+            (150, 150, 150),  # Gray
+            (50, 50, 50),     # Dark Gray
+            (255, 0, 255),    # Magenta
+            (0, 255, 0),      # Green
+            (255, 165, 0),    # Orange
+            (0, 0, 255),      # Blue
+            (128, 0, 128),    # Purple
+            (255, 192, 203),  # Pink
+            (0, 255, 255),    # Cyan
+            (128, 128, 0),    # Olive
+            (255, 0, 0),      # Red
+            (0, 128, 0),      # Dark Green
+        ]
+        
+        # Try to get driver codes from session
+        drivers = session.drivers
+        for idx, driver_no in enumerate(sorted(drivers)):
+            try:
+                driver_info = session.get_driver(driver_no)
+                code = driver_info["Abbreviation"]
+                # Use team name to get a more appropriate color if available
+                if "TeamName" in driver_info:
+                    team = driver_info["TeamName"].upper()
+                    # Simple color mapping based on team names
+                    if "FERRARI" in team:
+                        rgb_colors[code] = (220, 20, 60)
+                    elif "MERCEDES" in team:
+                        rgb_colors[code] = (0, 111, 98)
+                    elif "RED BULL" in team or "REDBULL" in team:
+                        rgb_colors[code] = (6, 0, 239)
+                    elif "MCLAREN" in team:
+                        rgb_colors[code] = (255, 135, 0)
+                    elif "ASTON" in team:
+                        rgb_colors[code] = (0, 210, 190)
+                    else:
+                        rgb_colors[code] = default_colors[idx % len(default_colors)]
+                else:
+                    rgb_colors[code] = default_colors[idx % len(default_colors)]
+            except (KeyError, AttributeError, TypeError):
+                # If we can't get driver info, skip this driver
+                pass
+        
+        return rgb_colors
 
-def get_circuit_rotation(session):
-    circuit = session.get_circuit_info()
-    return circuit.rotation
 
-def get_race_telemetry(session, session_type='R'):
+def get_race_telemetry(session):
 
     event_name = str(session).replace(' ', '_')
-    cache_suffix = 'sprint' if session_type == 'S' else 'race'
 
     # Check if this data has already been computed
 
     try:
         if "--refresh-data" not in os.sys.argv:
-            with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.json", "r") as f:
+            with open(f"computed_data/{event_name}_race_telemetry.json", "r") as f:
                 frames = json.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
+                print("Loaded precomputed race telemetry data.")
                 print("The replay should begin in a new window shortly!")
                 return frames
     except FileNotFoundError:
@@ -70,7 +128,6 @@ def get_race_telemetry(session, session_type='R'):
     global_t_min = None
     global_t_max = None
     
-    max_lap_number = 0
 
     # 1. Get all of the drivers telemetry data
     for driver_no in drivers:
@@ -81,9 +138,6 @@ def get_race_telemetry(session, session_type='R'):
         laps_driver = session.laps.pick_drivers(driver_no)
         if laps_driver.empty:
             continue
-
-        if not laps_driver.empty:
-            max_lap_number = max(max_lap_number, laps_driver.LapNumber.max())
 
         t_all = []
         x_all = []
@@ -117,8 +171,14 @@ def get_race_telemetry(session, session_type='R'):
             gear_lap = lap_tel["nGear"].to_numpy()
             drs_lap = lap_tel["DRS"].to_numpy()
 
+            # normalise lap distance to start at 0
+            d_lap = d_lap - d_lap.min()
+            lap_length = d_lap.max()  # approx. circuit length for this lap
+
             # race distance = distance before this lap + distance within this lap
             race_d_lap = total_dist_so_far + d_lap
+
+            total_dist_so_far += lap_length
 
             t_all.append(t_lap)
             x_all.append(x_lap)
@@ -281,8 +341,6 @@ def get_race_telemetry(session, session_type='R'):
         leader = snapshot[0]
         leader_lap = leader["lap"]
 
-        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
-
         # 5c. Compute gap to car in front in SECONDS
         frame_data = {}
 
@@ -296,7 +354,7 @@ def get_race_telemetry(session, session_type='R'):
                 "y": car["y"],
                 "dist": car["dist"],    
                 "lap": car["lap"],
-                "rel_dist": round(car["rel_dist"], 4),
+                "rel_dist": round(car["rel_dist"], 6),
                 "tyre": car["tyre"],
                 "position": position,
                 "speed": car['speed'],
@@ -316,12 +374,11 @@ def get_race_telemetry(session, session_type='R'):
         os.makedirs("computed_data")
 
     # Save to file
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.json", "w") as f:
+    with open(f"computed_data/{event_name}_race_telemetry.json", "w") as f:
         json.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
-            "total_laps": int(max_lap_number),
         }, f, indent=2)
 
     print("Saved Successfully!")
@@ -330,5 +387,4 @@ def get_race_telemetry(session, session_type='R'):
         "frames": frames,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
-        "total_laps": int(max_lap_number),
     }
