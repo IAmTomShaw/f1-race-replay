@@ -42,7 +42,7 @@ def build_track_from_example_lap(example_lap, track_width=200):
 class F1ReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, driver_teams=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -57,6 +57,7 @@ class F1ReplayWindow(arcade.Window):
         self._tyre_textures = {}
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
+        self.driver_teams = driver_teams or {}
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -528,6 +529,7 @@ class F1ReplayWindow(arcade.Window):
             driver_pos = frame["drivers"][self.selected_driver]
 
             driver_color = self.driver_colors.get(self.selected_driver, arcade.color.GRAY)
+            driver_team = self.driver_teams.get(self.selected_driver, "Unknown Team")
 
             info_x = 20
             default_info_y = self.height / 2 + 100
@@ -576,6 +578,8 @@ class F1ReplayWindow(arcade.Window):
                 anchor_x="left", anchor_y="center"
             ).draw()
 
+            team_text = f"Team: {driver_team}"
+
             # Driver Stats from Telemetry
             speed_text = f"Speed: {driver_pos.get('speed', 0):.1f} km/h"
             gear_text = f"Gear: {driver_pos.get('gear', 0)}"
@@ -594,7 +598,7 @@ class F1ReplayWindow(arcade.Window):
             current_lap = driver_pos.get("lap", 1)
 
             lap_time_text = f"Current Lap: {current_lap}"
-            stats_lines = [speed_text, gear_text, drs_active_text, lap_time_text]
+            stats_lines = [speed_text, gear_text, drs_active_text, lap_time_text, team_text] 
             for i, line in enumerate(stats_lines):
                 arcade.Text(
                     line,
@@ -650,7 +654,8 @@ class F1ReplayWindow(arcade.Window):
             self.selected_driver = new_selection
 
 def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
-                      playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, total_laps=None):
+                      playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
+                      total_laps=None, driver_teams=None):
     window = F1ReplayWindow(
         frames=frames,
         track_statuses=track_statuses,
@@ -661,5 +666,6 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
         title=title,
         total_laps=total_laps,
         circuit_rotation=circuit_rotation,
+        driver_teams=driver_teams
     )
     arcade.run()

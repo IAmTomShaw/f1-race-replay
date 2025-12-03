@@ -36,6 +36,15 @@ def get_driver_colors(session):
         rgb_colors[driver] = rgb
     return rgb_colors
 
+def get_driver_teams(session):
+    team_mapping = {}
+    for driver_i in session.drivers:
+        driver = session.get_driver(driver_i)
+        driver_abbre = driver["Abbreviation"]
+        team_name = driver["TeamName"]
+        team_mapping[driver_abbre] = team_name
+    return team_mapping
+
 def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
@@ -372,6 +381,8 @@ def get_race_telemetry(session, session_type='R'):
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
 
+    driver_teams = get_driver_teams(session)
+
     # Save to file
     with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.json", "w") as f:
         json.dump({
@@ -379,6 +390,7 @@ def get_race_telemetry(session, session_type='R'):
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
             "total_laps": int(max_lap_number),
+            "driver_teams": driver_teams,
         }, f, indent=2)
 
     print("Saved Successfully!")
@@ -388,4 +400,5 @@ def get_race_telemetry(session, session_type='R'):
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
+        "driver_teams": driver_teams,
     }
