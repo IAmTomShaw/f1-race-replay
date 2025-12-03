@@ -4,8 +4,10 @@ import arcade.gui
 import numpy as np
 import fastf1
 import threading
+from PIL import Image, ImageOps
 from functools import partial
 from src.f1_data import FPS, load_race_session, get_race_telemetry
+from src.wiki_utils import fetch_circuit_image
 
 SCREEN_WIDTH = 1400
 SCREEN_HEIGHT = 900
@@ -176,6 +178,7 @@ class F1ReplayWindow(arcade.Window):
         self.grid_container.clear()
 
         try:
+            # 1. 데이터 가져오기
             if self.selected_year in self.schedule_cache:
                 schedule = self.schedule_cache[self.selected_year]
             else:
@@ -193,6 +196,27 @@ class F1ReplayWindow(arcade.Window):
             events = events[:24]
             num_rows = (len(events) + max_cols - 1) // max_cols
 
+            # 버튼 크기
+            BTN_W, BTN_H = 180, 120
+
+            # [기본 텍스처] 회색 박스
+            default_tex = arcade.make_soft_square_texture(BTN_W, arcade.color.SLATE_GRAY, outer_alpha=255)
+
+            # [스타일 정의]
+            # 처음에는 모든 상태에서 글자가 보여야 합니다. (이미지 로딩 전까지)
+            style_visible = {
+                "font_size": 10,
+                "font_color": arcade.color.WHITE,
+                "font_name": ("Arial", "Calibri")
+            }
+
+            # 나중에 이미지가 로드되면 적용할 '투명 텍스트' 스타일
+            style_invisible = {
+                "font_size": 10,
+                "font_color": (0, 0, 0, 0),
+                "font_name": ("Arial", "Calibri")
+            }
+
             for r in range(num_rows):
                 row_box = arcade.gui.UIBoxLayout(vertical=False, space_between=10)
                 row_events = events[r * max_cols: (r + 1) * max_cols]
@@ -200,19 +224,90 @@ class F1ReplayWindow(arcade.Window):
                 for event in row_events:
                     round_num = event['RoundNumber']
                     country = event['Country']
+                    event_name = event['EventName']
+
                     btn_text = f"R{round_num} {country}"
 
-                    btn = arcade.gui.UIFlatButton(text=btn_text, width=140, height=70)
-                    btn.on_click = partial(self.on_gp_clicked, year=self.selected_year, round_num=round_num)
+                    # 버튼 생성 (초기 상태: 회색 배경 + 텍스트 보임)
+                    btn = arcade.gui.UITextureButton(
+                        texture=default_tex,
+                        texture_hovered=default_tex,
+                        texture_pressed=default_tex,
+                        text=btn_text,
+                        width=BTN_W,
+                        height=BTN_H
+                    )
 
+                    # 초기 스타일: 모든 상태에서 텍스트 보임
+                    btn.style = {
+                        "normal": style_visible,
+                        "hover": style_visible,
+                        "press": style_visible,
+                        "disabled": style_visible
+                    }
+
+                    btn.on_click = partial(self.on_gp_clicked, year=self.selected_year, round_num=round_num)
                     row_box.add(btn)
 
+                    # --- [이미지 처리 로직] ---
+                    def on_image_ready(path, button_ref=btn):
+                        try:
+                            # 1. PIL을 사용하여 이미지 합성 (회색 배경 + 서킷 투명 PNG)
+                            # ---------------------------------------------------------
+                            with Image.open(path) as circuit_img:
+                                # 서킷 이미지를 버튼 크기에 맞춰 리사이즈 (비율 유지 또는 꽉 차게)
+                                circuit_img = circuit_img.convert("RGBA")
+                                circuit_img.thumbnail((BTN_W - 10, BTN_H - 10))  # 여백을 조금 둠
+
+                                # 회색 배경 이미지 생성 (Arcade의 SLATE_GRAY와 유사한 색)
+                                bg_color = (112, 128, 144, 255)  # Slate Gray
+                                composite_img = Image.new("RGBA", (int(BTN_W), int(BTN_H)), bg_color)
+
+                                # 중앙 정렬하여 붙여넣기
+                                offset_x = (int(BTN_W) - circuit_img.width) // 2
+                                offset_y = (int(BTN_H) - circuit_img.height) // 2
+                                composite_img.alpha_composite(circuit_img, (offset_x, offset_y))
+
+                                # PIL 이미지를 Arcade 텍스처로 변환
+                                new_texture = arcade.Texture(
+                                    name=f"tex_{path}",
+                                    image=composite_img
+                                )
+
+                            # 2. 버튼 상태 업데이트
+                            # ---------------------------------------------------------
+                            # 호버/프레스 상태에만 합성된(회색+서킷) 이미지를 적용
+                            button_ref.texture_hovered = new_texture
+                            button_ref.texture_pressed = new_texture
+
+                            # 3. 스타일 업데이트 (이제 이미지가 있으니 호버 시 텍스트 숨김)
+                            # ---------------------------------------------------------
+                            # 기존 스타일 딕셔너리를 복사해서 hover/press만 수정
+                            current_style = button_ref.style.copy()
+                            current_style["hover"] = style_invisible
+                            current_style["press"] = style_invisible
+                            button_ref.style = current_style
+
+                            # 강제 렌더링 갱신 트리거 (필요 시)
+                            button_ref.trigger_render()
+
+                        except Exception as e:
+                            print(f"Texture composite error: {e}")
+
+                    t = threading.Thread(
+                        target=fetch_circuit_image,
+                        args=(self.selected_year, event_name, on_image_ready),
+                        daemon=True
+                    )
+                    t.start()
+
                 self.grid_container.add(row_box)
+                self.grid_container.add(arcade.gui.UILabel(text=" ", height=10))
 
         except Exception as e:
             print(f"Error fetching schedule: {e}")
-            error_label = arcade.gui.UILabel(text="Failed to load schedule.", text_color=arcade.color.RED)
-            self.grid_container.add(error_label)
+            import traceback
+            traceback.print_exc()
 
     def on_gp_clicked(self, event, year, round_num):
         print(f"Selected: {year} Round {round_num}")
@@ -333,7 +428,7 @@ class F1ReplayWindow(arcade.Window):
         if self.menu_mode or not self.is_loaded: return
 
         # 리더보드 클릭 감지
-        rc_h = 100
+        rc_h = 130
         rc_margin = 20
         top_margin = 20
 
@@ -502,29 +597,65 @@ class F1ReplayWindow(arcade.Window):
 
         MARGIN = 20
 
-        # 1. 레이스 컨트롤
-        rc_w = 300
-        rc_h = 100
+        # 1. 레이스 컨트롤 메세지
+        rc_w = 400  # 메시지가 길 수 있으니 폭을 넓힘
+        rc_h = 130
         rc_x_center = self.width - MARGIN - (rc_w / 2)
         rc_y_center = self.height - MARGIN - (rc_h / 2)
 
+        # 배경 박스
         rc_rect = arcade.XYWH(rc_x_center, rc_y_center, rc_w, rc_h)
         arcade.draw_rect_filled(rc_rect, (0, 0, 0, 180))
         arcade.draw_rect_outline(rc_rect, arcade.color.WHITE, 1)
 
-        arcade.Text("Race Control", rc_x_center, rc_y_center + rc_h / 2 - 10, arcade.color.ORANGE, 12, bold=True,
-                    anchor_x="center", anchor_y="top").draw()
+        arcade.Text("Race Control (Live Feed)", rc_x_center, rc_y_center + rc_h / 2 - 10,
+                    arcade.color.ORANGE, 12, bold=True, anchor_x="center", anchor_y="top").draw()
 
-        rc_msgs = [m for m in self.race_control_messages if m['time'] <= current_time]
-        rc_msgs.sort(key=lambda x: x['time'], reverse=True)
-        recent_rcs = rc_msgs[:3]
+        # [핵심 로직 변경]
 
-        for i, msg in enumerate(recent_rcs):
-            y_offset = (i * 25) + 30
-            msg_text = msg['message']
-            if len(msg_text) > 40: msg_text = msg_text[:37] + "..."
-            arcade.Text(msg_text, rc_x_center, rc_y_center + rc_h / 2 - y_offset, arcade.color.WHITE, 10,
-                        anchor_x="center", anchor_y="top").draw()
+        # 1. 현재 시간까지 발생한 메시지 가져오기
+        valid_msgs = [m for m in self.race_control_messages if m['time'] <= current_time]
+
+        # 2. 시간 순 정렬
+        valid_msgs.sort(key=lambda x: x['time'])
+
+        # 3. 가장 최근 5개만 가져오기
+        display_msgs = valid_msgs[-5:]
+
+        # 4. 그리기 (채팅창처럼 위에서 아래로)
+        start_y = rc_y_center + (rc_h / 2) - 35
+        line_height = 18
+
+        if not display_msgs:
+            arcade.Text("No messages", rc_x_center, rc_y_center, arcade.color.GRAY, 10, anchor_x="center").draw()
+
+        for i, msg in enumerate(display_msgs):
+            m_time = msg['time']
+
+            # [시간 포맷] 마이너스 시간은 'PRE'로 표시
+            if m_time < 0:
+                time_str = "[PRE]"
+            else:
+                time_str = f"[{int(m_time // 60):02}:{int(m_time % 60):02}]"
+
+            full_text = f"{time_str} {msg['message']}"
+            if len(full_text) > 55: full_text = full_text[:52] + "..."
+
+            # 중요 키워드 색상 강조
+            text_color = arcade.color.WHITE
+            upper_text = full_text.upper()
+            if 'YELLOW' in upper_text:
+                text_color = arcade.color.YELLOW
+            elif 'RED' in upper_text:
+                text_color = arcade.color.RED
+            elif 'SAFETY' in upper_text or 'VSC' in upper_text:
+                text_color = arcade.color.ORANGE
+            elif 'BLACK' in upper_text:
+                text_color = arcade.color.GRAY
+
+            draw_y = start_y - (i * line_height)
+            arcade.Text(full_text, rc_x_center - (rc_w / 2) + 10, draw_y,
+                        text_color, 11, anchor_x="left", anchor_y="top").draw()
 
         # 2. 리더보드
         rc_bottom = rc_y_center - (rc_h / 2)
@@ -549,21 +680,26 @@ class F1ReplayWindow(arcade.Window):
 
             # [추가] 상태 확인
             is_out = pos.get("is_out", False)
+            is_selected = (self.selected_driver == code)
 
-            # 1. 순위 및 이름 그리기
-            text = f"{i + 1}. {code}"
+            # [수정] 선택 시 색상 변경 대신 '> ' 화살표 추가
+            prefix = "> " if is_selected else ""
 
-            # 리타이어면 "OUT" 붙이고 색상 어둡게
+            # [수정] 리타이어여도 이름 옆에 (OUT) 표시 등은 제거하거나 유지 (여기선 이름만 표시)
+            text_str = f"{prefix}{i + 1}. {code}"
+
+            # 텍스트 객체 생성 (너비 계산 및 그리기용)
+            # 리타이어여도 색상은 팀 컬러 유지 (회색 처리 대신 취소선을 긋기 위함)
+            text_obj = arcade.Text(text_str, leaderboard_x, y_pos, color, 16, anchor_y="top",
+                                   bold=is_selected)
+            text_obj.draw()
+
+            # [수정] 리타이어(DNF) 시 취소선 긋기
             if is_out:
-                text += " OUT"
-                text_color = arcade.color.DARK_GRAY
-            elif self.selected_driver == code:
-                text_color = arcade.color.YELLOW
-            else:
-                text_color = color
-
-            arcade.Text(text, leaderboard_x, y_pos, text_color, 16, anchor_y="top",
-                        bold=(self.selected_driver == code)).draw()
+                line_y = y_pos - 10  # 텍스트 중간 높이
+                text_width = text_obj.content_width
+                # 텍스트 위에 선 그리기
+                arcade.draw_line(leaderboard_x, line_y, leaderboard_x + text_width, line_y, color, 2)
 
             # [핵심 변경] 리타이어(OUT)가 아닐 때만 나머지 정보 표시
             if not is_out:

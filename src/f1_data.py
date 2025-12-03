@@ -47,7 +47,7 @@ def get_driver_colors(session):
 def get_race_telemetry(session, progress_callback=None):
     event_name = f"{session.event.year}_{session.event.RoundNumber}_{session.event.EventName.replace(' ', '_')}"
     # 로직 최적화로 버전 업 (v7)
-    cache_file_path = os.path.join(PROCESSED_CACHE_DIR, f"{event_name}_v12.pkl")
+    cache_file_path = os.path.join(PROCESSED_CACHE_DIR, f"{event_name}_v14.pkl")
 
     # 캐시 확인
     if os.path.exists(cache_file_path):
@@ -270,17 +270,43 @@ def get_race_telemetry(session, progress_callback=None):
                 'end_time': None,
             })
 
+    # [수정] 레이스 컨트롤 메시지 처리 로직 강화
+    if progress_callback:
+        progress_callback(0.8, "Processing Race Control Messages...")
+
     race_control_messages = []
     if hasattr(session, 'race_control_messages') and session.race_control_messages is not None:
         rcm = session.race_control_messages
+
         for _, row in rcm.iterrows():
-            msg_time = (row['Time'].total_seconds() if isinstance(row['Time'], timedelta) else 0) - global_t_min
-            race_control_messages.append({
-                'time': msg_time,
-                'category': row['Category'],
-                'message': row['Message'],
-                'flag': row['Flag'] if 'Flag' in row else None
-            })
+            try:
+                # 1. 컬럼 찾기: 'SessionTime'이 있으면 그걸 쓰고, 없으면 'Time' 사용
+                val = row.get('SessionTime', row.get('Time'))
+
+                # 2. 값 유효성 체크 (NaT/NaN이면 스킵)
+                if pd.isna(val): continue
+
+                # 3. 초(Seconds) 단위로 변환
+                #    Timedelta 객체, 문자열, 혹은 이미 실수형인 경우 모두 처리
+                if isinstance(val, (int, float)):
+                    seconds = float(val)
+                else:
+                    # pandas의 to_timedelta로 강제 변환 후 초 추출
+                    seconds = pd.to_timedelta(val).total_seconds()
+
+                # 4. 경기 시간 보정
+                msg_time = seconds - global_t_min
+
+                race_control_messages.append({
+                    'time': msg_time,
+                    'category': str(row['Category']),
+                    'message': str(row['Message']),
+                    'flag': row['Flag'] if 'Flag' in row else None
+                })
+            except Exception as e:
+                # 에러가 나더라도 멈추지 않고 해당 메시지만 건너뜀
+                # print(f"Msg error: {e}")
+                pass
 
     frames = []
 
