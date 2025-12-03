@@ -597,63 +597,75 @@ class F1ReplayWindow(arcade.Window):
 
         MARGIN = 20
 
-        # 1. 레이스 컨트롤 메세지
-        rc_w = 400  # 메시지가 길 수 있으니 폭을 넓힘
+        rc_w = 400
         rc_h = 130
         rc_x_center = self.width - MARGIN - (rc_w / 2)
         rc_y_center = self.height - MARGIN - (rc_h / 2)
 
-        # 배경 박스
+        # 배경 박스 그리기
         rc_rect = arcade.XYWH(rc_x_center, rc_y_center, rc_w, rc_h)
-        arcade.draw_rect_filled(rc_rect, (0, 0, 0, 180))
-        arcade.draw_rect_outline(rc_rect, arcade.color.WHITE, 1)
+        arcade.draw_rect_filled(rc_rect, (0, 0, 0, 180))  # 반투명 검정 배경
+        arcade.draw_rect_outline(rc_rect, arcade.color.WHITE, 1)  # 흰색 테두리
 
-        arcade.Text("Race Control (Live Feed)", rc_x_center, rc_y_center + rc_h / 2 - 10,
+        # 헤더 텍스트
+        arcade.Text("Race Control (Latest First)", rc_x_center, rc_y_center + rc_h / 2 - 10,
                     arcade.color.ORANGE, 12, bold=True, anchor_x="center", anchor_y="top").draw()
 
         # [핵심 로직 변경]
 
-        # 1. 현재 시간까지 발생한 메시지 가져오기
+        # 1. 현재 시뮬레이션 시간(current_time) 이전에 발생한 메시지만 가져옵니다.
         valid_msgs = [m for m in self.race_control_messages if m['time'] <= current_time]
 
-        # 2. 시간 순 정렬
-        valid_msgs.sort(key=lambda x: x['time'])
+        # 2. [정렬 변경] 최신 메시지가 리스트의 앞에 오도록 '내림차순(Reverse)' 정렬합니다.
+        #    이렇게 해야 가장 최근 상황이 맨 윗줄에 표시됩니다.
+        valid_msgs.sort(key=lambda x: x['time'], reverse=True)
 
         # 3. 가장 최근 5개만 가져오기
-        display_msgs = valid_msgs[-5:]
+        display_msgs = valid_msgs[:5]
 
-        # 4. 그리기 (채팅창처럼 위에서 아래로)
-        start_y = rc_y_center + (rc_h / 2) - 35
-        line_height = 18
+        # 4. 텍스트 그리기 (위에서 아래로)
+        start_y = rc_y_center + (rc_h / 2) - 35  # 첫 번째 줄 Y좌표
+        line_height = 18  # 줄 간격
 
         if not display_msgs:
-            arcade.Text("No messages", rc_x_center, rc_y_center, arcade.color.GRAY, 10, anchor_x="center").draw()
+            arcade.Text("No messages yet", rc_x_center, rc_y_center, arcade.color.GRAY, 10, anchor_x="center").draw()
 
         for i, msg in enumerate(display_msgs):
             m_time = msg['time']
 
-            # [시간 포맷] 마이너스 시간은 'PRE'로 표시
+            # 시간 포맷팅 (MM:SS)
             if m_time < 0:
-                time_str = "[PRE]"
+                time_str = "PRE"
             else:
-                time_str = f"[{int(m_time // 60):02}:{int(m_time % 60):02}]"
+                time_str = f"{int(m_time // 60):02}:{int(m_time % 60):02}"
 
-            full_text = f"{time_str} {msg['message']}"
-            if len(full_text) > 55: full_text = full_text[:52] + "..."
+            full_text = f"[{time_str}] {msg['message']}"
 
-            # 중요 키워드 색상 강조
+            # 긴 텍스트 자르기 (UI 밖으로 나가는 것 방지)
+            if len(full_text) > 55:
+                full_text = full_text[:52] + "..."
+
+            # 키워드별 색상 강조
             text_color = arcade.color.WHITE
             upper_text = full_text.upper()
+
             if 'YELLOW' in upper_text:
                 text_color = arcade.color.YELLOW
             elif 'RED' in upper_text:
                 text_color = arcade.color.RED
             elif 'SAFETY' in upper_text or 'VSC' in upper_text:
                 text_color = arcade.color.ORANGE
-            elif 'BLACK' in upper_text:
-                text_color = arcade.color.GRAY
+            elif 'BLACK' in upper_text or 'PENALTY' in upper_text:
+                text_color = (255, 100, 100)  # 연한 빨강
+            elif 'GREEN' in upper_text:
+                text_color = arcade.color.GREEN
+            elif 'CLEAR' in upper_text:
+                text_color = arcade.color.LIGHT_BLUE
 
+            # i가 0일 때(가장 최신 메시지) 가장 위(start_y)에 그려집니다.
             draw_y = start_y - (i * line_height)
+
+            # 텍스트 출력
             arcade.Text(full_text, rc_x_center - (rc_w / 2) + 10, draw_y,
                         text_color, 11, anchor_x="left", anchor_y="top").draw()
 

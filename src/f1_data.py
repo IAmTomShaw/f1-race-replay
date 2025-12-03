@@ -270,43 +270,61 @@ def get_race_telemetry(session, progress_callback=None):
                 'end_time': None,
             })
 
-    # [수정] 레이스 컨트롤 메시지 처리 로직 강화
-    if progress_callback:
-        progress_callback(0.8, "Processing Race Control Messages...")
+        # [수정] 레이스 컨트롤 메시지 처리 로직 (t0_date를 이용한 완벽 동기화)
+        if progress_callback:
+            progress_callback(0.8, "Processing Race Control Messages...")
 
-    race_control_messages = []
-    if hasattr(session, 'race_control_messages') and session.race_control_messages is not None:
-        rcm = session.race_control_messages
+        race_control_messages = []
 
-        for _, row in rcm.iterrows():
-            try:
-                # 1. 컬럼 찾기: 'SessionTime'이 있으면 그걸 쓰고, 없으면 'Time' 사용
-                val = row.get('SessionTime', row.get('Time'))
+        # Session 객체에서 기준 시각(T0) 가져오기
+        # t0_date: SessionTime이 0초일 때의 실제 시각 (Timestamp)
+        t0_date = session.t0_date
 
-                # 2. 값 유효성 체크 (NaT/NaN이면 스킵)
-                if pd.isna(val): continue
+        if hasattr(session, 'race_control_messages') and session.race_control_messages is not None:
+            rcm = session.race_control_messages
 
-                # 3. 초(Seconds) 단위로 변환
-                #    Timedelta 객체, 문자열, 혹은 이미 실수형인 경우 모두 처리
-                if isinstance(val, (int, float)):
-                    seconds = float(val)
-                else:
-                    # pandas의 to_timedelta로 강제 변환 후 초 추출
-                    seconds = pd.to_timedelta(val).total_seconds()
+            # 1. 정렬: 시간 순서대로 처리하기 위해
+            if 'SessionTime' in rcm.columns:
+                rcm = rcm.sort_values(by='SessionTime')
+            elif 'Time' in rcm.columns:
+                rcm = rcm.sort_values(by='Time')
 
-                # 4. 경기 시간 보정
-                msg_time = seconds - global_t_min
+            for _, row in rcm.iterrows():
+                try:
+                    seconds = None
 
-                race_control_messages.append({
-                    'time': msg_time,
-                    'category': str(row['Category']),
-                    'message': str(row['Message']),
-                    'flag': row['Flag'] if 'Flag' in row else None
-                })
-            except Exception as e:
-                # 에러가 나더라도 멈추지 않고 해당 메시지만 건너뜀
-                # print(f"Msg error: {e}")
-                pass
+                    # Case A: 'SessionTime' (Timedelta)이 있는 경우 -> 가장 정확함
+                    val_session = row.get('SessionTime')
+                    if not pd.isna(val_session):
+                        seconds = pd.to_timedelta(val_session).total_seconds()
+
+                    # Case B: 'SessionTime'은 없고 'Time' (Timestamp)만 있는 경우
+                    # 현지 시각(Time) - 기준 시각(t0_date) = 경과 시간(SessionTime)
+                    else:
+                        val_time = row.get('Time')
+                        if not pd.isna(val_time) and t0_date is not None:
+                            # Timestamp 간의 뺄셈 -> Timedelta 반환
+                            diff = val_time - t0_date
+                            seconds = diff.total_seconds()
+
+                    if seconds is None:
+                        continue
+
+                    # [중요] 리플레이 타임라인과 동기화
+                    # global_t_min은 드라이버들의 데이터가 시작된 시점입니다.
+                    # 메시지 시간도 이 시점을 기준으로 보정해야 0초부터 시작하는 리플레이와 맞습니다.
+                    msg_time = seconds - global_t_min
+
+                    race_control_messages.append({
+                        'time': msg_time,
+                        'category': str(row['Category']) if 'Category' in row else 'RC',
+                        'message': str(row['Message']),
+                        'flag': row['Flag'] if 'Flag' in row else None
+                    })
+
+                except Exception as e:
+                    # print(f"Msg processing error: {e}") # 디버깅용
+                    pass
 
     frames = []
 
