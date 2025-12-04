@@ -7,6 +7,7 @@ import numpy as np
 import json
 import pickle
 from datetime import timedelta
+import requests
 
 from src.lib.tyres import get_tyre_compound_int
 
@@ -139,6 +140,27 @@ def get_driver_colors(session):
 def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
+
+def download_driver_headshots_img(session,drivers):
+    img_dir  = "images/drivers"
+    os.makedirs(img_dir, exist_ok=True)
+    i = 0
+    for driver in drivers:
+        i += 1
+        headshot_url = session.get_driver(driver)['HeadshotUrl']
+        filename = os.path.join(img_dir, f"{session.get_driver(driver)['Abbreviation']}.png")
+
+        if os.path.exists(filename) or headshot_url == 'None':
+            continue
+            
+        print(f"Downloading image for {driver}...")
+        
+        response = requests.get(headshot_url.replace(".transform/1col/image.png",""), timeout=10)
+        response.raise_for_status()
+        
+        with open(filename, "wb") as f:
+            f.write(response.content)
+
 
 def get_race_telemetry(session, session_type='R'):
 

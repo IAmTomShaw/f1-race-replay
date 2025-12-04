@@ -10,4 +10,7 @@ __pycache__/
 
 computed_data/
 
+# to keep drivers image upto date.
+images/drivers 
+
 .DS_Store
