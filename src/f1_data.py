@@ -10,6 +10,8 @@ from datetime import timedelta
 
 from src.lib.tyres import get_tyre_compound_int
 
+import pandas as pd
+
 def enable_cache():
     # Check if cache folder exists
     if not os.path.exists('.fastf1-cache'):
@@ -118,12 +120,13 @@ def _process_single_driver(args):
         "max_lap": driver_max_lap
     }
 
-def load_race_session(year, round_number, session_type='R'):
+def load_session(year, round_number, session_type='R'):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
     session = fastf1.get_session(year, round_number, session_type)
     session.load(telemetry=True, weather=True)
     return session
 
+# The following functions require a loaded session object
 
 def get_driver_colors(session):
     color_mapping = fastf1.plotting.get_driver_color_mapping(session)
@@ -411,4 +414,363 @@ def get_race_telemetry(session, session_type='R'):
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
+    }
+
+
+def get_qualifying_results(session):
+
+    # Extract the qualifying results and return a list of the drivers, their positions and their lap times in each qualifying segment
+
+    results = session.results
+
+    qualifying_data = []
+
+    for _, row in results.iterrows():
+        driver_code = row["Abbreviation"]
+        position = int(row["Position"])
+        q1_time = row["Q1"]
+        q2_time = row["Q2"]
+        q3_time = row["Q3"]
+
+        qualifying_data.append({
+            "code": driver_code,
+            "position": position,
+            "color": get_driver_colors(session).get(driver_code, (128,128,128)),
+            "Q1": str(q1_time).split(' ')[-1] if pd.notna(q1_time) else None,
+            "Q2": str(q2_time).split(' ')[-1] if pd.notna(q2_time) else None,
+            "Q3": str(q3_time).split(' ')[-1] if pd.notna(q3_time) else None,
+        })
+    return qualifying_data
+
+def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
+
+    # Split Q1/Q2/Q3 sections
+    q1, q2, q3 = session.laps.split_qualifying_sessions()
+
+    segments = {
+        "Q1": q1,
+        "Q2": q2,
+        "Q3": q3
+    }
+
+    # Validate the segment
+    if quali_segment not in segments:
+        raise ValueError("quali_segment must be 'Q1', 'Q2', or 'Q3'")
+
+    segment_laps = segments[quali_segment]
+    if segment_laps is None:
+        raise ValueError(f"{quali_segment} does not exist for this session.")
+
+    # Filter laps for the driver
+    driver_laps = segment_laps.pick_drivers(driver_code)
+    if driver_laps.empty:
+        raise ValueError(f"No laps found for driver '{driver_code}' in {quali_segment}")
+
+    # Pick fastest lap
+    fastest_lap = driver_laps.pick_fastest()
+
+    # Extract telemetry with xyz coordinates
+    # telemetry = fastest_lap.get_car_data().add_distance()
+
+    telemetry = fastest_lap.get_telemetry()
+
+    # Guard: if telemetry has no time data, return empty
+    if telemetry is None or telemetry.empty or 'Time' not in telemetry or len(telemetry) == 0:
+        return {"frames": [], "track_statuses": []}
+
+    global_t_min = telemetry["Time"].dt.total_seconds().min()
+    global_t_max = telemetry["Time"].dt.total_seconds().max()
+
+    max_speed = telemetry["Speed"].max()
+    min_speed = telemetry["Speed"].min()
+
+    # Build arrays directly from dataframes
+    t_arr = telemetry["Time"].dt.total_seconds().to_numpy() - global_t_min
+    x_arr = telemetry["X"].to_numpy()
+    y_arr = telemetry["Y"].to_numpy()
+    dist_arr = telemetry["Distance"].to_numpy()
+    rel_dist_arr = telemetry["RelativeDistance"].to_numpy()
+    speed_arr = telemetry["Speed"].to_numpy()
+    gear_arr = telemetry["nGear"].to_numpy()
+    throttle_arr = telemetry["Throttle"].to_numpy()
+    brake_arr = telemetry["Brake"].to_numpy()
+    drs_arr = telemetry["DRS"].to_numpy()
+
+    # Make the brakes between 0-100 instrad of 0-1
+    brake_arr = brake_arr * 100.0
+
+    # Create timeline with endpoint included
+    timeline = np.arange(global_t_min, global_t_max + DT/2, DT) - global_t_min
+
+    # Ensure we have at least one sample
+    if t_arr.size == 0:
+        return {"frames": [], "track_statuses": []}
+
+    # Sort & deduplicate times
+    order = np.argsort(t_arr)
+    t_sorted = t_arr[order]
+    # unique times and indices
+    t_sorted_unique, unique_idx = np.unique(t_sorted, return_index=True)
+    # map unique indices back to the original ordered arrays
+    idx_map = order[unique_idx]
+
+    x_sorted = x_arr[idx_map]
+    y_sorted = y_arr[idx_map]
+    dist_sorted = dist_arr[idx_map]
+    rel_dist_sorted = rel_dist_arr[idx_map]
+    speed_sorted = speed_arr[idx_map]
+    gear_sorted = gear_arr[idx_map]
+    throttle_sorted = throttle_arr[idx_map]
+    brake_sorted = brake_arr[idx_map]
+    drs_sorted = drs_arr[idx_map]
+
+    # Continuous interpolation
+    x_resampled = np.interp(timeline, t_sorted_unique, x_sorted)
+    y_resampled = np.interp(timeline, t_sorted_unique, y_sorted)
+    dist_resampled = np.interp(timeline, t_sorted_unique, dist_sorted)
+    rel_dist_resampled = np.interp(timeline, t_sorted_unique, rel_dist_sorted)
+    speed_resampled = np.round(np.interp(timeline, t_sorted_unique, speed_sorted), 1)
+    throttle_resampled = np.round(np.interp(timeline, t_sorted_unique, throttle_sorted), 1)
+    brake_resampled = np.round(np.interp(timeline, t_sorted_unique, brake_sorted), 1)
+    drs_resampled = np.interp(timeline, t_sorted_unique, drs_sorted)
+
+    # Forward-fill / step sampling for discrete fields (gear)
+    idxs = np.searchsorted(t_sorted_unique, timeline, side='right') - 1
+    idxs = np.clip(idxs, 0, len(t_sorted_unique) - 1)
+    gear_resampled = gear_sorted[idxs].astype(int)
+
+    resampled_data = {
+        "t": timeline,
+        "x": x_resampled,
+        "y": y_resampled,
+        "dist": dist_resampled,
+        "rel_dist": rel_dist_resampled,
+        "speed": speed_resampled,
+        "gear": gear_resampled,
+        "throttle": throttle_resampled,
+        "brake": brake_resampled,
+        "drs": drs_resampled,
+    }
+
+    track_status = session.track_status
+
+    formatted_track_statuses = []
+
+    for status in track_status.to_dict('records'):
+        seconds = timedelta.total_seconds(status['Time'])
+
+        start_time = seconds - global_t_min # Shift to match timeline
+        end_time = None
+
+        # Set the end time of the previous status
+        if formatted_track_statuses:
+            formatted_track_statuses[-1]['end_time'] = start_time
+
+        formatted_track_statuses.append({
+            'status': status['Status'],
+            'start_time': start_time,
+            'end_time': end_time, 
+        })
+
+    # 4.1. Resample weather data onto the same timeline for playback
+    weather_resampled = None
+    weather_df = getattr(session, "weather_data", None)
+    if weather_df is not None and not weather_df.empty:
+        try:
+            weather_times = weather_df["Time"].dt.total_seconds().to_numpy() - global_t_min
+            if len(weather_times) > 0:
+                order_w = np.argsort(weather_times)
+                weather_times = weather_times[order_w]
+
+                def _maybe_get(name):
+                    return weather_df[name].to_numpy()[order_w] if name in weather_df else None
+
+                def _resample(series):
+                    if series is None:
+                        return None
+                    return np.interp(timeline, weather_times, series)
+
+                track_temp = _resample(_maybe_get("TrackTemp"))
+                air_temp = _resample(_maybe_get("AirTemp"))
+                humidity = _resample(_maybe_get("Humidity"))
+                wind_speed = _resample(_maybe_get("WindSpeed"))
+                wind_direction = _resample(_maybe_get("WindDirection"))
+                rainfall_raw = _maybe_get("Rainfall")
+                rainfall = _resample(rainfall_raw.astype(float)) if rainfall_raw is not None else None
+
+                weather_resampled = {
+                    "track_temp": track_temp,
+                    "air_temp": air_temp,
+                    "humidity": humidity,
+                    "wind_speed": wind_speed,
+                    "wind_direction": wind_direction,
+                    "rainfall": rainfall,
+                }
+        except Exception as e:
+            print(f"Weather data could not be processed: {e}")
+
+    # Build the frames
+    frames = []
+    num_frames = len(timeline)
+
+    for i in range(num_frames):
+        t = timeline[i]
+
+        weather_snapshot = {}
+        if weather_resampled:
+            try:
+                wt = weather_resampled
+                rain_val = wt["rainfall"][i] if wt.get("rainfall") is not None else 0.0
+                weather_snapshot = {
+                    "track_temp": float(wt["track_temp"][i]) if wt.get("track_temp") is not None else None,
+                    "air_temp": float(wt["air_temp"][i]) if wt.get("air_temp") is not None else None,
+                    "humidity": float(wt["humidity"][i]) if wt.get("humidity") is not None else None,
+                    "wind_speed": float(wt["wind_speed"][i]) if wt.get("wind_speed") is not None else None,
+                    "wind_direction": float(wt["wind_direction"][i]) if wt.get("wind_direction") is not None else None,
+                    "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
+                }
+            except Exception as e:
+                print(f"Failed to attach weather data to frame {i}: {e}")
+
+        frame_payload = {
+            "t": float(t),
+            "telemetry": {
+                "x": float(resampled_data["x"][i]),
+                "y": float(resampled_data["y"][i]),
+                "dist": float(resampled_data["dist"][i]),
+                "rel_dist": float(resampled_data["rel_dist"][i]),
+                "speed": float(resampled_data["speed"][i]),
+                "gear": int(resampled_data["gear"][i]),
+                "throttle": float(resampled_data["throttle"][i]),
+                "brake": float(resampled_data["brake"][i]),
+                "drs": int(resampled_data["drs"][i]),
+            }
+        }
+        if weather_snapshot:
+            frame_payload["weather"] = weather_snapshot
+
+        frames.append(frame_payload)
+
+    return {
+        "frames": frames,
+        "track_statuses": formatted_track_statuses,
+        "max_speed": max_speed,
+        "min_speed": min_speed,
+    }
+
+
+def _process_quali_driver(args):
+    """Process qualifying telemetry data for a single driver - must be top-level for multiprocessing"""
+    session, driver_code = args
+
+    print(f"Getting qualifying telemetry for driver: {driver_code}")
+
+    driver_telemetry_data = {}
+
+    max_speed = 0.0
+    min_speed = 0.0
+
+    for segment in ["Q1", "Q2", "Q3"]:
+        try:
+            segment_telemetry = get_driver_quali_telemetry(session, driver_code, segment)
+            driver_telemetry_data[segment] = segment_telemetry
+
+            # Update global max/min speed
+            if segment_telemetry["max_speed"] > max_speed:
+                max_speed = segment_telemetry["max_speed"]
+            if segment_telemetry["min_speed"] < min_speed or min_speed == 0.0:
+                min_speed = segment_telemetry["min_speed"]
+
+        except ValueError:
+            driver_telemetry_data[segment] = {"frames": [], "track_statuses": []}
+
+    print(f"Finished processing qualifying telemetry for driver: {driver_code}")
+        
+    return {
+        "driver_code": driver_code,
+        "driver_telemetry_data": driver_telemetry_data,
+        "max_speed": max_speed,
+        "min_speed": min_speed,
+    }
+
+
+def get_quali_telemetry(session, session_type='Q'):
+    # This function is going to get the results from qualifying and the telemetry for each drivers' fastest laps in each qualifying segment
+
+    # The structure of the returned data will be:
+    # {
+    #   "results": [ { "code": driver_code, "position": position, "Q1": time, "Q2": time, "Q3": time }, ... ],
+    #   "telemetry": {
+    #       "driver_code": {
+    #           "Q1": { "frames": [ { "t": time, "x": x, "y": y, "dist": dist, "speed": speed, "gear": gear }, ... ] },
+    #           "Q2": { ... },
+    #           "Q3": { ... },
+    #       },
+    #       ...
+    #   }
+    # }
+
+    event_name = str(session).replace(' ', '_')
+    cache_suffix = 'sprintquali' if session_type == 'SQ' else 'quali'
+
+    # Check if this data has already been computed
+    try:
+        if "--refresh-data" not in sys.argv:
+            with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
+                data = pickle.load(f)
+                print(f"Loaded precomputed {cache_suffix} telemetry data.")
+                print("The replay should begin in a new window shortly!")
+                return data
+    except FileNotFoundError:
+        pass  # Need to compute from scratch
+
+    qualifying_results = get_qualifying_results(session)
+
+    telemetry_data = {}
+
+    max_speed = 0.0
+    min_speed = 0.0
+
+    driver_codes = {
+        num: session.get_driver(num)["Abbreviation"]
+        for num in session.drivers
+    }
+
+    telemetry_data = {}
+
+    driver_args = [(session, driver_codes[driver_no]) for driver_no in session.drivers]
+
+    print(f"Processing {len(session.drivers)} drivers in parallel...")
+    
+    num_processes = min(cpu_count(), len(session.drivers))
+    
+    with Pool(processes=num_processes) as pool:
+        results = pool.map(_process_quali_driver, driver_args)
+    for result in results:
+        driver_code = result["driver_code"]
+        telemetry_data[driver_code] = result["driver_telemetry_data"]
+
+        if result["max_speed"] > max_speed:
+            max_speed = result["max_speed"]
+        if result["min_speed"] < min_speed or min_speed == 0.0:
+            min_speed = result["min_speed"]
+    
+    # Save to the compute_data directory
+
+    if not os.path.exists("computed_data"):
+        os.makedirs("computed_data")
+
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+        pickle.dump({
+            "results": qualifying_results,
+            "telemetry": telemetry_data,
+            "max_speed": max_speed,
+            "min_speed": min_speed,
+        }, f, protocol=pickle.HIGHEST_PROTOCOL)
+        
+    return {
+        "results": qualifying_results,
+        "telemetry": telemetry_data,
+        "max_speed": max_speed,
+        "min_speed": min_speed,
     }

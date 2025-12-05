@@ -21,6 +21,10 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Playback Speed:** ↑ / ↓ or Speed button (cycles through 0.5x, 1x, 2x, 4x)
 - **Set Speed Directly:** Keys 1–4
 
+## Qualifying Session Support (in development)
+
+Recently added support for Qualifying session replays with telemetry visualization including speed, gear, throttle, and brake over the lap distance. This feature is still being refined.
+
 ## Requirements
 
 - Python 3.8+
@@ -52,12 +56,41 @@ The application will load a pre-computed telemetry dataset if you have run it be
 python main.py --year 2025 --round 12 --refresh-data
 ```
 
+### Qualifying Session Replay
+
+To run a Qualifying session replay, use the `--qualifying` flag:
+```bash
+python main.py --year 2025 --round 12 --qualifying
+```
+
+To run a Sprint Qualifying session (if the event has one), add `--sprint`:
+```bash
+python main.py --year 2025 --round 12 --qualifying --sprint
+```
+
 ## File Structure
 
-- `main.py` — Entry point, handles session loading and starts the replay.
-- `src/lib/tyres.py` — Type definitions for telemetry data structures.
-- `src/f1_data.py` — Telemetry loading, processing, and frame generation.
-- `src/arcade_replay.py` — Visualization and UI logic.
+```
+f1-race-replay/
+├── main.py                    # Entry point, handles session loading and starts the replay
+├── requirements.txt           # Python dependencies
+├── README.md                  # Project documentation
+├── roadmap.md                 # Planned features and project vision
+├── resources/
+│   └── preview.png           # Race replay preview image
+├── src/
+│   ├── f1_data.py            # Telemetry loading, processing, and frame generation
+│   ├── arcade_replay.py      # Visualization and UI logic
+│   └── ui_components.py      # UI components like buttons and leaderboard
+│   ├── interfaces/
+│   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
+│   │   └── race_replay.py    # Race replay interface and telemetry visualization
+│   └── lib/
+│       └── tyres.py          # Type definitions for telemetry data structures
+│       └── time.py           # Time formatting utilities
+└── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
+└── computed_data/            # Computed telemetry data (created automatically upon first run)
+```
 
 ## Customization
 

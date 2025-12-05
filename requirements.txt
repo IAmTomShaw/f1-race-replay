@@ -3,3 +3,4 @@ pandas
 matplotlib
 numpy
 arcade
+pyglet
