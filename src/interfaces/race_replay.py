@@ -398,9 +398,11 @@ class F1RaceReplayWindow(arcade.Window):
         elif symbol == arcade.key.LEFT:
             self.frame_index = max(self.frame_index - 10.0, 0.0)
         elif symbol == arcade.key.UP:
-            self.playback_speed *= 2.0
+            if self.playback_speed < 4.0:
+                self.playback_speed *= 2.0
         elif symbol == arcade.key.DOWN:
-            self.playback_speed = max(0.1, self.playback_speed / 2.0)
+            if self.playback_speed > 0.5:
+                self.playback_speed /= 2.0
         elif symbol == arcade.key.KEY_1:
             self.playback_speed = 0.5
         elif symbol == arcade.key.KEY_2:
