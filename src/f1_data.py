@@ -24,6 +24,48 @@ def enable_cache():
 FPS = 25
 DT = 1 / FPS
 
+
+def process_race_control_messages(session, global_t_min):
+    """
+    extract race control message from session & correcting time data for aligning replay timeline
+    """
+    race_control_messages = []
+    t0_date = session.t0_date
+
+    if not hasattr(session, 'race_control_messages') or session.race_control_messages is None:
+        return []
+
+    rcm = session.race_control_messages
+
+    # Sort chronologically
+    sort_col = 'SessionTime' if 'SessionTime' in rcm.columns else 'Time'
+    if sort_col in rcm.columns:
+        rcm = rcm.sort_values(by=sort_col)
+
+    for _, row in rcm.iterrows():
+        try:
+            seconds = None
+            if 'SessionTime' in row and not pd.isna(row['SessionTime']):
+                seconds = pd.to_timedelta(row['SessionTime']).total_seconds()
+            elif 'Time' in row and not pd.isna(row['Time']) and t0_date is not None:
+                seconds = (row['Time'] - t0_date).total_seconds()
+
+            if seconds is None: continue
+
+            # Correction based on the start time of the replay
+            msg_time = seconds - global_t_min
+
+            race_control_messages.append({
+                'time': msg_time,
+                'category': str(row.get('Category', 'RC')),
+                'message': str(row['Message']),
+                'flag': row.get('Flag', None)
+            })
+        except Exception:
+            pass
+
+    return race_control_messages
+
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
     driver_no, session, driver_code = args
@@ -393,6 +435,9 @@ def get_race_telemetry(session, session_type='R'):
             frame_payload["weather"] = weather_snapshot
 
         frames.append(frame_payload)
+
+    race_control_messages = process_race_control_messages(session, global_t_min)
+
     print("completed telemetry extraction...")
     print("Saving to cache file...")
     # If computed_data/ directory doesn't exist, create it
@@ -406,6 +451,7 @@ def get_race_telemetry(session, session_type='R'):
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
             "total_laps": int(max_lap_number),
+            "race_control_messages": race_control_messages,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Saved Successfully!")
@@ -415,6 +461,7 @@ def get_race_telemetry(session, session_type='R'):
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
+        "race_control_messages": race_control_messages,
     }
 
 
@@ -652,8 +699,6 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
                 "rel_dist": float(resampled_data["rel_dist"][i]),
                 "speed": float(resampled_data["speed"][i]),
                 "gear": int(resampled_data["gear"][i]),
-                "throttle": float(resampled_data["throttle"][i]),
-                "brake": float(resampled_data["brake"][i]),
                 "drs": int(resampled_data["drs"][i]),
             }
         }

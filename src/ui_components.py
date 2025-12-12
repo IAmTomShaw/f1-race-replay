@@ -439,3 +439,70 @@ def build_track_from_example_lap(example_lap, track_width=200):
     return (plot_x_ref, plot_y_ref, x_inner, y_inner, x_outer, y_outer,
             x_min, x_max, y_min, y_max)
 
+
+class RaceControlComponent(BaseComponent):
+    def __init__(self, width=400, height=130, margin=20):
+        self.width = width
+        self.height = height
+        self.margin = margin
+
+    def draw(self, window):
+        # didn't draw without data
+        if not hasattr(window, 'race_control_messages') or not window.race_control_messages:
+            return
+
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        current_time = window.frames[idx]["t"]
+
+        # [coordinate] Bottom Right
+        rc_x_center = window.width - self.margin - (self.width / 2)
+        rc_y_center = self.margin + (self.height / 2)
+
+        # background
+        rc_rect = arcade.XYWH(rc_x_center, rc_y_center, self.width, self.height)
+        arcade.draw_rect_filled(rc_rect, (0, 0, 0, 180))
+        arcade.draw_rect_outline(rc_rect, arcade.color.WHITE, 1)
+
+        # header
+        arcade.Text("Race Control",
+                    rc_x_center, rc_y_center + self.height / 2 - 10,
+                    arcade.color.ORANGE, 12, bold=True,
+                    anchor_x="center", anchor_y="top").draw()
+
+        # filtering messages & aligning
+        valid_msgs = [m for m in window.race_control_messages if m['time'] <= current_time]
+        valid_msgs.sort(key=lambda x: x['time'], reverse=True)
+        display_msgs = valid_msgs[:5]
+
+        start_y = rc_y_center + (self.height / 2) - 35
+        line_height = 18
+
+        if not display_msgs:
+            arcade.Text("No messages yet", rc_x_center, rc_y_center,
+                        arcade.color.GRAY, 10, anchor_x="center").draw()
+
+        for i, msg in enumerate(display_msgs):
+            m_time = msg['time']
+            time_str = f"{int(m_time // 60):02}:{int(m_time % 60):02}" if m_time >= 0 else "PRE"
+            full_text = f"[{time_str}] {msg['message']}"
+
+            if len(full_text) > 55: full_text = full_text[:52] + "..."
+
+            text_color = arcade.color.WHITE
+            upper_text = full_text.upper()
+            if 'YELLOW' in upper_text:
+                text_color = arcade.color.YELLOW
+            elif 'RED' in upper_text:
+                text_color = arcade.color.RED
+            elif 'SAFETY' in upper_text or 'VSC' in upper_text:
+                text_color = arcade.color.ORANGE
+            elif 'BLACK' in upper_text or 'PENALTY' in upper_text:
+                text_color = (255, 100, 100)
+            elif 'GREEN' in upper_text:
+                text_color = arcade.color.GREEN
+            elif 'CLEAR' in upper_text:
+                text_color = arcade.color.LIGHT_BLUE
+
+            draw_y = start_y - (i * line_height)
+            arcade.Text(full_text, rc_x_center - (self.width / 2) + 10, draw_y,
+                        text_color, 11, anchor_x="left", anchor_y="top").draw()
