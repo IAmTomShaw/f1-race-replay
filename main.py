@@ -1,8 +1,9 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry
 from src.arcade_replay import run_arcade_replay
-
+from src.showMenu import run_menu
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
+import arcade
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R'):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
@@ -32,7 +33,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
   else:
 
     # Get the drivers who participated in the race
-
     race_telemetry = get_race_telemetry(session, session_type=session_type)
 
     # Get example lap for track layout
@@ -49,6 +49,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Check for optional chart flag
     chart = "--chart" in sys.argv
+    arcade.close_window()
 
     run_arcade_replay(
         frames=race_telemetry['frames'],
@@ -84,4 +85,5 @@ if __name__ == "__main__":
 # Session type selection
   session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
   
-  main(year, round_number, playback_speed, session_type=session_type)
+  # main(year, round_number, playback_speed, session_type=session_type)
+  run_menu(default_year=year, default_round=round_number)

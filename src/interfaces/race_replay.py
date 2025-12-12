@@ -128,6 +128,10 @@ class F1RaceReplayWindow(arcade.Window):
         Recalculates the scale and translation to fit the track 
         perfectly within the new screen dimensions while maintaining aspect ratio.
         """
+        # Guard: Don't update scaling if track layout hasn't been built yet
+        if not hasattr(self, 'x_min') or not hasattr(self, 'world_inner_points'):
+            return
+        
         padding = 0.05
         # If a rotation is applied, we must compute the rotated bounds
         world_cx = (self.x_min + self.x_max) / 2
@@ -186,12 +190,17 @@ class F1RaceReplayWindow(arcade.Window):
         """Called automatically by Arcade when window is resized."""
         super().on_resize(width, height)
         self.update_scaling(width, height)
-        # notify components
-        self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp):
-            c.on_resize(self)
+        # notify components (only if they exist)
+        if hasattr(self, 'leaderboard_comp'):
+            self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
+            for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp):
+                c.on_resize(self)
 
     def world_to_screen(self, x, y):
+        # Guard: Return default if track layout not initialized
+        if not hasattr(self, 'x_min') or not hasattr(self, 'x_max'):
+            return x, y
+        
         # Rotate around the track centre (if rotation is set), then scale+translate
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
