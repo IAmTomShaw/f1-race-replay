@@ -789,3 +789,15 @@ def get_quali_telemetry(session, session_type='Q'):
         "max_speed": max_speed,
         "min_speed": min_speed,
     }
+
+def get_season_schedule(year):
+    """
+    Fetches the official F1 schedule for the given year.
+    Excludes testing sessions.
+    """
+    try:
+        schedule = fastf1.get_event_schedule(year, include_testing=False)
+        return schedule[schedule['EventFormat'] != 'testing']
+    except Exception as e:
+        print(f"Failed to fetch schedule: {e}")
+        return None
