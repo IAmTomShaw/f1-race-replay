@@ -7,8 +7,8 @@ from src.ui_components import LeaderboardComponent, WeatherComponent, LegendComp
 import threading
 
 # Kept these as "default" starting sizes, but they are no longer hard limits
-SCREEN_WIDTH = 1600
-SCREEN_HEIGHT = 900
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
 SCREEN_TITLE = "F1 Replay System"
 
 # class F1RaceReplayWindow(arcade.Window):
@@ -51,8 +51,6 @@ class ReplayView(arcade.View):
         self.weather_comp = WeatherComponent(left=20, top_offset=170)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
-
-        self.legend_comp.lines.append("[ESC]     Back to Menu")
 
         # Build track geometry (Raw World Coordinates)
         (self.plot_x_ref, self.plot_y_ref,
@@ -121,10 +119,10 @@ class ReplayView(arcade.View):
         self.ui_anchor = arcade.gui.UIAnchorLayout()
         self.ui_anchor.add(
             menu_btn,
-            anchor_x="right",
-            anchor_y="top",
-            align_x=-20,
-            align_y=-20
+            anchor_x="left",
+            anchor_y="bottom",
+            align_x=20,
+            align_y=20
         )
         self.ui_manager.add(self.ui_anchor)
 
@@ -413,13 +411,14 @@ class ReplayView(arcade.View):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 150 # Height of legend block
+        legend_y = 230 # Height of legend block
         legend_lines = [
             "Controls:",
             "[SPACE]  Pause/Resume",
             "[←/→]    Rewind / FastForward",
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
+            "[ESC]     Back to Menu"
         ]
 
         for i, line in enumerate(legend_lines):
