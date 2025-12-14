@@ -8,7 +8,7 @@ I want this project to be the hands-down best way for data-loving F1 fans to exp
 
 ## Primary Goals
 
-- **GUI Menu System:** Implement a user-friendly graphical interface to navigate through the different race weekends, sessions and available formats for reviewing data.
+- **GUI Menu System:**
 - **Qualifying & Practice Sessions:** Extend replay support to include qualifying and practice sessions, allowing users to see how a session plays out from start to finish. (This is currently in development)
 - **Lap Telemetry Analysis:** Use speed traces and other telemetry data to provide detailed lap analysis, helping users understand performance variations and strategies. (This is currently in development)
 - **Comparison Tools:** Add features that allow users to compare different drivers' laps, strategies and performance metrics side-by-side (either during the replays or inside of the telemetry analysis).
