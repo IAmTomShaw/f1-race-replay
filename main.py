@@ -55,7 +55,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         track_statuses=race_telemetry['track_statuses'],
         example_lap=example_lap,
         drivers=drivers,
-        playback_speed=1.0,
+        playback_speed=playback_speed,
         driver_colors=race_telemetry['driver_colors'],
         title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
         total_laps=race_telemetry['total_laps'],
@@ -67,21 +67,36 @@ if __name__ == "__main__":
 
   # Get the year and round number from user input
 
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
+  try:
+    if "--year" in sys.argv:
+      year_index = sys.argv.index("--year") + 1
+      if year_index >= len(sys.argv):
+        raise ValueError("--year requires a value")
+      year = int(sys.argv[year_index])
+    else:
+      year = 2024  # Default year
 
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
+    if "--round" in sys.argv:
+      round_index = sys.argv.index("--round") + 1
+      if round_index >= len(sys.argv):
+        raise ValueError("--round requires a value")
+      round_number = int(sys.argv[round_index])
+    else:
+      round_number = 12  # Default round number
 
-  playback_speed = 1
+    if "--speed" in sys.argv:
+      speed_index = sys.argv.index("--speed") + 1
+      if speed_index >= len(sys.argv):
+        raise ValueError("--speed requires a value")
+      playback_speed = float(sys.argv[speed_index])
+    else:
+      playback_speed = 1.0
 
-# Session type selection
-  session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-  
-  main(year, round_number, playback_speed, session_type=session_type)
+    # Session type selection
+    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+    
+    main(year, round_number, playback_speed, session_type=session_type)
+
+  except (ValueError, IndexError) as e:
+    print(f"Error: Invalid arguments. {e}")
+    sys.exit(1)
