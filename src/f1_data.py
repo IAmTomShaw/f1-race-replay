@@ -34,7 +34,12 @@ def list_sprints(year):
     enable_cache()
     print(f"F1 Sprint Races {year}")
     schedule = fastf1.get_event_schedule(year)
-    sprints = schedule[schedule['EventFormat'] == 'sprint']
+    sprint_name = 'sprint_qualifying'
+    if year == 2023:
+        sprint_name = 'sprint_shootout'
+    if year in [2021, 2022]:
+        sprint_name = 'sprint'
+    sprints = schedule[schedule['EventFormat'] == sprint_name]
     if sprints.empty:
         print(f"No sprint races found for {year}.")
     else:
