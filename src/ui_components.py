@@ -22,7 +22,7 @@ class BaseComponent:
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int): return False
 
 class LegendComponent(BaseComponent):
-    def __init__(self, x: int = 20, y: int = 150):
+    def __init__(self, x: int = 20, y: int = 150, font_size: int = 14, line_spacing: int = 25):
         self.x = x
         self.y = y
         self.font_size = font_size
@@ -34,6 +34,7 @@ class LegendComponent(BaseComponent):
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
         ]
+
 
     def draw(self, window):
         start_y = self.y
