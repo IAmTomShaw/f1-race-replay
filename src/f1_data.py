@@ -46,8 +46,12 @@ def _process_single_driver(args):
     speed_all = []
     gear_all = []
     drs_all = []
+    last_lap_times_sec = [] # New: Array for storing the last completed lap time in seconds
 
     total_dist_so_far = 0.0
+
+    # Initialize previous lap time to -1.0 (indicating no previous lap yet)
+    previous_lap_time = -1.0
 
     # iterate laps in order
     for _, lap in laps_driver.iterlaps():
@@ -81,24 +85,36 @@ def _process_single_driver(args):
         speed_all.append(speed_kph_lap)
         gear_all.append(gear_lap)
         drs_all.append(drs_lap)
+        
+        # KEY FIX: Store the *previous* lap's time for the duration of *this* lap
+        last_lap_times_sec.append(np.full_like(t_lap, previous_lap_time))
+
+        # Update previous_lap_time for the *next* loop iteration
+        # If this lap has a valid time, it becomes the "last lap time" for the next lap
+        if pd.notna(lap['LapTime']):
+             previous_lap_time = lap['LapTime'].total_seconds()
+        
+        # Update total distance for next lap calculation
+        if len(d_lap) > 0:
+            total_dist_so_far = race_d_lap[-1]
 
     if not t_all:
         return None
 
     # Concatenate all arrays at once for better performance
     all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                  lap_numbers, tyre_compounds, speed_all, gear_all, drs_all, last_lap_times_sec]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    tyre_compounds, speed_all, gear_all, drs_all, last_lap_times_sec = [np.concatenate(arr) for arr in all_arrays]
 
     # Sort all arrays by time in one operation
     order = np.argsort(t_all)
     all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                lap_numbers, tyre_compounds, speed_all, gear_all, drs_all, last_lap_times_sec]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
+    tyre_compounds, speed_all, gear_all, drs_all, last_lap_times_sec = [arr[order] for arr in all_data]
 
     print(f"Completed telemetry for driver: {driver_code}")
     
@@ -115,6 +131,7 @@ def _process_single_driver(args):
             "speed": speed_all,
             "gear": gear_all,
             "drs": drs_all,
+            "last_lap_time": last_lap_times_sec, # New: Last lap time in seconds
         },
         "t_min": t_all.min(),
         "t_max": t_all.max(),
@@ -228,12 +245,13 @@ def get_race_telemetry(session, session_type='R'):
             data["tyre"][order],
             data["speed"][order],
             data["gear"][order],
-            data["drs"][order]
+            data["drs"][order],
+            data["last_lap_time"][order], # New: Lap time array
         ]
         
         resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
         x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, speed_resampled, gear_resampled, drs_resampled = resampled
+        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, last_lap_time_resampled = resampled
  
         resampled_data[code] = {
             "t": timeline,
@@ -246,6 +264,7 @@ def get_race_telemetry(session, session_type='R'):
             "speed": speed_resampled,
             "gear": gear_resampled,
             "drs": drs_resampled,
+            "last_lap_time_sec": last_lap_time_resampled, # New: Interpolated last lap time in seconds
         }
 
     # 4. Incorporate track status data into the timeline (for safety car, VSC, etc.)
@@ -314,13 +333,19 @@ def get_race_telemetry(session, session_type='R'):
     
     # Pre-extract data references for faster access
     driver_codes = list(resampled_data.keys())
-    driver_arrays = {code: resampled_data[code] for code in driver_codes}
-
+    
+    # We need access to the full distance history of every driver to calculate time intervals
+    # resampled_data[code]['dist'] is the array of distances for the whole race for that driver
+    
     for i in range(num_frames):
         t = timeline[i]
         snapshot = []
         for code in driver_codes:
-            d = driver_arrays[code]
+            d = resampled_data[code]
+            # New: Get the lap time in seconds
+            last_lap_time_sec = float(d["last_lap_time_sec"][i])
+            last_lap_time_sec = last_lap_time_sec if last_lap_time_sec > 0 else None
+            
             snapshot.append({
                 "code": code,
                 "dist": float(d["dist"][i]),
@@ -332,6 +357,7 @@ def get_race_telemetry(session, session_type='R'):
                 "speed": float(d['speed'][i]),
                 "gear": int(d['gear'][i]),
                 "drs": int(d['drs'][i]),
+                "last_lap_time_sec": last_lap_time_sec, # New: Last lap time in seconds
             })
 
         # If for some reason we have no drivers at this instant
@@ -345,14 +371,52 @@ def get_race_telemetry(session, session_type='R'):
         leader = snapshot[0]
         leader_lap = leader["lap"]
 
-        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
-
-        # 5c. Compute gap to car in front in SECONDS
+        # 5c. Compute time interval to the car in front
+        
         frame_data = {}
-
         for idx, car in enumerate(snapshot):
             code = car["code"]
             position = idx + 1
+            
+            # 1. Format Last Lap Time
+            last_lap_time_str = format_time(car["last_lap_time_sec"]) if car["last_lap_time_sec"] is not None else "---"
+
+            # 2. Interval/Gap Calculation (Time based)
+            interval_str = "---"
+            if idx == 0:
+                # Leader: Interval is usually blank or "Interval" in F1 graphics, 
+                # but here we can just leave it blank or show race time.
+                interval_str = "Interval" 
+            else:
+                # Get the car immediately ahead
+                car_ahead = snapshot[idx-1]
+                code_ahead = car_ahead["code"]
+                
+                # To find the time gap, we need to find "at what time was the car ahead at the current driver's distance?"
+                # We have the full distance history for the car ahead in resampled_data
+                
+                ahead_dist_history = resampled_data[code_ahead]["dist"]
+                current_car_dist = car["dist"]
+                
+                # Find the time index where ahead_dist_history matches current_car_dist
+                # Since distance is generally increasing, we can use interpolation
+                # np.interp(x, xp, fp) -> x=current_dist, xp=ahead_dist_history, fp=timeline
+                
+                # Note: this finds the TIME the car ahead was at this distance
+                t_ahead_was_here = np.interp(current_car_dist, ahead_dist_history, timeline)
+                
+                # The gap is the difference between current time and that time
+                gap_sec = t - t_ahead_was_here
+                
+                if gap_sec > 0:
+                    interval_str = f"+{gap_sec:.1f}s"
+                elif gap_sec > -5.0 and gap_sec <= 0:
+                     # Close racing or overlap
+                     interval_str = "+0.0s"
+                else:
+                     # Lapped traffic or anomalous data
+                     interval_str = "" # or "+LAPPED"
+
 
             # include speed, gear, drs_active in frame driver dict
             frame_data[code] = {
@@ -366,6 +430,8 @@ def get_race_telemetry(session, session_type='R'):
                 "speed": car['speed'],
                 "gear": car['gear'],
                 "drs": car['drs'],
+                "last_lap_time_str": last_lap_time_str, # New field
+                "interval_str": interval_str, # New field (time-based)
             }
 
         weather_snapshot = {}
