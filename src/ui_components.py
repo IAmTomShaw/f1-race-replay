@@ -25,6 +25,8 @@ class LegendComponent(BaseComponent):
     def __init__(self, x: int = 20, y: int = 150):
         self.x = x
         self.y = y
+        self.font_size = font_size
+        self.line_spacing = line_spacing
         self.lines = [
             "Controls:",
             "[SPACE]  Pause/Resume",
@@ -32,7 +34,9 @@ class LegendComponent(BaseComponent):
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
         ]
+
     def draw(self, window):
+        start_y = self.y
         for i, line in enumerate(self.lines):
             arcade.Text(
                 line,
@@ -42,6 +46,12 @@ class LegendComponent(BaseComponent):
                 14,
                 bold=(i == 0)
             ).draw()
+
+    def on_resize(self, window):
+        # Keep a margin from the top
+        self.y = window.height - 150
+
+
 
 class WeatherComponent(BaseComponent):
     def __init__(self, left=20, width=280, height=130, top_offset=170):
@@ -92,6 +102,7 @@ class LeaderboardComponent(BaseComponent):
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
         # entries sorted as expected
         self.entries = entries
+        
     def draw(self, window):
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
