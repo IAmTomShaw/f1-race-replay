@@ -1,21 +1,29 @@
 import os
 import arcade
+import arcade.gui
 import numpy as np
-from src.f1_data import FPS
-from src.ui_components import LeaderboardComponent, WeatherComponent, LegendComponent, DriverInfoComponent, build_track_from_example_lap
-
+from src.f1_data import FPS, get_season_schedule, load_session, get_race_telemetry
+from src.ui_components import LeaderboardComponent, WeatherComponent, LegendComponent, DriverInfoComponent, build_track_from_example_lap, CircuitGridButton
+import threading
 
 # Kept these as "default" starting sizes, but they are no longer hard limits
 SCREEN_WIDTH = 1920
-SCREEN_HEIGHT = 1200
-SCREEN_TITLE = "F1 Replay"
+SCREEN_HEIGHT = 1080
+SCREEN_TITLE = "F1 Race Replay System"
 
-class F1RaceReplayWindow(arcade.Window):
-    def __init__(self, frames, track_statuses, example_lap, drivers, title,
+# class F1RaceReplayWindow(arcade.Window):
+#    def __init__(self, frames, track_statuses, example_lap, drivers, title,
+#                 playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
+#                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+#        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
+
+
+class ReplayView(arcade.View):
+    def __init__(self, window, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None):
         # Set resizable to True so the user can adjust mid-sim
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
+        super().__init__(window=window)
 
         self.frames = frames
         self.track_statuses = track_statuses
@@ -36,6 +44,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.finished_drivers = []
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
+
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240)
@@ -69,7 +78,7 @@ class F1RaceReplayWindow(arcade.Window):
         # These will hold the actual screen coordinates to draw
         self.screen_inner_points = []
         self.screen_outer_points = []
-        
+
         # Scaling parameters (initialized to 0, calculated in update_scaling)
         self.world_scale = 1.0
         self.tx = 0
@@ -87,6 +96,47 @@ class F1RaceReplayWindow(arcade.Window):
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
+
+        # [CRITICAL FIX] Explicitly pass 'window=self.window' to UIManager.
+        self.ui_manager = arcade.gui.UIManager(window=self.window)
+        self.create_ui()
+
+    def create_ui(self):
+        # [Added] Create button texture and instance
+        bg_tex = arcade.make_soft_square_texture(140, (60, 60, 60), outer_alpha=200)
+        hover_tex = arcade.make_soft_square_texture(140, (100, 100, 100), outer_alpha=255)
+
+        menu_btn = arcade.gui.UITextureButton(
+            text="Exit to Menu",
+            texture=bg_tex,
+            texture_hovered=hover_tex,
+            texture_pressed=hover_tex,
+            width=140, height=40
+        )
+
+        menu_btn.on_click = self.on_menu_button_click
+
+        self.ui_anchor = arcade.gui.UIAnchorLayout()
+        self.ui_anchor.add(
+            menu_btn,
+            anchor_x="left",
+            anchor_y="bottom",
+            align_x=20,
+            align_y=20
+        )
+        self.ui_manager.add(self.ui_anchor)
+
+    # Enable UI manager when this view is shown
+    def on_show_view(self):
+        self.ui_manager.enable()
+        self.window.set_mouse_visible(True)
+        arcade.set_background_color(arcade.color.BLACK)
+
+    # Disable UI manager when we leave this view
+    def on_hide_view(self):
+        self.ui_manager.disable()
+        self.window.set_mouse_visible(True)
+
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
@@ -125,7 +175,7 @@ class F1RaceReplayWindow(arcade.Window):
 
     def update_scaling(self, screen_w, screen_h):
         """
-        Recalculates the scale and translation to fit the track 
+        Recalculates the scale and translation to fit the track
         perfectly within the new screen dimensions while maintaining aspect ratio.
         """
         padding = 0.05
@@ -157,7 +207,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         world_w = max(1.0, world_x_max - world_x_min)
         world_h = max(1.0, world_y_max - world_y_min)
-        
+
         # Reserve left/right UI margins before applying padding so the track
         # never overlaps side UI elements (leaderboard, telemetry, legends).
         inner_w = max(1.0, screen_w - self.left_ui_margin - self.right_ui_margin)
@@ -257,7 +307,7 @@ class F1RaceReplayWindow(arcade.Window):
             track_color = STATUS_COLORS.get("RED")
         elif current_track_status == "6" or current_track_status == "7":
             track_color = STATUS_COLORS.get("VSC")
- 
+
         if len(self.screen_inner_points) > 1:
             arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
         if len(self.screen_outer_points) > 1:
@@ -269,9 +319,9 @@ class F1RaceReplayWindow(arcade.Window):
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
             arcade.draw_circle_filled(sx, sy, 6, color)
-        
+
         # --- UI ELEMENTS (Dynamic Positioning) ---
-        
+
         # Determine Leader info using projected along-track distance (more robust than dist)
         # Use the progress metric in metres for each driver and use that to order the leaderboard.
         driver_progress = {}
@@ -305,39 +355,39 @@ class F1RaceReplayWindow(arcade.Window):
         seconds = int(t % 60)
         time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
 
-        # Format Lap String 
+        # Format Lap String
         lap_str = f"Lap: {leader_lap}"
         if self.total_laps is not None:
             lap_str += f"/{self.total_laps}"
 
-        # Draw HUD - Top Left                         
+        # Draw HUD - Top Left
         arcade.Text(lap_str,
-                          20, self.height - 40, 
+                          20, self.height - 40,
                           arcade.color.WHITE, 24, anchor_y="top").draw()
-        
-        arcade.Text(f"Race Time: {time_str} (x{self.playback_speed})", 
-                         20, self.height - 80, 
+
+        arcade.Text(f"Race Time: {time_str} (x{self.playback_speed})",
+                         20, self.height - 80,
                          arcade.color.WHITE, 20, anchor_y="top").draw()
-        
+
         if current_track_status == "2":
             status_text = "YELLOW FLAG"
-            arcade.Text(status_text, 
+            arcade.Text(status_text,
                              20, self.height - 120,
                              arcade.color.YELLOW, 24, bold=True, anchor_y="top").draw()
         elif current_track_status == "5":
             status_text = "RED FLAG"
-            arcade.Text(status_text, 
-                             20, self.height - 120, 
+            arcade.Text(status_text,
+                             20, self.height - 120,
                              arcade.color.RED, 24, bold=True, anchor_y="top").draw()
         elif current_track_status == "6":
             status_text = "VIRTUAL SAFETY CAR"
-            arcade.Text(status_text, 
-                             20, self.height - 120, 
+            arcade.Text(status_text,
+                             20, self.height - 120,
                              arcade.color.ORANGE, 24, bold=True, anchor_y="top").draw()
         elif current_track_status == "4":
             status_text = "SAFETY CAR"
-            arcade.Text(status_text, 
-                             20, self.height - 120, 
+            arcade.Text(status_text,
+                             20, self.height - 120,
                              arcade.color.BROWN, 24, bold=True, anchor_y="top").draw()
 
         # Weather component (set info then draw)
@@ -361,15 +411,16 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 150 # Height of legend block
+        legend_y = 230 # Height of legend block
         legend_lines = [
             "Controls:",
             "[SPACE]  Pause/Resume",
             "[←/→]    Rewind / FastForward",
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
+            "[ESC]     Back to Menu"
         ]
-        
+
         for i, line in enumerate(legend_lines):
             arcade.Text(
                 line,
@@ -379,10 +430,13 @@ class F1RaceReplayWindow(arcade.Window):
                 14,
                 bold=(i == 0)
             ).draw()
-        
+
         # Selected driver info component
         self.driver_info_comp.draw(self)
-                    
+
+        # Draw UI buttons last
+        self.ui_manager.draw()
+
     def on_update(self, delta_time: float):
         if self.paused:
             return
@@ -419,3 +473,236 @@ class F1RaceReplayWindow(arcade.Window):
             return
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
+
+    # --- Key and Button Handlers for View Transition ---
+
+    def on_menu_button_click(self, event):
+        print("Menu button clicked - Switching to Main Menu View")
+        self.ui_manager.disable()
+        main_menu_view = MainMenuView(self.window)
+        self.window.show_view(main_menu_view)
+
+    def on_key_press(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.ESCAPE:
+            print("ESC pressed - Switching to Main Menu View")
+            self.ui_manager.disable()
+            main_menu_view = MainMenuView(self.window)
+            self.window.show_view(main_menu_view)
+            return
+
+        if symbol == arcade.key.SPACE: self.paused = not self.paused
+        elif symbol == arcade.key.RIGHT: self.frame_index = min(self.frame_index + 10.0, self.n_frames - 1)
+        elif symbol == arcade.key.LEFT: self.frame_index = max(self.frame_index - 10.0, 0.0)
+        elif symbol == arcade.key.UP: self.playback_speed *= 2.0
+        elif symbol == arcade.key.DOWN: self.playback_speed = max(0.1, self.playback_speed / 2.0)
+        elif symbol == arcade.key.KEY_1: self.playback_speed = 0.5
+        elif symbol == arcade.key.KEY_2: self.playback_speed = 1.0
+        elif symbol == arcade.key.KEY_3: self.playback_speed = 2.0
+        elif symbol == arcade.key.KEY_4: self.playback_speed = 4.0
+        elif symbol == arcade.key.R: self.frame_index = 0.0; self.playback_speed = 1.0
+
+
+class MainMenuView(arcade.View):  # Inherit from arcade.View
+    def __init__(self, window, year=2025):
+        super().__init__(window)  # Pass the window instance
+        self.selected_year = year
+        self.schedule = None
+        self.loading_data = False
+        self.status_message = "Fetching Schedule..."
+        self.selected_race_data = None
+        self.finished_loading = False
+        self.should_create_ui = False
+        self.debug_grid_area = None
+
+        self.manager = arcade.gui.UIManager()
+
+        self.reload_schedule()
+
+    # Enable UI manager when this view is shown
+    def on_show_view(self):
+        self.manager.enable()
+        self.window.set_mouse_visible(True)
+        arcade.set_background_color(arcade.color.BLACK)
+
+    # Disable UI manager when we leave this view
+    def on_hide_view(self):
+        self.manager.disable()
+
+    def reload_schedule(self):
+        self.status_message = f"Fetching Season {self.selected_year}..."
+        self.schedule = None
+        self.manager.clear()
+        threading.Thread(target=self._load_worker, daemon=True).start()
+
+    def _load_worker(self):
+        self.schedule = get_season_schedule(self.selected_year)
+        self.should_create_ui = True
+
+    def launch_data_loader(self, round_num, event_name):
+        self.loading_data = True
+        self.status_message = f"Loading {event_name}..."
+
+        def _job():
+            try:
+                session = load_session(self.selected_year, round_num, 'R')
+                data = get_race_telemetry(session)
+                real_track_data = session.laps.pick_fastest().get_telemetry()
+
+                self.selected_race_data = {
+                    "frames": data["frames"],
+                    "track_statuses": data["track_statuses"],
+                    "driver_colors": data["driver_colors"],
+                    "total_laps": data["total_laps"],
+                    "title": f"F1 Replay - {event_name}",
+                    "example_lap": real_track_data
+                }
+                self.finished_loading = True
+            except Exception as e:
+                print(f"Error: {e}")
+                self.loading_data = False
+                self.status_message = "Error. Check console."
+
+        threading.Thread(target=_job, daemon=True).start()
+
+    def on_prev_year(self, event):
+        if self.loading_data: return
+        self.selected_year -= 1
+        self.reload_schedule()
+
+    def on_next_year(self, event):
+        if self.loading_data: return
+        self.selected_year += 1
+        self.reload_schedule()
+
+    def on_btn_click(self, r_num, event_name):
+        if self.loading_data: return
+        self.launch_data_loader(r_num, event_name)
+
+    def on_update(self, delta_time):
+        if self.finished_loading:
+            if self.selected_race_data:
+                print("Data loaded. Switching to Replay View.")
+
+                self.manager.disable()
+
+                data = self.selected_race_data
+                drivers = data['driver_colors'].keys()
+
+                # Instantiate the ReplayView and transition
+                replay_view = ReplayView(
+                    self.window,
+                    frames=data['frames'],
+                    track_statuses=data['track_statuses'],
+                    example_lap=data.get('example_lap'),
+                    drivers=drivers,
+                    playback_speed=1.0,
+                    driver_colors=data['driver_colors'],
+                    title=data['title'],
+                    total_laps=data['total_laps'],
+                    circuit_rotation=0.0,
+                )
+                self.window.show_view(replay_view)
+
+            self.selected_race_data = None
+            self.finished_loading = False
+            self.loading_data = False
+            self.status_message = ""
+
+        if self.should_create_ui:
+            if self.window.ctx:
+                self.create_ui()
+                self.should_create_ui = False
+
+    def on_resize(self, width, height):
+        if not hasattr(self, 'schedule'): return
+        if self.schedule is not None: self.create_ui()
+
+    def on_key_press(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.ESCAPE:
+            self.window.close()
+
+    def on_draw(self):
+        self.clear()
+        self.manager.draw()
+
+        if not self.manager.children and self.status_message:
+            arcade.Text(self.status_message, self.window.width / 2, self.window.height / 2,
+                        arcade.color.WHITE, 20, anchor_x="center").draw()
+
+        if self.loading_data:
+            screen_rect = arcade.LBWH(0, 0, self.window.width, self.window.height)
+            arcade.draw_rect_filled(screen_rect, (0, 0, 0, 200))
+            arcade.Text("LOADING...", self.window.width / 2, self.window.height / 2 + 20,
+                        arcade.color.WHITE, 30, anchor_x="center", bold=True).draw()
+            arcade.Text(self.status_message, self.window.width / 2, self.window.height / 2 - 20,
+                        arcade.color.LIGHT_GRAY, 16, anchor_x="center").draw()
+
+    def create_ui(self):
+        self.manager.clear()
+        self.status_message = ""
+        cols, rows, gap = 6, 4, 15
+        total_grid_width_target = self.window.width * 0.85
+        btn_w = int((total_grid_width_target - (gap * (cols - 1))) / cols)
+        btn_h = 130
+        grid_real_width = (cols * btn_w) + ((cols - 1) * gap)
+        grid_real_height = (rows * btn_h) + ((rows - 1) * gap)
+        header_anchor = arcade.gui.UIAnchorLayout()
+        header_box = arcade.gui.UIBoxLayout(vertical=True, space_between=10)
+
+        header_box.add(arcade.gui.UILabel(
+            text="F1 Race Replay", font_size=36, text_color=arcade.color.WHITE, height=50
+        ))
+        year_row = arcade.gui.UIBoxLayout(vertical=False, space_between=20)
+        prev_btn = arcade.gui.UIFlatButton(text="<", width=50);
+        prev_btn.on_click = self.on_prev_year;
+        year_row.add(prev_btn)
+        year_row.add(
+            arcade.gui.UILabel(text=f"Season {self.selected_year}", font_size=28, text_color=arcade.color.WHITE,
+                               width=200, align="center"))
+        next_btn = arcade.gui.UIFlatButton(text=">", width=50);
+        next_btn.on_click = self.on_next_year;
+        year_row.add(next_btn)
+        header_box.add(year_row)
+        header_anchor.add(header_box, anchor_x="center", anchor_y="top", align_y=-20)
+        self.manager.add(header_anchor)
+
+        grid_anchor = arcade.gui.UIAnchorLayout()
+        if self.schedule is not None and not self.schedule.empty:
+            count = 0
+            center_y_bias = -50
+            start_x = -(grid_real_width / 2);
+            start_y = (grid_real_height / 2) + center_y_bias
+
+            for idx, row in self.schedule.iterrows():
+                if count >= (cols * rows): break
+                c_idx = count % cols;
+                r_idx = count // cols
+                pos_x = start_x + (c_idx * (btn_w + gap)) + (btn_w / 2)
+                pos_y = start_y - (r_idx * (btn_h + gap)) - (btn_h / 2)
+
+                # [MODIFIED] Pass 'Location' to circuit_name argument
+                btn = CircuitGridButton(
+                    round_num=row['RoundNumber'],
+                    event_name=row['EventName'],
+                    year=self.selected_year,
+                    country=row['Country'],
+                    circuit_name=row['Location'],  # Passed location data here
+                    width=btn_w,
+                    height=btn_h
+                )
+
+                btn.on_click = lambda e, r=row['RoundNumber'], n=row['EventName']: self.on_btn_click(r, n)
+                grid_anchor.add(btn, anchor_x="center", anchor_y="center", align_x=pos_x, align_y=pos_y)
+                count += 1
+        else:
+            grid_anchor.add(arcade.gui.UILabel(text="No Schedule Found.", font_size=20, text_color=arcade.color.RED),
+                            anchor_x="center", anchor_y="center")
+        self.manager.add(grid_anchor)
+
+
+def run_main_menu(window):
+
+    main_menu_view = MainMenuView(window)
+    window.show_view(main_menu_view)
+
+    return None

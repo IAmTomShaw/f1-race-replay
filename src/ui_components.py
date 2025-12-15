@@ -4,6 +4,10 @@ from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
 import numpy as np
 import os
+import arcade.gui
+import threading
+from PIL import Image, ImageDraw, ImageFont
+from src.wiki_utils import fetch_circuit_image
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
   if degrees is None:
@@ -468,3 +472,144 @@ def build_track_from_example_lap(example_lap, track_width=200):
     return (plot_x_ref, plot_y_ref, x_inner, y_inner, x_outer, y_outer,
             x_min, x_max, y_min, y_max)
 
+
+class CircuitGridButton(arcade.gui.UITextureButton):
+
+    def __init__(self, round_num, event_name, year, country, circuit_name, width=250, height=140):
+        w, h = int(width), int(height)
+
+        clean_event_name = event_name.replace('Grand Prix', 'GP')
+        display_text = f"R{round_num}\n{clean_event_name}\n{circuit_name} Circuit"
+
+        # Normal state: Dark Gray
+        normal_pil = Image.new("RGBA", (w, h), (40, 40, 40, 255))
+        # Hover state: Brighter Gray (100) for better visibility
+        hover_pil = Image.new("RGBA", (w, h), (100, 100, 100, 255))
+
+        self._draw_text_on_image(normal_pil, display_text)
+
+        self.normal_tex = arcade.Texture(name=f"btn_norm_{round_num}", image=normal_pil)
+        self.hover_base_tex = arcade.Texture(name=f"btn_hover_base_{round_num}", image=hover_pil)
+
+        super().__init__(
+            texture=self.normal_tex,
+            texture_hovered=self.hover_base_tex,
+            texture_pressed=self.hover_base_tex,
+            text="",
+            width=w, height=h, size_hint=(None, None)
+        )
+
+        self.round_num = round_num;
+        self.event_name = event_name;
+        self.year = year;
+        self.country = country
+        self.image_path = None;
+        self.texture_loaded = False
+        self._start_image_download()
+
+    def _draw_text_on_image(self, image, text):
+        draw = ImageDraw.Draw(image)
+        w, h = image.size
+
+        # Dynamic font size based on button width
+        font_size = max(14, int(w / 16))
+
+        # Try to load a standard font, fallback to default if not found
+        try:
+            font = ImageFont.truetype("arial.ttf", font_size)
+        except IOError:
+            try:
+                font = ImageFont.truetype("DejaVuSans.ttf", font_size)
+            except IOError:
+                font = ImageFont.load_default()
+
+        lines = text.split('\n')
+        line_spacing = 6  # Adjusted line spacing for better readability
+
+        # Calculate heights for vertical centering
+        line_heights = []
+        total_text_height = 0
+
+        for line in lines:
+            if hasattr(draw, 'textbbox'):
+                bbox = draw.textbbox((0, 0), line, font=font)
+                lh = bbox[3] - bbox[1]
+            else:
+                lh = draw.textsize(line, font=font)[1]
+            lh = max(lh, font_size)
+            line_heights.append(lh)
+            total_text_height += lh
+
+        total_text_height += (len(lines) - 1) * line_spacing
+
+        # Start drawing
+        current_y = (h - total_text_height) / 2
+
+        for i, line in enumerate(lines):
+            # Calculate width for horizontal centering
+            if hasattr(draw, 'textbbox'):
+                bbox = draw.textbbox((0, 0), line, font=font)
+                lw = bbox[2] - bbox[0]
+            else:
+                lw = draw.textsize(line, font=font)[0]
+
+            current_x = (w - lw) / 2
+
+            # Draw text (White color)
+            draw.text((current_x, current_y), line, font=font, fill=(255, 255, 255))
+            current_y += line_heights[i] + line_spacing
+
+    def _start_image_download(self):
+        threading.Thread(target=fetch_circuit_image,
+                         args=(self.year, self.event_name, lambda path: setattr(self, 'image_path', path)),
+                         daemon=True).start()
+
+    def on_update(self, dt):
+        if self.image_path and not self.texture_loaded:
+            try:
+                # 1. Load Image
+                pil_image = Image.open(self.image_path).convert("RGBA")
+
+                # 2. Crop transparent margins
+                bbox = pil_image.getbbox()
+                if bbox: pil_image = pil_image.crop(bbox)
+
+                # 3. Prepare Canvas
+                btn_w, btn_h = int(self.width), int(self.height)
+
+                # Copy the clean hover base (no text)
+                base_img = self.hover_base_tex.image.copy().convert("RGBA")
+
+                # Resize base if dimensions mismatch (handling dynamic resizing)
+                if base_img.size != (btn_w, btn_h):
+                    base_img = base_img.resize((btn_w, btn_h), Image.Resampling.LANCZOS)
+
+                # 4. Aspect Ratio Preserving Resize (Contain)
+                img_w, img_h = pil_image.size
+
+                ratio_w = btn_w / img_w
+                ratio_h = btn_h / img_h
+
+                # Use the smaller ratio to ensure the image fits entirely
+                scale = min(ratio_w, ratio_h)
+                new_w = int(img_w * scale)
+                new_h = int(img_h * scale)
+
+                final_track_img = pil_image.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+                # 5. Center Paste
+                dest_x = (btn_w - new_w) // 2
+                dest_y = (btn_h - new_h) // 2
+
+                base_img.paste(final_track_img, (dest_x, dest_y), final_track_img)
+
+                # 6. Apply Texture
+                composite_texture = arcade.Texture(name=f"{self.event_name}_composite", image=base_img)
+                self.texture_hovered = composite_texture
+                self.texture_pressed = composite_texture
+                self.texture_loaded = True
+                self.trigger_render()
+            except Exception as e:
+                print(f"Texture Load Error: {e}")
+                self.texture_loaded = True
+        super().on_update(dt)
