@@ -5,4 +5,6 @@ description = "A Python application for visualizing Formula 1 race telemetry and
 readme = "README.md"
 requires-python = ">=3.8"
 dependencies = [
+    "arcade>=2.3.15",
+    "fastf1>=3.3.9",
 ]
