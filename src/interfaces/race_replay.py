@@ -413,7 +413,11 @@ class F1RaceReplayWindow(arcade.Window):
             "[B]       Toggle Progress Bar",
             "[C]       Toggle Championship View",
         ]
-        
+
+        # Only show championship toggle if data is available
+        if self.championship_standings:
+            legend_lines.append("[C]       Toggle Championship View")
+
         for i, line in enumerate(legend_lines):
             arcade.Text(
                 line,
@@ -550,7 +554,9 @@ class F1RaceReplayWindow(arcade.Window):
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.C:
-            self.championship_comp.toggle_visibility()
+            # Only toggle championship view if data is available
+            if self.championship_standings:
+                self.championship_comp.toggle_visibility()
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
