@@ -1,10 +1,10 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
 
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R'):
+def main(year=None, round_number=None, session_type='R', chart=False):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
@@ -21,7 +21,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Run the arcade screen showing qualifying results
 
-    title = f"{session.event['EventName']} - {'Sprint Qualifying' if session_type == 'SQ' else 'Qualifying Results'}"
+    title = f"{session.event.get('EventName', 'Unknown Event')} - {'Sprint Qualifying' if session_type == 'SQ' else 'Qualifying Results'}"
     
     run_qualifying_replay(
       session=session,
@@ -47,9 +47,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Run the arcade replay
 
-    # Check for optional chart flag
-    chart = "--chart" in sys.argv
-
     run_arcade_replay(
         frames=race_telemetry['frames'],
         track_statuses=race_telemetry['track_statuses'],
@@ -64,7 +61,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     )
 
 if __name__ == "__main__":
-
   # Get the year and round number from user input
 
   if "--year" in sys.argv:
@@ -79,9 +75,15 @@ if __name__ == "__main__":
   else:
     round_number = 12  # Default round number
 
-  playback_speed = 1
+  if "--list-rounds" in sys.argv:
+    list_rounds(year)
+  elif "--list-sprints" in sys.argv:
+    list_sprints(year)
+  else:
+    # Session type selection
+    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
 
-# Session type selection
-  session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-  
-  main(year, round_number, playback_speed, session_type=session_type)
+    # Check for optional chart flag
+    chart = "--chart" in sys.argv
+
+    main(year, round_number, session_type=session_type, chart=chart)
