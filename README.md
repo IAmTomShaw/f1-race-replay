@@ -41,6 +41,11 @@ FastF1 cache folder will be created automatically on first run. If it is not cre
 
 ## Usage
 
+Run this to start the menu:
+```bash
+python main.py 
+```
+
 Run the main script and specify the year and round:
 ```bash
 python main.py --year 2025 --round 12

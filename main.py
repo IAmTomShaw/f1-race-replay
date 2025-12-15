@@ -64,24 +64,44 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     )
 
 if __name__ == "__main__":
-
-  # Get the year and round number from user input
-
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
-
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
-
-  playback_speed = 1
-
-# Session type selection
-  session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
   
-  main(year, round_number, playback_speed, session_type=session_type)
+  # Check if we should use the Menu (no args provided besides the script name)
+  if len(sys.argv) == 1:
+      # No arguments provided, show menu
+      from src.interfaces.menu import MainMenuWindow
+      import arcade
+      
+      menu_window = MainMenuWindow()
+      arcade.run()
+      
+      # When menu closes, check if we have a selection
+      if hasattr(menu_window, 'result'):
+          print(f"Starting replay from menu selection: {menu_window.result}")
+          main(
+              year=menu_window.result['year'],
+              round_number=menu_window.result['round'],
+              session_type=menu_window.result['session_type']
+          )
+      else:
+          print("Menu closed without selection.")
+
+  else:
+      # Get the year and round number from user input
+      if "--year" in sys.argv:
+        year_index = sys.argv.index("--year") + 1
+        year = int(sys.argv[year_index])
+      else:
+        year = 2025  # Default year
+
+      if "--round" in sys.argv:
+        round_index = sys.argv.index("--round") + 1
+        round_number = int(sys.argv[round_index])
+      else:
+        round_number = 12  # Default round number
+
+      playback_speed = 1
+
+      # Session type selection
+      session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+      
+      main(year, round_number, playback_speed, session_type=session_type)
