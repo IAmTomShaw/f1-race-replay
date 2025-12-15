@@ -13,7 +13,7 @@ SCREEN_TITLE = "F1 Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+                 left_ui_margin=340, right_ui_margin=420, total_laps=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -38,7 +38,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.right_ui_margin = right_ui_margin
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
-        self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240)
+        # Explicitly set width to 400
+        self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=400)
         self.weather_comp = WeatherComponent(left=20, top_offset=170)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
@@ -352,7 +353,14 @@ class F1RaceReplayWindow(arcade.Window):
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
-            driver_list.append((code, color, pos, progress_m))
+            
+            # Use .get with a default value to handle cases where cached data is old or missing
+            last_lap = pos.get("last_lap_time_str", "---")
+            interval = pos.get("interval_str", "---")
+            
+            # Pass all 6 required elements to the leaderboard
+            driver_list.append((code, color, pos, progress_m, last_lap, interval))
+        
         driver_list.sort(key=lambda x: x[3], reverse=True)
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)

@@ -101,10 +101,12 @@ class WeatherComponent(BaseComponent):
             arcade.Text(line_text, self.left + 38, line_y, arcade.color.LIGHT_GRAY, 14, anchor_y="top").draw()
 
 class LeaderboardComponent(BaseComponent):
-    def __init__(self, x: int, right_margin: int = 260, width: int = 240):
+    # Updated width from 240 to 400 to accommodate lap times and gaps
+    def __init__(self, x: int, right_margin: int = 260, width: int = 400): 
         self.x = x
         self.width = width
-        self.entries = []  # list of tuples (code, color, pos, progress_m)
+        # Updated entries list to include new fields
+        self.entries = []  # list of tuples (code, color, pos, progress_m, last_lap_time_str, interval_str)
         self.rects = []    # clickable rects per entry
         self.selected = None
         self.row_height = 25
@@ -118,33 +120,71 @@ class LeaderboardComponent(BaseComponent):
                     texture_path = os.path.join(tyres_folder, filename)
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
 
-    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
+    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float, str, str]]):
         # entries sorted as expected
         self.entries = entries
+        
     def draw(self, window):
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        
+        # --- NEW HEADER ROW ---
+        header_y = leaderboard_y - 25
+        header_text_color = arcade.color.LIGHT_GRAY
+        
+        # Position + Code
+        arcade.Text("POS / DRV", self.x, header_y, header_text_color, 10, anchor_x="left", anchor_y="top").draw()
+        
+        # Last Lap Time (Approx center)
+        lap_time_x = self.x + self.width * 0.45 
+        arcade.Text("LAP TIME", lap_time_x, header_y, header_text_color, 10, anchor_x="center", anchor_y="top").draw()
+        
+        # Interval / Gap (Right side)
+        # Positioned to leave space for the Tyre Icon on the far right
+        interval_x = self.x + self.width - 45 
+        arcade.Text("INTERVAL", interval_x, header_y, header_text_color, 10, anchor_x="right", anchor_y="top").draw()
+        
+        # --- END NEW HEADER ROW ---
+
         self.rects = []
-        for i, (code, color, pos, progress_m) in enumerate(self.entries):
+        # Unpacked two new fields: last_lap_time_str, interval_str
+        for i, (code, color, pos, progress_m, last_lap_time_str, interval_str) in enumerate(self.entries):
             current_pos = i + 1
-            top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
+            # Adjusted vertical starting position to account for the new header row
+            top_y = leaderboard_y - 45 - ((current_pos - 1) * self.row_height) 
             bottom_y = top_y - self.row_height
             left_x = self.x
             right_x = self.x + self.width
             self.rects.append((code, left_x, bottom_y, right_x, top_y))
+            
+            # Draw Selection Highlight
             if code == self.selected:
                 rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
                 arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
                 text_color = arcade.color.BLACK
             else:
                 text_color = color
-            text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
-            arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+            
+            # 1. POS / DRV Text
+            driver_text = f"{current_pos}. {code}"
+            if pos.get("rel_dist",0) == 1 or pos.get("dist", 0) == 0:
+                 driver_text = f"{current_pos}. {code}   OUT"
+            arcade.Text(driver_text, left_x + 5, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            # 2. LAST LAP TIME Text
+            # Only display lap time if the driver has completed a lap (lap > 1)
+            if pos.get("lap", 1) > 1 and last_lap_time_str != "---":
+                arcade.Text(last_lap_time_str, lap_time_x, top_y, text_color, 14, anchor_x="center", anchor_y="top").draw()
+
+            # 3. INTERVAL/GAP Text
+            # Interval/Gap is displayed on the right
+            arcade.Text(interval_str, right_x - 45, top_y, text_color, 14, anchor_x="right", anchor_y="top").draw()
+
+
+            # 4. Tyre Icons (positioned on the far right)
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
-                # position tyre icon inside the leaderboard area so it doesn't collide with track
+                # position tyre icon at the far right edge
                 tyre_icon_x = left_x + self.width - 10
                 tyre_icon_y = top_y - 12
                 icon_size = 16
@@ -467,4 +507,3 @@ def build_track_from_example_lap(example_lap, track_width=200):
 
     return (plot_x_ref, plot_y_ref, x_inner, y_inner, x_outer, y_outer,
             x_min, x_max, y_min, y_max)
-
