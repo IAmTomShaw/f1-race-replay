@@ -229,6 +229,9 @@ def _process_single_driver(args):
     throttle_all = []
     brake_all = []
 
+    # Track lap completion times for fastest lap calculation
+    lap_completions = []
+
     total_dist_so_far = 0.0
 
     # iterate laps in order
@@ -268,6 +271,14 @@ def _process_single_driver(args):
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
 
+        # Record lap completion (if lap has valid time)
+        if pd.notna(lap.LapTime) and len(t_lap) > 0:
+            lap_completions.append({
+                'lap_number': int(lap_number),
+                'completion_time': float(t_lap[-1]),  # Last timestamp in lap telemetry
+                'lap_time': float(lap.LapTime.total_seconds())
+            })
+
     if not t_all:
         return None
 
@@ -290,7 +301,7 @@ def _process_single_driver(args):
     brake_all = np.concatenate(brake_all)[order]
 
     print(f"Completed telemetry for driver: {driver_code}")
-    
+
     return {
         "code": driver_code,
         "data": {
@@ -298,7 +309,7 @@ def _process_single_driver(args):
             "x": x_all,
             "y": y_all,
             "dist": race_dist_all,
-            "rel_dist": rel_dist_all,                   
+            "rel_dist": rel_dist_all,
             "lap": lap_numbers,
             "tyre": tyre_compounds,
             "speed": speed_all,
@@ -309,7 +320,8 @@ def _process_single_driver(args):
         },
         "t_min": t_all.min(),
         "t_max": t_all.max(),
-        "max_lap": driver_max_lap
+        "max_lap": driver_max_lap,
+        "lap_completions": lap_completions
     }
 
 def load_session(year, round_number, session_type='R'):
@@ -503,26 +515,24 @@ def get_race_telemetry(session, session_type='R'):
         except Exception as e:
             print(f"Weather data could not be processed: {e}")
 
-    # 4.2. Track fastest lap for each driver (for race sessions only)
-    fastest_lap_times = {}
-    if session_type == 'R':
-        # Get fastest lap for each driver
-        for driver_no in drivers:
-            driver_code = driver_codes[driver_no]
-            driver_laps = session.laps.pick_drivers(driver_no)
-            if not driver_laps.empty:
-                # Get fastest lap time (ignoring invalid laps)
-                valid_laps = driver_laps[driver_laps['LapTime'].notna()]
-                if not valid_laps.empty:
-                    fastest_lap = valid_laps['LapTime'].min()
-                    fastest_lap_times[driver_code] = fastest_lap.total_seconds()
+    # 4.2. Build global list of all lap completions for dynamic fastest lap tracking
+    # Shift completion times to match the timeline reference frame (relative to global_t_min)
+    all_lap_completions = []
+    for result in results:
+        if result is None:
+            continue
+        code = result["code"]
+        lap_completions = result.get("lap_completions", [])
+        for lap_comp in lap_completions:
+            all_lap_completions.append({
+                'driver': code,
+                'lap_number': lap_comp['lap_number'],
+                'completion_time': lap_comp['completion_time'] - global_t_min,  # Shift to match timeline
+                'lap_time': lap_comp['lap_time']
+            })
 
-    # Find overall fastest lap holder
-    fastest_lap_holder = None
-    fastest_lap_time = None
-    if fastest_lap_times:
-        fastest_lap_holder = min(fastest_lap_times.keys(), key=lambda k: fastest_lap_times[k])
-        fastest_lap_time = fastest_lap_times[fastest_lap_holder]
+    # Sort by completion time for efficient lookup during frame generation
+    all_lap_completions.sort(key=lambda x: x['completion_time'])
 
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
@@ -531,6 +541,10 @@ def get_race_telemetry(session, session_type='R'):
     # Pre-extract data references for faster access
     driver_codes_list = list(resampled_data.keys())
     driver_arrays = {code: resampled_data[code] for code in driver_codes_list}
+
+    # Initialize fastest lap tracking for O(n) incremental processing
+    current_fastest_lap = None
+    lap_idx = 0  # Pointer into sorted all_lap_completions
 
     for i in range(num_frames):
         t = timeline[i]
@@ -612,12 +626,28 @@ def get_race_telemetry(session, session_type='R'):
         if weather_snapshot:
             frame_payload["weather"] = weather_snapshot
 
-        # Add fastest lap info (for race sessions only)
-        if fastest_lap_holder and fastest_lap_time:
-            frame_payload["fastest_lap"] = {
-                "driver": fastest_lap_holder,
-                "time": fastest_lap_time
-            }
+        # Add fastest lap info dynamically (for race sessions only)
+        # Optimized O(n) incremental processing - process newly completed laps
+        if session_type == 'R' and all_lap_completions:
+            # Process any NEW lap completions at this frame time
+            while lap_idx < len(all_lap_completions):
+                lap = all_lap_completions[lap_idx]
+                if lap['completion_time'] > t:
+                    break  # No more laps completed yet at time t
+
+                # This lap just completed - check if it's the new fastest (exclude lap 0)
+                if lap['lap_number'] >= 1:
+                    if current_fastest_lap is None or lap['lap_time'] < current_fastest_lap['lap_time']:
+                        current_fastest_lap = lap
+
+                lap_idx += 1
+
+            # Add fastest lap to frame if any racing lap has been completed
+            if current_fastest_lap is not None:
+                frame_payload["fastest_lap"] = {
+                    "driver": current_fastest_lap['driver'],
+                    "time": current_fastest_lap['lap_time']
+                }
 
         frames.append(frame_payload)
     print("completed telemetry extraction...")
