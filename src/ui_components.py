@@ -1027,6 +1027,165 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
     return events
 
 
+
+class ChampionshipStandingsComponent(BaseComponent):
+    def __init__(self, x: int = 20, width: int = 400, top_offset: int = 40):
+        self.x = x
+        self.width = width
+        self.top_offset = top_offset
+        self.entries = []
+        self.session_type = 'R'  # 'R' for Race, 'S' for Sprint
+        self.row_height = 20
+        self.visible = True
+
+    def set_entries(self, entries: List[dict], session_type: str = 'R'):
+        """
+        Set championship standings entries.
+
+        Args:
+            entries: List of dicts with keys:
+                - driver_code: Driver abbreviation
+                - team_color: RGB tuple for team color
+                - current_points: Points before this race
+                - race_points: Points from current position
+                - projected_points: Total if race ended now
+                - current_position: Championship position before race
+                - projected_position: Championship position if race ended now
+                - position_change: +/- change in championship position
+                - race_position: Current race position
+                - has_fastest_lap: Boolean
+            session_type: 'R' for Race, 'S' for Sprint
+        """
+        self.entries = entries
+        self.session_type = session_type
+
+    def toggle_visibility(self):
+        """Toggle component visibility"""
+        self.visible = not self.visible
+
+    def draw(self, window):
+        if not self.visible or not self.entries:
+            return
+
+        panel_top = window.height - self.top_offset
+        panel_left = self.x
+
+        title = "DRIVERS CHAMPIONSHIP"
+
+        # Draw title
+        arcade.Text(
+            title,
+            panel_left + 10,
+            panel_top - 10,
+            arcade.color.WHITE,
+            16,
+            bold=True,
+            anchor_y="top"
+        ).draw()
+
+        # Draw header
+        header_y = panel_top - 35
+        arcade.Text("Pos", panel_left + 10, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
+        arcade.Text("Driver", panel_left + 50, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
+        arcade.Text("Current", panel_left + 140, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
+        arcade.Text("Projected", panel_left + 220, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
+        arcade.Text("Δ", panel_left + 310, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
+
+        # Draw entries
+        start_y = header_y - 20
+        for i, entry in enumerate(self.entries):
+            row_y = start_y - (i * self.row_height)
+
+            driver_code = entry.get('driver_code', '???')
+            team_color = entry.get('team_color', arcade.color.WHITE)
+            current_points = entry.get('current_points', 0)
+            projected_points = entry.get('projected_points', 0)
+            current_position = entry.get('current_position', i + 1)
+            projected_position = entry.get('projected_position', i + 1)
+            position_change = entry.get('position_change', 0)
+            race_points = entry.get('race_points', 0)
+            has_fastest_lap = entry.get('has_fastest_lap', False)
+
+            # Position change indicator
+            if position_change > 0:
+                change_symbol = "▲"
+                change_color = arcade.color.GREEN
+            elif position_change < 0:
+                change_symbol = "▼"
+                change_color = arcade.color.RED
+            else:
+                change_symbol = "─"
+                change_color = arcade.color.LIGHT_GRAY
+
+            # Draw row
+            # Position
+            arcade.Text(
+                f"{projected_position}",
+                panel_left + 10,
+                row_y,
+                arcade.color.WHITE,
+                12,
+                anchor_y="top"
+            ).draw()
+
+            # Change indicator
+            arcade.Text(
+                change_symbol,
+                panel_left + 32,
+                row_y,
+                change_color,
+                12,
+                anchor_y="top"
+            ).draw()
+
+            # Driver code with team color
+            arcade.Text(
+                driver_code,
+                panel_left + 50,
+                row_y,
+                team_color,
+                12,
+                bold=True,
+                anchor_y="top"
+            ).draw()
+
+            # Current points
+            arcade.Text(
+                f"{int(current_points)}",
+                panel_left + 140,
+                row_y,
+                arcade.color.LIGHT_GRAY,
+                12,
+                anchor_y="top"
+            ).draw()
+
+            # Projected points
+            arcade.Text(
+                f"{int(projected_points)}",
+                panel_left + 220,
+                row_y,
+                arcade.color.WHITE,
+                12,
+                anchor_y="top"
+            ).draw()
+
+            # Points delta
+            delta_text = f"+{race_points}" if race_points > 0 else "─"
+            delta_color = arcade.color.GREEN if race_points > 0 else arcade.color.LIGHT_GRAY
+
+            # Add fastest lap indicator for races
+            if has_fastest_lap and self.session_type == 'R':
+                delta_text += " ⚡"
+
+            arcade.Text(
+                delta_text,
+                panel_left + 310,
+                row_y,
+                delta_color,
+                12,
+                anchor_y="top"
+            ).draw()
+    
 # Build track geometry from example lap telemetry
 
 def build_track_from_example_lap(example_lap, track_width=200):

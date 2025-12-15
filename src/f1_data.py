@@ -24,6 +24,186 @@ def enable_cache():
 FPS = 25
 DT = 1 / FPS
 
+# Championship points constants
+RACE_POINTS = {
+    1: 25, 2: 18, 3: 15, 4: 12, 5: 10,
+    6: 8, 7: 6, 8: 4, 9: 2, 10: 1
+}
+
+SPRINT_POINTS = {
+    1: 8, 2: 7, 3: 6, 4: 5,
+    5: 4, 6: 3, 7: 2, 8: 1
+}
+
+FASTEST_LAP_BONUS = 1
+
+def is_fastest_lap_point_eligible(position, session_type, year):
+    """
+    Determine if a driver is eligible for the fastest lap bonus point.
+
+    Args:
+        position: Finishing position (1-20)
+        session_type: 'R' for Race, 'S' for Sprint
+        year: Season year
+
+    Returns:
+        Boolean indicating eligibility for fastest lap point
+    """
+    # Fastest lap point only awarded in races (not sprints)
+    if session_type != 'R':
+        return False
+
+    # Driver must finish in top 10
+    if position > 10:
+        return False
+
+    # Fastest lap point introduced in 2019
+    if year is not None and year < 2019:
+        return False
+
+    return True
+
+def calculate_points_for_position(position, session_type='R', has_fastest_lap=False, year=None):
+    """
+    Calculate championship points for a given position.
+
+    Args:
+        position: Race/sprint finishing position (1-20)
+        session_type: 'R' for Race, 'S' for Sprint
+        has_fastest_lap: Whether driver has fastest lap
+        year: Season year (fastest lap point only awarded from 2019 onwards)
+
+    Returns:
+        Integer points value
+    """
+    points = 0
+
+    if session_type == 'S':
+        # Sprint race: P1-P8 score points
+        points = SPRINT_POINTS.get(position, 0)
+    else:
+        # Grand Prix: P1-P10 score points
+        points = RACE_POINTS.get(position, 0)
+
+        # Award fastest lap bonus if eligible
+        if has_fastest_lap and is_fastest_lap_point_eligible(position, session_type, year):
+            points += FASTEST_LAP_BONUS
+
+    return points
+
+
+def get_championship_standings(year, round_number, session_type='R'):
+    """
+    Fetch championship standings before the current session.
+
+    Args:
+        year: Season year
+        round_number: Round number
+        session_type: 'R' for Race, 'S' for Sprint
+
+    Returns:
+        List of dicts with 'driver_code', 'points', 'position'
+    """
+    import fastf1.ergast
+
+    standings = []
+
+    try:
+        # For sprint sessions: get standings after previous round's GP
+        # For race sessions: get standings after previous round, then check for sprint in current round
+        if session_type == 'S':
+            # Sprint: Load standings before this weekend
+            ref_round = round_number - 1
+        else:
+            # Race: Load standings before this weekend (we'll add sprint points separately)
+            ref_round = round_number - 1
+
+        # Fetch standings from Ergast API
+        ergast = fastf1.ergast.Ergast()
+
+        # If this is the first race of the season, return empty standings (all drivers start at 0)
+        if ref_round < 1:
+            return []
+
+        # Get driver standings after the reference round
+        ergast_standings = ergast.get_driver_standings(season=year, round=ref_round)
+
+        if ergast_standings.content is None or len(ergast_standings.content) == 0:
+            print(f"Warning: No championship standings found for {year} round {ref_round}")
+            return []
+
+        # Parse the standings
+        for _, row in ergast_standings.content[0].iterrows():
+            # driverCode should be the 3-letter abbreviation
+            driver_code = str(row['driverCode']).upper()
+            points = float(row['points'])
+            position = int(row['position'])
+
+            standings.append({
+                'driver_code': driver_code,
+                'points': points,
+                'position': position
+            })
+
+        # If this is a GP session on a sprint weekend, add sprint points
+        if session_type == 'R':
+            try:
+                # Check if this round has a sprint
+                event = fastf1.get_event(year, round_number)
+
+                # Check if sprint exists by looking at the event format
+                if hasattr(event, 'EventFormat'):
+                    has_sprint = 'sprint' in str(event.EventFormat).lower()
+                elif hasattr(event, 'is_sprint_qualifying'):
+                    has_sprint = event.is_sprint_qualifying
+                else:
+                    has_sprint = False  # Default to False if unknown
+
+                if has_sprint:
+                    # Load sprint session results
+                    sprint_session = fastf1.get_session(year, round_number, 'S')
+                    sprint_session.load()
+
+                    sprint_results = sprint_session.results
+
+                    # Add sprint points to standings
+                    for _, result in sprint_results.iterrows():
+                        position = result['Position']
+                        driver_code = str(result['Abbreviation']).upper()  # Ensure uppercase
+
+                        # Calculate sprint points
+                        sprint_points = calculate_points_for_position(position, session_type='S', has_fastest_lap=False, year=year)
+
+                        if sprint_points > 0:
+                            # Find driver in standings and add points
+                            for standing in standings:
+                                if standing['driver_code'] == driver_code:
+                                    standing['points'] += sprint_points
+                                    break
+                            else:
+                                # Driver not in standings yet (shouldn't happen, but handle it)
+                                standings.append({
+                                    'driver_code': driver_code,
+                                    'points': sprint_points,
+                                    'position': len(standings) + 1
+                                })
+
+                    # Re-sort standings by points
+                    standings.sort(key=lambda x: x['points'], reverse=True)
+
+                    # Update positions
+                    for i, standing in enumerate(standings):
+                        standing['position'] = i + 1
+
+            except Exception as e:
+                print(f"Warning: Could not load sprint results for {year} round {round_number}: {e}")
+
+    except Exception as e:
+        print(f"Error fetching championship standings: {e}")
+        return []
+
+    return standings
+
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
     driver_no, session, driver_code = args
@@ -323,18 +503,39 @@ def get_race_telemetry(session, session_type='R'):
         except Exception as e:
             print(f"Weather data could not be processed: {e}")
 
+    # 4.2. Track fastest lap for each driver (for race sessions only)
+    fastest_lap_times = {}
+    if session_type == 'R':
+        # Get fastest lap for each driver
+        for driver_no in drivers:
+            driver_code = driver_codes[driver_no]
+            driver_laps = session.laps.pick_drivers(driver_no)
+            if not driver_laps.empty:
+                # Get fastest lap time (ignoring invalid laps)
+                valid_laps = driver_laps[driver_laps['LapTime'].notna()]
+                if not valid_laps.empty:
+                    fastest_lap = valid_laps['LapTime'].min()
+                    fastest_lap_times[driver_code] = fastest_lap.total_seconds()
+
+    # Find overall fastest lap holder
+    fastest_lap_holder = None
+    fastest_lap_time = None
+    if fastest_lap_times:
+        fastest_lap_holder = min(fastest_lap_times.keys(), key=lambda k: fastest_lap_times[k])
+        fastest_lap_time = fastest_lap_times[fastest_lap_holder]
+
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
     num_frames = len(timeline)
-    
+
     # Pre-extract data references for faster access
-    driver_codes = list(resampled_data.keys())
-    driver_arrays = {code: resampled_data[code] for code in driver_codes}
+    driver_codes_list = list(resampled_data.keys())
+    driver_arrays = {code: resampled_data[code] for code in driver_codes_list}
 
     for i in range(num_frames):
         t = timeline[i]
         snapshot = []
-        for code in driver_codes:
+        for code in driver_codes_list:
             d = driver_arrays[code]
             snapshot.append({
                 "code": code,
@@ -410,6 +611,13 @@ def get_race_telemetry(session, session_type='R'):
         }
         if weather_snapshot:
             frame_payload["weather"] = weather_snapshot
+
+        # Add fastest lap info (for race sessions only)
+        if fastest_lap_holder and fastest_lap_time:
+            frame_payload["fastest_lap"] = {
+                "driver": fastest_lap_holder,
+                "time": fastest_lap_time
+            }
 
         frames.append(frame_payload)
     print("completed telemetry extraction...")

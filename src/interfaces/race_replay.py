@@ -8,6 +8,7 @@ from src.ui_components import (
     LegendComponent, 
     DriverInfoComponent, 
     RaceProgressBarComponent,
+    ChampionshipStandingsComponent,
     extract_race_events,
     build_track_from_example_lap
 )
@@ -20,7 +21,8 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None,
+                 year=None, round_number=None, session_type='R'):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -34,6 +36,20 @@ class F1RaceReplayWindow(arcade.Window):
         self.paused = False
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
+
+        # Championship data
+        self.year = year
+        self.round_number = round_number
+        self.session_type = session_type
+        self.championship_standings = []
+
+        # Load championship standings if year and round are provided
+        if year and round_number:
+            try:
+                self.championship_standings = get_championship_standings(year, round_number, session_type)
+                print(f"Loaded championship standings for {year} Round {round_number} ({session_type})")
+            except Exception as e:
+                print(f"Could not load championship standings: {e}")
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -66,6 +82,8 @@ class F1RaceReplayWindow(arcade.Window):
             total_laps=total_laps or 0,
             events=race_events
         )
+
+        self.championship_comp = ChampionshipStandingsComponent(x=20, width=400, top_offset=320)
 
         # Build track geometry (Raw World Coordinates)
         (self.plot_x_ref, self.plot_y_ref,
@@ -385,7 +403,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 150 # Height of legend block
+        legend_y = 175 # Height of legend block (increased to fit new control)
         legend_lines = [
             "Controls:",
             "[SPACE]  Pause/Resume",
@@ -393,6 +411,7 @@ class F1RaceReplayWindow(arcade.Window):
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
             "[B]       Toggle Progress Bar",
+            "[C]       Toggle Championship View",
         ]
         
         for i, line in enumerate(legend_lines):
@@ -410,7 +429,95 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Race Progress Bar with event markers (DNF, flags, leader changes)
         self.progress_bar_comp.draw(self)
+
+        # Championship standings component
+        if self.championship_standings:
+            self._update_championship_standings(frame)
+        self.championship_comp.draw(self)
                     
+    def _update_championship_standings(self, frame):
+        """Calculate and update projected championship standings based on current race positions"""
+        # Get fastest lap holder from frame (for races only)
+        fastest_lap_holder = None
+        if self.session_type == 'R' and 'fastest_lap' in frame:
+            fastest_lap_holder = frame['fastest_lap'].get('driver')
+
+        # Calculate race positions the same way as the leaderboard (by progress, not stored position)
+        # This ensures consistency between what's shown in the leaderboard and championship standings
+        driver_progress = {}
+        for code, pos in frame["drivers"].items():
+            lap_raw = pos.get("lap", 1)
+            try:
+                lap = int(lap_raw)
+            except Exception:
+                lap = 1
+
+            # Project (x,y) to reference and combine with lap count
+            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+            driver_progress[code] = progress_m
+
+        # Sort by progress to get actual current positions
+        sorted_drivers = sorted(driver_progress.items(), key=lambda x: x[1], reverse=True)
+
+        # Build race_positions map with correct current positions
+        race_positions = {}
+        for position, (code, _) in enumerate(sorted_drivers, start=1):
+            race_positions[code] = position
+
+        # Calculate projected standings
+        entries = []
+        for standing in self.championship_standings:
+            driver_code = standing['driver_code']
+            current_points = standing['points']
+            current_position = standing['position']
+
+            # Get current race position - only award points if driver is actually in this race
+            if driver_code not in race_positions:
+                # Driver not in this race - use their current championship points
+                entries.append({
+                    'driver_code': driver_code,
+                    'team_color': self.driver_colors.get(driver_code, arcade.color.WHITE),
+                    'current_points': current_points,
+                    'race_points': 0,
+                    'projected_points': current_points,
+                    'current_position': current_position,
+                    'race_position': 99,
+                    'has_fastest_lap': False,
+                })
+                continue
+
+            race_position = race_positions[driver_code]
+
+            # Calculate points from current race position
+            has_fastest_lap = (fastest_lap_holder == driver_code) if fastest_lap_holder else False
+            race_points = calculate_points_for_position(race_position, self.session_type, has_fastest_lap, self.year)
+
+            # Projected total points
+            projected_points = current_points + race_points
+
+            entries.append({
+                'driver_code': driver_code,
+                'team_color': self.driver_colors.get(driver_code, arcade.color.WHITE),
+                'current_points': current_points,
+                'race_points': race_points,
+                'projected_points': projected_points,
+                'current_position': current_position,
+                'race_position': race_position,
+                'has_fastest_lap': has_fastest_lap,
+            })
+
+        # Sort by projected points to determine projected positions
+        entries.sort(key=lambda x: x['projected_points'], reverse=True)
+
+        # Assign projected positions and calculate position changes
+        for i, entry in enumerate(entries):
+            entry['projected_position'] = i + 1
+            entry['position_change'] = entry['current_position'] - entry['projected_position']
+
+        # Update component
+        self.championship_comp.set_entries(entries, self.session_type)
+
     def on_update(self, delta_time: float):
         if self.paused:
             return
@@ -442,6 +549,8 @@ class F1RaceReplayWindow(arcade.Window):
             self.playback_speed = 1.0
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+        elif symbol == arcade.key.C:
+            self.championship_comp.toggle_visibility()
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
