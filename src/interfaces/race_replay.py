@@ -1,12 +1,12 @@
 import os
 import arcade
 import numpy as np
-from src.f1_data import FPS
+from src.f1_data import FPS, get_championship_standings, calculate_points_for_position
 from src.ui_components import (
-    LeaderboardComponent, 
-    WeatherComponent, 
-    LegendComponent, 
-    DriverInfoComponent, 
+    LeaderboardComponent,
+    WeatherComponent,
+    LegendComponent,
+    DriverInfoComponent,
     RaceProgressBarComponent,
     ChampionshipStandingsComponent,
     extract_race_events,
@@ -411,7 +411,6 @@ class F1RaceReplayWindow(arcade.Window):
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
             "[B]       Toggle Progress Bar",
-            "[C]       Toggle Championship View",
         ]
 
         # Only show championship toggle if data is available
