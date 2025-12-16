@@ -1099,16 +1099,8 @@ class ChampionshipStandingsComponent(BaseComponent):
         max_entries = max(5, int(available_space / self.row_height))  # Minimum 5 entries
         self.max_visible_entries = min(max_entries, 20)  # Maximum 20 entries
 
-    def draw(self, window):
-        if not self.visible or not self.entries:
-            return
-
-        panel_top = window.height - self.top_offset
-        panel_left = self.x
-
-        title = "DRIVERS CHAMPIONSHIP"
-
-        # Check if we need to regenerate text objects
+    def _should_regenerate_cache(self) -> bool:
+        """Check if text object cache needs regeneration based on entry changes."""
         current_hash = self._generate_entries_hash()
         needs_regeneration = (current_hash != self._last_entries_hash)
 
@@ -1116,10 +1108,50 @@ class ChampionshipStandingsComponent(BaseComponent):
             self._last_entries_hash = current_hash
             self._cached_text_objects = {}
 
-        # Draw title (create once per hash change)
+        return needs_regeneration
+
+    def _get_position_change_indicator(self, position_change: int) -> tuple:
+        """
+        Get the symbol and color for a position change indicator.
+
+        Args:
+            position_change: Positive for gain, negative for loss, - for no change
+
+        Returns:
+            Tuple of (symbol, color)
+        """
+        if position_change > 0:
+            return "▲", arcade.color.GREEN
+        elif position_change < 0:
+            return "▼", arcade.color.RED
+        else:
+            return "─", arcade.color.LIGHT_GRAY
+
+    def _format_points_delta(self, race_points: int, has_fastest_lap: bool) -> tuple:
+        """
+        Format the points delta text and color.
+
+        Args:
+            race_points: Points earned in current race
+            has_fastest_lap: Whether driver has fastest lap
+
+        Returns:
+            Tuple of (delta_text, delta_color)
+        """
+        delta_text = f"+{race_points}" if race_points > 0 else "─"
+        delta_color = arcade.color.GREEN if race_points > 0 else arcade.color.LIGHT_GRAY
+
+        # Add fastest lap indicator for races
+        if has_fastest_lap and self.session_type == 'R':
+            delta_text += " ⚡"
+
+        return delta_text, delta_color
+
+    def _create_title_text(self, panel_left: int, panel_top: int) -> arcade.Text:
+        """Create and cache the title text object."""
         if 'title' not in self._cached_text_objects:
             self._cached_text_objects['title'] = arcade.Text(
-                title,
+                "DRIVERS CHAMPIONSHIP",
                 panel_left + 10,
                 panel_top - 10,
                 arcade.color.WHITE,
@@ -1127,10 +1159,10 @@ class ChampionshipStandingsComponent(BaseComponent):
                 bold=True,
                 anchor_y="top"
             )
-        self._cached_text_objects['title'].draw()
+        return self._cached_text_objects['title']
 
-        # Draw header (create once per hash change)
-        header_y = panel_top - 35
+    def _create_header_texts(self, panel_left: int, header_y: int) -> list:
+        """Create and cache header text objects."""
         if 'header' not in self._cached_text_objects:
             self._cached_text_objects['header'] = [
                 arcade.Text("Pos", panel_left + 10, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
@@ -1139,20 +1171,28 @@ class ChampionshipStandingsComponent(BaseComponent):
                 arcade.Text("Projected", panel_left + 220, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
                 arcade.Text("Δ", panel_left + 310, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top")
             ]
-        for header_text in self._cached_text_objects['header']:
-            header_text.draw()
+        return self._cached_text_objects['header']
 
-        # Draw entries (limited to max_visible_entries)
-        start_y = header_y - 20
-        visible_entries = self.entries[:self.max_visible_entries]
+    def _create_entry_texts(self, visible_entries: list, start_y: int, panel_left: int, needs_regeneration: bool) -> list:
+        """
+        Create text objects for all visible championship entries.
 
-        # Create or reuse cached text objects for entries
+        Args:
+            visible_entries: List of entry dicts to display
+            start_y: Y coordinate for first entry
+            panel_left: Left X coordinate of panel
+            needs_regeneration: Whether cache needs regeneration
+
+        Returns:
+            List of lists of arcade.Text objects (one list per entry)
+        """
         if 'entries' not in self._cached_text_objects or needs_regeneration:
             self._cached_text_objects['entries'] = []
 
             for i, entry in enumerate(visible_entries):
                 row_y = start_y - (i * self.row_height)
 
+                # Extract entry data
                 driver_code = entry.get('driver_code', '???')
                 team_color = entry.get('team_color', arcade.color.WHITE)
                 current_points = entry.get('current_points', 0)
@@ -1162,24 +1202,9 @@ class ChampionshipStandingsComponent(BaseComponent):
                 race_points = entry.get('race_points', 0)
                 has_fastest_lap = entry.get('has_fastest_lap', False)
 
-                # Position change indicator
-                if position_change > 0:
-                    change_symbol = "▲"
-                    change_color = arcade.color.GREEN
-                elif position_change < 0:
-                    change_symbol = "▼"
-                    change_color = arcade.color.RED
-                else:
-                    change_symbol = "─"
-                    change_color = arcade.color.LIGHT_GRAY
-
-                # Points delta
-                delta_text = f"+{race_points}" if race_points > 0 else "─"
-                delta_color = arcade.color.GREEN if race_points > 0 else arcade.color.LIGHT_GRAY
-
-                # Add fastest lap indicator for races
-                if has_fastest_lap and self.session_type == 'R':
-                    delta_text += " ⚡"
+                # Use helper methods for formatting
+                change_symbol, change_color = self._get_position_change_indicator(position_change)
+                delta_text, delta_color = self._format_points_delta(race_points, has_fastest_lap)
 
                 # Create and cache all text objects for this entry
                 entry_texts = [
@@ -1192,25 +1217,59 @@ class ChampionshipStandingsComponent(BaseComponent):
                 ]
                 self._cached_text_objects['entries'].append(entry_texts)
 
-        # Draw all cached entry text objects
-        for entry_texts in self._cached_text_objects['entries']:
+        return self._cached_text_objects['entries']
+
+    def _create_more_indicator_text(self, panel_left: int, indicator_y: int, needs_regeneration: bool) -> arcade.Text:
+        """Create the 'more entries' indicator text object."""
+        if 'more_indicator' not in self._cached_text_objects or needs_regeneration:
+            self._cached_text_objects['more_indicator'] = arcade.Text(
+                f"... +{len(self.entries) - self.max_visible_entries} more",
+                panel_left + 10,
+                indicator_y,
+                arcade.color.DARK_GRAY,
+                10,
+                italic=True,
+                anchor_y="top"
+            )
+        return self._cached_text_objects['more_indicator']
+
+    def draw(self, window):
+        """Render the championship standings panel."""
+        # Early exit if not visible or no data
+        if not self.visible or not self.entries:
+            return
+
+        # Calculate panel position
+        panel_top = window.height - self.top_offset
+        panel_left = self.x
+
+        # Check if cache needs regeneration
+        needs_regeneration = self._should_regenerate_cache()
+
+        # Draw title
+        title_text = self._create_title_text(panel_left, panel_top)
+        title_text.draw()
+
+        # Draw header row
+        header_y = panel_top - 35
+        header_texts = self._create_header_texts(panel_left, header_y)
+        for header_text in header_texts:
+            header_text.draw()
+
+        # Draw championship entries
+        start_y = header_y - 20
+        visible_entries = self.entries[:self.max_visible_entries]
+        entry_texts_list = self._create_entry_texts(visible_entries, start_y, panel_left, needs_regeneration)
+
+        for entry_texts in entry_texts_list:
             for text_obj in entry_texts:
                 text_obj.draw()
 
-        # Show indicator if more entries exist than can be displayed
+        # Draw "more entries" indicator if needed
         if len(self.entries) > self.max_visible_entries:
             indicator_y = start_y - (len(visible_entries) * self.row_height) - 5
-            if 'more_indicator' not in self._cached_text_objects or needs_regeneration:
-                self._cached_text_objects['more_indicator'] = arcade.Text(
-                    f"... +{len(self.entries) - self.max_visible_entries} more",
-                    panel_left + 10,
-                    indicator_y,
-                    arcade.color.DARK_GRAY,
-                    10,
-                    italic=True,
-                    anchor_y="top"
-                )
-            self._cached_text_objects['more_indicator'].draw()
+            more_indicator = self._create_more_indicator_text(panel_left, indicator_y, needs_regeneration)
+            more_indicator.draw()
     
 # Build track geometry from example lap telemetry
 
