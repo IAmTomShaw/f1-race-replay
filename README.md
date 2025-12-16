@@ -100,6 +100,7 @@ f1-race-replay/
 │   └── lib/
 │       └── tyres.py          # Type definitions for telemetry data structures
 │       └── time.py           # Time formatting utilities
+│       └── utils.py          # General utility functions (e.g., safe type conversions)
 └── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
 └── computed_data/            # Computed telemetry data (created automatically upon first run)
 ```

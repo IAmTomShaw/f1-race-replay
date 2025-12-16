@@ -391,6 +391,8 @@ class DriverInfoComponent(BaseComponent):
 
     def draw(self, window):
         if not getattr(window, "selected_driver", None):
+            # Clear the bottom position when not visible
+            window.driver_info_bottom = None
             return
 
         code = window.selected_driver
@@ -524,6 +526,9 @@ class DriverInfoComponent(BaseComponent):
             val_height = bar_max_height * b_ratio
             val_cy = bar_bottom_y + (val_height / 2)
             arcade.draw_rect_filled(arcade.XYWH(br_x, val_cy, bar_width, val_height), arcade.color.RED)
+
+        # Expose the bottom position for other components to use
+        window.driver_info_bottom = bottom
 
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
@@ -1026,7 +1031,299 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
     
     return events
 
+class ChampionshipStandingsComponent(BaseComponent):
+    def __init__(self, x: int = 20, width: int = 400, top_offset: int = 40):
+        self.x = x
+        self.width = width
+        self.top_offset = top_offset
+        self.entries = []
+        self.session_type = 'R'  # 'R' for Race, 'S' for Sprint
+        self.row_height = 20
+        self.visible = True
+        self.max_visible_entries = 20  # Default to showing all drivers
 
+        # Text object cache for performance
+        self._cached_text_objects = {}
+        self._last_entries_hash = None
+        self._last_panel_top = None  # Track any layout changes for cache invalidation
+        self._last_effective_max = None  # Track visible entry count changes
+
+    def set_entries(self, entries: List[dict], session_type: str = 'R'):
+        """
+        Set championship standings entries.
+
+        Args:
+            entries: List of dicts with keys:
+                - driver_code: Driver abbreviation
+                - team_color: RGB tuple for team color
+                - current_points: Points before this race
+                - race_points: Points from current position
+                - projected_points: Total if race ended now
+                - current_position: Championship position before race
+                - projected_position: Championship position if race ended now
+                - position_change: +/- change in championship position
+                - race_position: Current race position
+                - has_fastest_lap: Boolean
+            session_type: 'R' for Race, 'S' for Sprint
+        """
+        self.entries = entries
+        self.session_type = session_type
+
+    def toggle_visibility(self):
+        """Toggle component visibility"""
+        self.visible = not self.visible
+
+    def _generate_entries_hash(self):
+        """Generate a hash of current entries to detect changes"""
+        # Create a simple hash from key values that affect rendering
+        hash_parts = []
+        for entry in self.entries[:self.max_visible_entries]:
+            hash_parts.append((
+                entry.get('driver_code', ''),
+                entry.get('current_points', 0),
+                entry.get('projected_points', 0),
+                entry.get('projected_position', 0),
+                entry.get('position_change', 0),
+                entry.get('race_points', 0),
+                entry.get('has_fastest_lap', False)
+            ))
+        return hash(tuple(hash_parts))
+
+    def on_resize(self, window):
+        """Calculate maximum visible entries based on available vertical space"""
+        # Reserve space for legend at bottom (approximately 200px including margin)
+        legend_space = 200
+        # Reserve space for progress bar at bottom
+        progress_bar_space = 70
+        # Title and header space
+        header_space = 60
+
+        # Calculate available space for entries
+        panel_top = window.height - self.top_offset
+        available_space = panel_top - legend_space - progress_bar_space - header_space
+
+        # Calculate how many entries can fit
+        max_entries = max(5, int(available_space / self.row_height))  # Minimum 5 entries
+        self.max_visible_entries = min(max_entries, 20)  # Maximum 20 entries
+
+    def _should_regenerate_cache(self, panel_top: int, effective_max_entries: int) -> bool:
+        """
+        Check if text object cache needs regeneration.
+
+        Invalidates cache when entry data, position, or visible count changes.
+
+        Args:
+            panel_top: Current Y position of the panel top
+            effective_max_entries: Number of entries that will be shown
+
+        Returns:
+            True if cache should be regenerated
+        """
+        current_hash = self._generate_entries_hash()
+        data_changed = (current_hash != self._last_entries_hash)
+        position_changed = (panel_top != self._last_panel_top)
+        visible_count_changed = (effective_max_entries != self._last_effective_max)
+
+        needs_regeneration = data_changed or position_changed or visible_count_changed
+
+        if needs_regeneration:
+            self._last_entries_hash = current_hash
+            self._last_panel_top = panel_top
+            self._last_effective_max = effective_max_entries
+            self._cached_text_objects = {}
+
+        return needs_regeneration
+
+    def _get_position_change_indicator(self, position_change: int) -> tuple:
+        """
+        Get the symbol and color for a position change indicator.
+
+        Args:
+            position_change: Positive for gain, negative for loss, - for no change
+
+        Returns:
+            Tuple of (symbol, color)
+        """
+        if position_change > 0:
+            return "▲", arcade.color.GREEN
+        elif position_change < 0:
+            return "▼", arcade.color.RED
+        else:
+            return "─", arcade.color.LIGHT_GRAY
+
+    def _format_points_delta(self, race_points: int, has_fastest_lap: bool) -> tuple:
+        """
+        Format the points delta text and color.
+
+        Args:
+            race_points: Points earned in current race
+            has_fastest_lap: Whether driver has fastest lap
+
+        Returns:
+            Tuple of (delta_text, delta_color)
+        """
+        delta_text = f"+{race_points}" if race_points > 0 else "─"
+        delta_color = arcade.color.GREEN if race_points > 0 else arcade.color.LIGHT_GRAY
+
+        # Add fastest lap indicator for races
+        if has_fastest_lap and self.session_type == 'R':
+            delta_text += " ⚡"
+
+        return delta_text, delta_color
+
+    def _create_title_text(self, panel_left: int, panel_top: int) -> arcade.Text:
+        """Create and cache the title text object."""
+        if 'title' not in self._cached_text_objects:
+            self._cached_text_objects['title'] = arcade.Text(
+                "Live standings",
+                panel_left + 10,
+                panel_top - 10,
+                arcade.color.WHITE,
+                16,
+                bold=True,
+                anchor_y="top"
+            )
+        return self._cached_text_objects['title']
+
+    def _create_header_texts(self, panel_left: int, header_y: int) -> list:
+        """Create and cache header text objects."""
+        if 'header' not in self._cached_text_objects:
+            self._cached_text_objects['header'] = [
+                arcade.Text("Pos", panel_left + 10, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Driver", panel_left + 50, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Current", panel_left + 140, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Projected", panel_left + 220, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Δ", panel_left + 310, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top")
+            ]
+        return self._cached_text_objects['header']
+
+    def _create_entry_texts(self, visible_entries: list, start_y: int, panel_left: int, needs_regeneration: bool) -> list:
+        """
+        Create text objects for all visible championship entries.
+
+        Args:
+            visible_entries: List of entry dicts to display
+            start_y: Y coordinate for first entry
+            panel_left: Left X coordinate of panel
+            needs_regeneration: Whether cache needs regeneration
+
+        Returns:
+            List of lists of arcade.Text objects (one list per entry)
+        """
+        if 'entries' not in self._cached_text_objects or needs_regeneration:
+            self._cached_text_objects['entries'] = []
+
+            for i, entry in enumerate(visible_entries):
+                row_y = start_y - (i * self.row_height)
+
+                # Extract entry data
+                driver_code = entry.get('driver_code', '???')
+                team_color = entry.get('team_color', arcade.color.WHITE)
+                current_points = entry.get('current_points', 0)
+                projected_points = entry.get('projected_points', 0)
+                projected_position = entry.get('projected_position', i + 1)
+                position_change = entry.get('position_change', 0)
+                race_points = entry.get('race_points', 0)
+                has_fastest_lap = entry.get('has_fastest_lap', False)
+
+                # Use helper methods for formatting
+                change_symbol, change_color = self._get_position_change_indicator(position_change)
+                delta_text, delta_color = self._format_points_delta(race_points, has_fastest_lap)
+
+                # Create and cache all text objects for this entry
+                entry_texts = [
+                    arcade.Text(f"{projected_position}", panel_left + 10, row_y, arcade.color.WHITE, 12, anchor_y="top"),
+                    arcade.Text(change_symbol, panel_left + 32, row_y, change_color, 12, anchor_y="top"),
+                    arcade.Text(driver_code, panel_left + 50, row_y, team_color, 12, bold=True, anchor_y="top"),
+                    arcade.Text(f"{int(current_points)}", panel_left + 140, row_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                    arcade.Text(f"{int(projected_points)}", panel_left + 220, row_y, arcade.color.WHITE, 12, anchor_y="top"),
+                    arcade.Text(delta_text, panel_left + 310, row_y, delta_color, 12, anchor_y="top")
+                ]
+                self._cached_text_objects['entries'].append(entry_texts)
+
+        return self._cached_text_objects['entries']
+
+    def draw(self, window):
+        """Render the championship standings panel."""
+        # Early exit if not visible or no data
+        if not self.visible or not self.entries:
+            return
+
+        # Calculate panel position
+        # Adjust top_offset if driver info component is visible
+        effective_top_offset = self.top_offset
+        driver_info_bottom = getattr(window, "driver_info_bottom", None)
+
+        if driver_info_bottom is not None:
+            # Position championship below driver info with a margin
+            margin = 20
+            panel_top_from_driver_info = driver_info_bottom - margin
+            # Convert to offset from top of screen
+            effective_top_offset = window.height - panel_top_from_driver_info
+
+        panel_top = window.height - effective_top_offset
+        panel_left = self.x
+
+        # Calculate dynamic max entries to avoid overlap with legend
+        # Reserve space for legend (200px), progress bar (70px), and margin (30px)
+        reserved_bottom_space = 300
+        title_and_header_height = 60  # Title + header space
+
+        # Calculate available space for entries
+        available_height = panel_top - reserved_bottom_space - title_and_header_height
+
+        # Calculate how many entries can fit in available space
+        if available_height > 0:
+            dynamic_max_entries = max(3, int(available_height / self.row_height))
+            # Use the smaller of the configured max or the dynamic max
+            effective_max_entries = min(self.max_visible_entries, dynamic_max_entries)
+        else:
+            # Not enough space, show minimum
+            effective_max_entries = 3
+
+        # Check if cache needs regeneration (data, layout, or visible count change)
+        needs_regeneration = self._should_regenerate_cache(panel_top, effective_max_entries)
+
+        # Draw title
+        title_text = self._create_title_text(panel_left, panel_top)
+        title_text.draw()
+
+        # Draw header row
+        header_y = panel_top - 35
+        header_texts = self._create_header_texts(panel_left, header_y)
+        for header_text in header_texts:
+            header_text.draw()
+
+        # Draw championship entries
+        start_y = header_y - 20
+        visible_entries = self.entries[:effective_max_entries]
+        entry_texts_list = self._create_entry_texts(visible_entries, start_y, panel_left, needs_regeneration)
+
+        for entry_texts in entry_texts_list:
+            for text_obj in entry_texts:
+                text_obj.draw()
+
+        # Draw "more entries" indicator if needed
+        # Use the actual number of entries drawn, not the calculated visible_entries
+        actual_entries_drawn = len(entry_texts_list)
+        if len(self.entries) > actual_entries_drawn:
+            indicator_y = start_y - (actual_entries_drawn * self.row_height) - 5
+            # Calculate remaining based on what was actually drawn
+            remaining_entries = len(self.entries) - actual_entries_drawn
+
+            # Always regenerate the text to ensure it reflects current count
+            # (bypassing cache for this specific text object to prevent stale values)
+            self._cached_text_objects['more_indicator'] = arcade.Text(
+                f"... +{remaining_entries} more",
+                panel_left + 10,
+                indicator_y,
+                arcade.color.DARK_GRAY,
+                10,
+                italic=True,
+                anchor_y="top"
+            )
+            self._cached_text_objects['more_indicator'].draw()
+    
 # Build track geometry from example lap telemetry
 
 def build_track_from_example_lap(example_lap, track_width=200):
