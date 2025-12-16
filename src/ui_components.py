@@ -391,6 +391,8 @@ class DriverInfoComponent(BaseComponent):
 
     def draw(self, window):
         if not getattr(window, "selected_driver", None):
+            # Clear the bottom position when not visible
+            window.driver_info_bottom = None
             return
 
         code = window.selected_driver
@@ -524,6 +526,9 @@ class DriverInfoComponent(BaseComponent):
             val_height = bar_max_height * b_ratio
             val_cy = bar_bottom_y + (val_height / 2)
             arcade.draw_rect_filled(arcade.XYWH(br_x, val_cy, bar_width, val_height), arcade.color.RED)
+
+        # Expose the bottom position for other components to use
+        window.driver_info_bottom = bottom
 
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
@@ -1240,8 +1245,36 @@ class ChampionshipStandingsComponent(BaseComponent):
             return
 
         # Calculate panel position
-        panel_top = window.height - self.top_offset
+        # Adjust top_offset if driver info component is visible
+        effective_top_offset = self.top_offset
+        driver_info_bottom = getattr(window, "driver_info_bottom", None)
+
+        if driver_info_bottom is not None:
+            # Position championship below driver info with a margin
+            margin = 20
+            panel_top_from_driver_info = driver_info_bottom - margin
+            # Convert to offset from top of screen
+            effective_top_offset = window.height - panel_top_from_driver_info
+
+        panel_top = window.height - effective_top_offset
         panel_left = self.x
+
+        # Calculate dynamic max entries to avoid overlap with legend
+        # Reserve space for legend (200px), progress bar (70px), and margin (30px)
+        reserved_bottom_space = 300
+        title_and_header_height = 60  # Title + header space
+
+        # Calculate available space for entries
+        available_height = panel_top - reserved_bottom_space - title_and_header_height
+
+        # Calculate how many entries can fit in available space
+        if available_height > 0:
+            dynamic_max_entries = max(3, int(available_height / self.row_height))
+            # Use the smaller of the configured max or the dynamic max
+            effective_max_entries = min(self.max_visible_entries, dynamic_max_entries)
+        else:
+            # Not enough space, show minimum
+            effective_max_entries = 3
 
         # Check if cache needs regeneration
         needs_regeneration = self._should_regenerate_cache()
@@ -1258,7 +1291,7 @@ class ChampionshipStandingsComponent(BaseComponent):
 
         # Draw championship entries
         start_y = header_y - 20
-        visible_entries = self.entries[:self.max_visible_entries]
+        visible_entries = self.entries[:effective_max_entries]
         entry_texts_list = self._create_entry_texts(visible_entries, start_y, panel_left, needs_regeneration)
 
         for entry_texts in entry_texts_list:
@@ -1266,10 +1299,21 @@ class ChampionshipStandingsComponent(BaseComponent):
                 text_obj.draw()
 
         # Draw "more entries" indicator if needed
-        if len(self.entries) > self.max_visible_entries:
+        if len(self.entries) > effective_max_entries:
             indicator_y = start_y - (len(visible_entries) * self.row_height) - 5
-            more_indicator = self._create_more_indicator_text(panel_left, indicator_y, needs_regeneration)
-            more_indicator.draw()
+            # Create indicator showing how many more entries exist
+            remaining_entries = len(self.entries) - effective_max_entries
+            if 'more_indicator' not in self._cached_text_objects or needs_regeneration:
+                self._cached_text_objects['more_indicator'] = arcade.Text(
+                    f"... +{remaining_entries} more",
+                    panel_left + 10,
+                    indicator_y,
+                    arcade.color.DARK_GRAY,
+                    10,
+                    italic=True,
+                    anchor_y="top"
+                )
+            self._cached_text_objects['more_indicator'].draw()
     
 # Build track geometry from example lap telemetry
 
