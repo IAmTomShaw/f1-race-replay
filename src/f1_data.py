@@ -592,7 +592,6 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
     order = np.argsort(t_rel)
     t_sorted = t_rel[order]
     t_sorted_unique, unique_idx = np.unique(t_sorted, return_index=True)
-    # map unique indices back to the original ordered arrays
     idx_map = order[unique_idx]
 
     x_sorted = x_arr[idx_map]

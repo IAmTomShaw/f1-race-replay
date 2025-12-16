@@ -56,6 +56,18 @@ The application will load a pre-computed telemetry dataset if you have run it be
 python main.py --year 2025 --round 12 --refresh-data
 ```
 
+### Search Round Numbers (including Sprints)
+
+To find the round number for a specific Grand Prix event, you can use the `--list-rounds` flag along with the year to return a list of events and their corresponding round numbers:
+```bash
+python main.py --year 2025 --list-rounds
+```
+
+To return a list of events that include Sprint sessions, use the `--list-sprints` flag:
+```bash
+python main.py --year 2025 --list-sprints
+```
+
 ### Qualifying Session Replay
 
 To run a Qualifying session replay, use the `--qualifying` flag:
