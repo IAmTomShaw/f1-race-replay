@@ -89,7 +89,7 @@ f1-race-replay/
 ├── README.md                  # Project documentation
 ├── roadmap.md                 # Planned features and project vision
 ├── resources/
-│   └── preview.png           # Race replay preview image
+│   └── preview.png           # Race replay preview images
 ├── src/
 │   ├── f1_data.py            # Telemetry loading, processing, and frame generation
 │   ├── arcade_replay.py      # Visualization and UI logic
