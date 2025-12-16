@@ -87,6 +87,8 @@ def _process_single_driver(args):
     speed_all = []
     gear_all = []
     drs_all = []
+    throttle_all = []
+    brake_all = []
 
     total_dist_so_far = 0.0
 
@@ -108,6 +110,8 @@ def _process_single_driver(args):
         speed_kph_lap = lap_tel["Speed"].to_numpy()
         gear_lap = lap_tel["nGear"].to_numpy()
         drs_lap = lap_tel["DRS"].to_numpy()
+        throttle_lap = lap_tel["Throttle"].to_numpy()
+        brake_lap = lap_tel["Brake"].to_numpy().astype(float)
 
         # race distance = distance before this lap + distance within this lap
         race_d_lap = total_dist_so_far + d_lap
@@ -122,6 +126,8 @@ def _process_single_driver(args):
         speed_all.append(speed_kph_lap)
         gear_all.append(gear_lap)
         drs_all.append(drs_lap)
+        throttle_all.append(throttle_lap)
+        brake_all.append(brake_lap)
 
     if not t_all:
         return None
@@ -141,6 +147,9 @@ def _process_single_driver(args):
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
     tyre_compounds, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
 
+    throttle_all = np.concatenate(throttle_all)[order]
+    brake_all = np.concatenate(brake_all)[order]
+
     print(f"Completed telemetry for driver: {driver_code}")
     
     return {
@@ -156,6 +165,8 @@ def _process_single_driver(args):
             "speed": speed_all,
             "gear": gear_all,
             "drs": drs_all,
+            "throttle": throttle_all,
+            "brake": brake_all,
         },
         "t_min": t_all.min(),
         "t_max": t_all.max(),
@@ -269,12 +280,14 @@ def get_race_telemetry(session, session_type='R'):
             data["tyre"][order],
             data["speed"][order],
             data["gear"][order],
-            data["drs"][order]
+            data["drs"][order],
+            data["throttle"][order],
+            data["brake"][order],
         ]
         
         resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
         x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, speed_resampled, gear_resampled, drs_resampled = resampled
+        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
  
         resampled_data[code] = {
             "t": timeline,
@@ -287,6 +300,8 @@ def get_race_telemetry(session, session_type='R'):
             "speed": speed_resampled,
             "gear": gear_resampled,
             "drs": drs_resampled,
+            "throttle": throttle_resampled,
+            "brake": brake_resampled
         }
 
     # 4. Incorporate track status data into the timeline (for safety car, VSC, etc.)
@@ -373,6 +388,8 @@ def get_race_telemetry(session, session_type='R'):
                 "speed": float(d['speed'][i]),
                 "gear": int(d['gear'][i]),
                 "drs": int(d['drs'][i]),
+                "throttle": float(d['throttle'][i]),
+                "brake": float(d['brake'][i]),
             })
 
         # If for some reason we have no drivers at this instant
@@ -407,6 +424,8 @@ def get_race_telemetry(session, session_type='R'):
                 "speed": car['speed'],
                 "gear": car['gear'],
                 "drs": car['drs'],
+                "throttle": car['throttle'],
+                "brake": car['brake'],
             }
 
         weather_snapshot = {}

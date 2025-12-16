@@ -19,6 +19,5 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
         title=title,
         total_laps=total_laps,
         circuit_rotation=circuit_rotation,
-        race_control_messages=race_control_messages,
     )
     arcade.run()

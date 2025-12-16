@@ -9,7 +9,7 @@ from src.lib.time import format_time
 
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
-SCREEN_TITLE = "Qualifying"
+SCREEN_TITLE = "F1 Qualifying Telemetry"
 
 H_ROW = 38
 HEADER_H = 56

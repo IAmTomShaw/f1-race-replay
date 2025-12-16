@@ -354,57 +354,150 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
 
 
 class DriverInfoComponent(BaseComponent):
-    def __init__(self, left=20, width=300, min_top=220):
+    def __init__(self, left=20, width=220, min_top=220):
         self.left = left
         self.width = width
         self.min_top = min_top
+
     def draw(self, window):
         if not getattr(window, "selected_driver", None):
             return
+
         code = window.selected_driver
-        frame = window.frames[min(int(window.frame_index), window.n_frames-1)]
-        driver_pos = frame["drivers"].get(code, {})
-        # layout
-        info_x = self.left
-        default_info_y = window.height / 2 + 100
+        if not window.frames: return
+
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        frame = window.frames[idx]
+
+        if code not in frame["drivers"]: return
+        driver_pos = frame["drivers"][code]
+
         box_width = self.width
-        box_height = 150
+        box_height = 160
+
+        center_x = self.left + box_width / 2
+
+        default_y = window.height / 2
         weather_bottom = getattr(window, "weather_bottom", None)
-        if weather_bottom is not None:
-            target_top = weather_bottom - 20
-            info_y = min(default_info_y, target_top - box_height / 2)
-        else:
-            info_y = default_info_y
-        info_y = max(info_y, self.min_top + box_height / 2)
-        # Draw name band + stats
-        bg_rect = arcade.XYWH(info_x + box_width / 2, info_y - box_height / 2, box_width, box_height)
-        arcade.draw_rect_outline(bg_rect, self._get_driver_color(window, code))
-        name_rect = arcade.XYWH(info_x + box_width / 2, info_y + 20, box_width, 40)
-        arcade.draw_rect_filled(name_rect, self._get_driver_color(window, code))
-        arcade.Text(f"Driver: {code}", info_x + 10, info_y + 20, arcade.color.BLACK, 16, anchor_x="left", anchor_y="center").draw()
-        # stats
-        speed_text = f"Speed: {driver_pos.get('speed',0):.1f} km/h"
-        gear_text = f"Gear: {driver_pos.get('gear',0)}"
 
-        drs_status = "off"
-        drs_value = driver_pos.get('drs', 0)
-        if drs_value in [0, 1]:
-            drs_status = "Off"
-        elif drs_value == 8:
-            drs_status = "Eligible"
-        elif drs_value in [10, 12, 14]:
-            drs_status = "On"
+        if weather_bottom:
+            top_limit = weather_bottom - 20
+            center_y = top_limit - (box_height / 2)
         else:
-            drs_status = "Unknown"
-        
-        drs_text = f"DRS: {drs_status}"
+            center_y = default_y
 
-        lines = [speed_text, gear_text, drs_text, f"Current Lap: {driver_pos.get('lap',1)}"]
-        for i, ln in enumerate(lines):
-            arcade.Text(ln, info_x + 10, info_y - 20 - (i * 25), arcade.color.WHITE, 14, anchor_x="left", anchor_y="center").draw()
+        center_y -= 30
+
+        # driver box height limit
+        center_y = max(center_y, self.min_top + box_height / 2)
+
+        # actual drawing area  (Top / Bottom / Left / Right)
+        top = center_y + box_height / 2
+        bottom = center_y - box_height / 2
+        left = center_x - box_width / 2
+        right = center_x + box_width / 2
+
+        rect = arcade.XYWH(center_x, center_y, box_width, box_height)
+        arcade.draw_rect_filled(rect, (0, 0, 0, 200))
+
+        team_color = window.driver_colors.get(code, arcade.color.GRAY)
+        arcade.draw_rect_outline(rect, team_color, 2)
+
+        header_height = 30
+        header_cy = top - (header_height / 2)
+        header_rect = arcade.XYWH(center_x, header_cy, box_width, header_height)
+        arcade.draw_rect_filled(header_rect, team_color)
+
+        arcade.Text(f"Driver: {code}", left + 10, header_cy,
+                    arcade.color.BLACK, 14, anchor_y="center", bold=True).draw()
+
+        header_bottom = top - header_height
+        cursor_y = header_bottom - 25
+        left_text_x = left + 15
+        row_gap = 25
+
+        # (A) Speed
+        speed = driver_pos.get('speed', 0)
+        arcade.Text(f"Speed: {speed:.0f} km/h", left_text_x, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        cursor_y -= row_gap
+
+        # (B) Gear
+        gear = driver_pos.get('gear', '-')
+        arcade.Text(f"Gear: {gear}", left_text_x, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        cursor_y -= row_gap
+
+        # (C) DRS
+        drs_val = driver_pos.get('drs', 0)
+        drs_str = "DRS: OFF"
+        drs_color = arcade.color.GRAY
+
+        if drs_val in [10, 12, 14]:
+            drs_str = "DRS: ON"
+            drs_color = arcade.color.GREEN
+        elif drs_val == 8:
+            drs_str = "DRS: AVAIL"
+            drs_color = arcade.color.YELLOW
+
+        arcade.Text(drs_str, left_text_x, cursor_y, drs_color, 12, anchor_y="center", bold=True).draw()
+        cursor_y -= (row_gap + 5)
+
+        # ---------------------------------------------------
+        # [4] vertical stick graph (right side)
+        # ---------------------------------------------------
+        # get data
+        throttle = driver_pos.get('throttle', 0)
+        brake = driver_pos.get('brake', 0)
+
+        # 0~100 range normalization (preparing if the data has 0~1 range)
+        t_ratio = max(0.0, min(1.0, throttle / 100.0))
+        if brake > 1.0:
+            b_ratio = max(0.0, min(1.0, brake / 100.0))
+        else:
+            b_ratio = max(0.0, min(1.0, brake))
+
+        # set graph location
+        bar_width = 20
+        bar_max_height = 80
+        bar_bottom_y = bottom + 35  # 바닥에서 약간 위
+
+        # center value of right section
+        right_section_center = right - 50
+
+        # (D) Throttle Bar
+        th_x = right_section_center - 15
+
+        # throttle label
+        arcade.Text("THR", th_x, bar_bottom_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
+
+        # throttle bg_color (grey) - XYWH는 중심점 기준이므로 계산 주의
+        # center Y = bottom Y + (height / 2)
+        bg_cy = bar_bottom_y + (bar_max_height / 2)
+        arcade.draw_rect_filled(arcade.XYWH(th_x, bg_cy, bar_width, bar_max_height), arcade.color.DARK_GRAY)
+
+        # throttle value (green) - filled from bottom to top
+        if t_ratio > 0:
+            val_height = bar_max_height * t_ratio
+            val_cy = bar_bottom_y + (val_height / 2)
+            arcade.draw_rect_filled(arcade.XYWH(th_x, val_cy, bar_width, val_height), arcade.color.GREEN)
+
+        # (E) Brake Bar
+        br_x = right_section_center + 15
+
+        # brake label
+        arcade.Text("BRK", br_x, bar_bottom_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
+
+        # brake bg_color (grey)
+        arcade.draw_rect_filled(arcade.XYWH(br_x, bg_cy, bar_width, bar_max_height), arcade.color.DARK_GRAY)
+
+        # brake value (red)
+        if b_ratio > 0:
+            val_height = bar_max_height * b_ratio
+            val_cy = bar_bottom_y + (val_height / 2)
+            arcade.draw_rect_filled(arcade.XYWH(br_x, val_cy, bar_width, val_height), arcade.color.RED)
+
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
-    
+
 # Build track geometry from example lap telemetry
 
 def build_track_from_example_lap(example_lap, track_width=200):
