@@ -1045,6 +1045,7 @@ class ChampionshipStandingsComponent(BaseComponent):
         # Text object cache for performance
         self._cached_text_objects = {}
         self._last_entries_hash = None
+        self._last_panel_top = None  # Track any layout changes for cache invalidation
 
     def set_entries(self, entries: List[dict], session_type: str = 'R'):
         """
@@ -1104,13 +1105,27 @@ class ChampionshipStandingsComponent(BaseComponent):
         max_entries = max(5, int(available_space / self.row_height))  # Minimum 5 entries
         self.max_visible_entries = min(max_entries, 20)  # Maximum 20 entries
 
-    def _should_regenerate_cache(self) -> bool:
-        """Check if text object cache needs regeneration based on entry changes."""
+    def _should_regenerate_cache(self, panel_top: int) -> bool:
+        """
+        Check if text object cache needs regeneration.
+
+        Invalidates cache when either entry data changes OR position changes.
+
+        Args:
+            panel_top: Current Y position of the panel top
+
+        Returns:
+            True if cache should be regenerated
+        """
         current_hash = self._generate_entries_hash()
-        needs_regeneration = (current_hash != self._last_entries_hash)
+        data_changed = (current_hash != self._last_entries_hash)
+        position_changed = (panel_top != self._last_panel_top)
+
+        needs_regeneration = data_changed or position_changed
 
         if needs_regeneration:
             self._last_entries_hash = current_hash
+            self._last_panel_top = panel_top
             self._cached_text_objects = {}
 
         return needs_regeneration
@@ -1276,8 +1291,8 @@ class ChampionshipStandingsComponent(BaseComponent):
             # Not enough space, show minimum
             effective_max_entries = 3
 
-        # Check if cache needs regeneration
-        needs_regeneration = self._should_regenerate_cache()
+        # Check if cache needs regeneration (data or layout change)
+        needs_regeneration = self._should_regenerate_cache(panel_top)
 
         # Draw title
         title_text = self._create_title_text(panel_left, panel_top)
