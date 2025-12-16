@@ -1046,6 +1046,7 @@ class ChampionshipStandingsComponent(BaseComponent):
         self._cached_text_objects = {}
         self._last_entries_hash = None
         self._last_panel_top = None  # Track any layout changes for cache invalidation
+        self._last_effective_max = None  # Track visible entry count changes
 
     def set_entries(self, entries: List[dict], session_type: str = 'R'):
         """
@@ -1105,14 +1106,15 @@ class ChampionshipStandingsComponent(BaseComponent):
         max_entries = max(5, int(available_space / self.row_height))  # Minimum 5 entries
         self.max_visible_entries = min(max_entries, 20)  # Maximum 20 entries
 
-    def _should_regenerate_cache(self, panel_top: int) -> bool:
+    def _should_regenerate_cache(self, panel_top: int, effective_max_entries: int) -> bool:
         """
         Check if text object cache needs regeneration.
 
-        Invalidates cache when either entry data changes OR position changes.
+        Invalidates cache when entry data, position, or visible count changes.
 
         Args:
             panel_top: Current Y position of the panel top
+            effective_max_entries: Number of entries that will be shown
 
         Returns:
             True if cache should be regenerated
@@ -1120,12 +1122,14 @@ class ChampionshipStandingsComponent(BaseComponent):
         current_hash = self._generate_entries_hash()
         data_changed = (current_hash != self._last_entries_hash)
         position_changed = (panel_top != self._last_panel_top)
+        visible_count_changed = (effective_max_entries != self._last_effective_max)
 
-        needs_regeneration = data_changed or position_changed
+        needs_regeneration = data_changed or position_changed or visible_count_changed
 
         if needs_regeneration:
             self._last_entries_hash = current_hash
             self._last_panel_top = panel_top
+            self._last_effective_max = effective_max_entries
             self._cached_text_objects = {}
 
         return needs_regeneration
@@ -1239,20 +1243,6 @@ class ChampionshipStandingsComponent(BaseComponent):
 
         return self._cached_text_objects['entries']
 
-    def _create_more_indicator_text(self, panel_left: int, indicator_y: int, needs_regeneration: bool) -> arcade.Text:
-        """Create the 'more entries' indicator text object."""
-        if 'more_indicator' not in self._cached_text_objects or needs_regeneration:
-            self._cached_text_objects['more_indicator'] = arcade.Text(
-                f"... +{len(self.entries) - self.max_visible_entries} more",
-                panel_left + 10,
-                indicator_y,
-                arcade.color.DARK_GRAY,
-                10,
-                italic=True,
-                anchor_y="top"
-            )
-        return self._cached_text_objects['more_indicator']
-
     def draw(self, window):
         """Render the championship standings panel."""
         # Early exit if not visible or no data
@@ -1291,8 +1281,8 @@ class ChampionshipStandingsComponent(BaseComponent):
             # Not enough space, show minimum
             effective_max_entries = 3
 
-        # Check if cache needs regeneration (data or layout change)
-        needs_regeneration = self._should_regenerate_cache(panel_top)
+        # Check if cache needs regeneration (data, layout, or visible count change)
+        needs_regeneration = self._should_regenerate_cache(panel_top, effective_max_entries)
 
         # Draw title
         title_text = self._create_title_text(panel_left, panel_top)
@@ -1314,20 +1304,24 @@ class ChampionshipStandingsComponent(BaseComponent):
                 text_obj.draw()
 
         # Draw "more entries" indicator if needed
-        if len(self.entries) > effective_max_entries:
-            indicator_y = start_y - (len(visible_entries) * self.row_height) - 5
-            # Create indicator showing how many more entries exist
-            remaining_entries = len(self.entries) - effective_max_entries
-            if 'more_indicator' not in self._cached_text_objects or needs_regeneration:
-                self._cached_text_objects['more_indicator'] = arcade.Text(
-                    f"... +{remaining_entries} more",
-                    panel_left + 10,
-                    indicator_y,
-                    arcade.color.DARK_GRAY,
-                    10,
-                    italic=True,
-                    anchor_y="top"
-                )
+        # Use the actual number of entries drawn, not the calculated visible_entries
+        actual_entries_drawn = len(entry_texts_list)
+        if len(self.entries) > actual_entries_drawn:
+            indicator_y = start_y - (actual_entries_drawn * self.row_height) - 5
+            # Calculate remaining based on what was actually drawn
+            remaining_entries = len(self.entries) - actual_entries_drawn
+
+            # Always regenerate the text to ensure it reflects current count
+            # (bypassing cache for this specific text object to prevent stale values)
+            self._cached_text_objects['more_indicator'] = arcade.Text(
+                f"... +{remaining_entries} more",
+                panel_left + 10,
+                indicator_y,
+                arcade.color.DARK_GRAY,
+                10,
+                italic=True,
+                anchor_y="top"
+            )
             self._cached_text_objects['more_indicator'].draw()
     
 # Build track geometry from example lap telemetry
