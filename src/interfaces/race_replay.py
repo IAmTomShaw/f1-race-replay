@@ -16,6 +16,7 @@ from src.ui_components import (
     extract_race_events,
     build_track_from_example_lap
 )
+from src.lib.utils import safe_int
 
 
 SCREEN_WIDTH = 1920
@@ -46,6 +47,11 @@ class F1RaceReplayWindow(arcade.Window):
         self.round_number = round_number
         self.session_type = session_type
         self.championship_standings = []
+
+        # Championship calculation cache
+        self._last_race_positions = {}
+        self._championship_update_counter = 0
+        self._championship_update_interval = 5  # Update every 5 frames instead of every frame
 
         # Load championship standings if year and round are provided
         if year and round_number:
@@ -326,11 +332,7 @@ class F1RaceReplayWindow(arcade.Window):
         driver_progress = {}
         for code, pos in frame["drivers"].items():
             # parse lap defensively
-            lap_raw = pos.get("lap", 1)
-            try:
-                lap = int(lap_raw)
-            except Exception:
-                lap = 1
+            lap = safe_int(pos.get("lap", 1))
 
             # Project (x,y) to reference and combine with lap count
             projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
@@ -440,40 +442,63 @@ class F1RaceReplayWindow(arcade.Window):
         # Race Progress Bar with event markers (DNF, flags, leader changes)
         self.progress_bar_comp.draw(self)
 
-        # Championship standings component
-        if self.championship_standings:
-            self._update_championship_standings(frame)
+        # Championship standings component - only update if visible
+        if self.championship_standings and self.championship_comp.visible:
+            # Only update every N frames and when positions have changed
+            self._championship_update_counter += 1
+            if self._championship_update_counter >= self._championship_update_interval:
+                self._championship_update_counter = 0
+                self._update_championship_standings_cached(frame)
         self.championship_comp.draw(self)
                     
-    def _update_championship_standings(self, frame):
+    def _update_championship_standings_cached(self, frame):
+        """Update championship standings only if race positions have changed"""
+        # Calculate current race positions to check if they've changed
+        driver_progress = {}
+        for code, pos in frame["drivers"].items():
+            lap = safe_int(pos.get("lap", 1))
+
+            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+            driver_progress[code] = progress_m
+
+        # Sort by progress to get current positions
+        sorted_drivers = sorted(driver_progress.items(), key=lambda x: x[1], reverse=True)
+        race_positions = {code: position for position, (code, _) in enumerate(sorted_drivers, start=1)}
+
+        # Check if positions have changed
+        if race_positions == self._last_race_positions:
+            return  # No change, skip expensive recalculation
+
+        # Positions changed, update cache and recalculate
+        self._last_race_positions = race_positions
+        self._update_championship_standings(frame, race_positions)
+
+    def _update_championship_standings(self, frame, race_positions=None):
         """Calculate and update projected championship standings based on current race positions"""
         # Get fastest lap holder from frame (for races only)
         fastest_lap_holder = None
         if self.session_type == 'R' and 'fastest_lap' in frame:
             fastest_lap_holder = frame['fastest_lap'].get('driver')
 
-        # Calculate race positions the same way as the leaderboard (by progress, not stored position)
-        # This ensures consistency between what's shown in the leaderboard and championship standings
-        driver_progress = {}
-        for code, pos in frame["drivers"].items():
-            lap_raw = pos.get("lap", 1)
-            try:
-                lap = int(lap_raw)
-            except Exception:
-                lap = 1
+        # If race_positions not provided, calculate them (fallback for compatibility)
+        if race_positions is None:
+            driver_progress = {}
+            for code, pos in frame["drivers"].items():
+                lap = safe_int(pos.get("lap", 1))
 
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
-            driver_progress[code] = progress_m
+                # Project (x,y) to reference and combine with lap count
+                projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                driver_progress[code] = progress_m
 
-        # Sort by progress to get actual current positions
-        sorted_drivers = sorted(driver_progress.items(), key=lambda x: x[1], reverse=True)
+            # Sort by progress to get actual current positions
+            sorted_drivers = sorted(driver_progress.items(), key=lambda x: x[1], reverse=True)
 
-        # Build race_positions map with correct current positions
-        race_positions = {}
-        for position, (code, _) in enumerate(sorted_drivers, start=1):
-            race_positions[code] = position
+            # Build race_positions map with correct current positions
+            race_positions = {}
+            for position, (code, _) in enumerate(sorted_drivers, start=1):
+                race_positions[code] = position
 
         # Calculate projected standings
         entries = []

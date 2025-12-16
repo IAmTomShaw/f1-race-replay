@@ -1037,6 +1037,10 @@ class ChampionshipStandingsComponent(BaseComponent):
         self.visible = True
         self.max_visible_entries = 20  # Default to showing all drivers
 
+        # Text object cache for performance
+        self._cached_text_objects = {}
+        self._last_entries_hash = None
+
     def set_entries(self, entries: List[dict], session_type: str = 'R'):
         """
         Set championship standings entries.
@@ -1061,6 +1065,22 @@ class ChampionshipStandingsComponent(BaseComponent):
     def toggle_visibility(self):
         """Toggle component visibility"""
         self.visible = not self.visible
+
+    def _generate_entries_hash(self):
+        """Generate a hash of current entries to detect changes"""
+        # Create a simple hash from key values that affect rendering
+        hash_parts = []
+        for entry in self.entries[:self.max_visible_entries]:
+            hash_parts.append((
+                entry.get('driver_code', ''),
+                entry.get('current_points', 0),
+                entry.get('projected_points', 0),
+                entry.get('projected_position', 0),
+                entry.get('position_change', 0),
+                entry.get('race_points', 0),
+                entry.get('has_fastest_lap', False)
+            ))
+        return hash(tuple(hash_parts))
 
     def on_resize(self, window):
         """Calculate maximum visible entries based on available vertical space"""
@@ -1088,133 +1108,109 @@ class ChampionshipStandingsComponent(BaseComponent):
 
         title = "DRIVERS CHAMPIONSHIP"
 
-        # Draw title
-        arcade.Text(
-            title,
-            panel_left + 10,
-            panel_top - 10,
-            arcade.color.WHITE,
-            16,
-            bold=True,
-            anchor_y="top"
-        ).draw()
+        # Check if we need to regenerate text objects
+        current_hash = self._generate_entries_hash()
+        needs_regeneration = (current_hash != self._last_entries_hash)
 
-        # Draw header
+        if needs_regeneration:
+            self._last_entries_hash = current_hash
+            self._cached_text_objects = {}
+
+        # Draw title (create once per hash change)
+        if 'title' not in self._cached_text_objects:
+            self._cached_text_objects['title'] = arcade.Text(
+                title,
+                panel_left + 10,
+                panel_top - 10,
+                arcade.color.WHITE,
+                16,
+                bold=True,
+                anchor_y="top"
+            )
+        self._cached_text_objects['title'].draw()
+
+        # Draw header (create once per hash change)
         header_y = panel_top - 35
-        arcade.Text("Pos", panel_left + 10, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
-        arcade.Text("Driver", panel_left + 50, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
-        arcade.Text("Current", panel_left + 140, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
-        arcade.Text("Projected", panel_left + 220, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
-        arcade.Text("Δ", panel_left + 310, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
+        if 'header' not in self._cached_text_objects:
+            self._cached_text_objects['header'] = [
+                arcade.Text("Pos", panel_left + 10, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Driver", panel_left + 50, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Current", panel_left + 140, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Projected", panel_left + 220, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                arcade.Text("Δ", panel_left + 310, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top")
+            ]
+        for header_text in self._cached_text_objects['header']:
+            header_text.draw()
 
         # Draw entries (limited to max_visible_entries)
         start_y = header_y - 20
         visible_entries = self.entries[:self.max_visible_entries]
-        for i, entry in enumerate(visible_entries):
-            row_y = start_y - (i * self.row_height)
 
-            driver_code = entry.get('driver_code', '???')
-            team_color = entry.get('team_color', arcade.color.WHITE)
-            current_points = entry.get('current_points', 0)
-            projected_points = entry.get('projected_points', 0)
-            current_position = entry.get('current_position', i + 1)
-            projected_position = entry.get('projected_position', i + 1)
-            position_change = entry.get('position_change', 0)
-            race_points = entry.get('race_points', 0)
-            has_fastest_lap = entry.get('has_fastest_lap', False)
+        # Create or reuse cached text objects for entries
+        if 'entries' not in self._cached_text_objects or needs_regeneration:
+            self._cached_text_objects['entries'] = []
 
-            # Position change indicator
-            if position_change > 0:
-                change_symbol = "▲"
-                change_color = arcade.color.GREEN
-            elif position_change < 0:
-                change_symbol = "▼"
-                change_color = arcade.color.RED
-            else:
-                change_symbol = "─"
-                change_color = arcade.color.LIGHT_GRAY
+            for i, entry in enumerate(visible_entries):
+                row_y = start_y - (i * self.row_height)
 
-            # Draw row
-            # Position
-            arcade.Text(
-                f"{projected_position}",
-                panel_left + 10,
-                row_y,
-                arcade.color.WHITE,
-                12,
-                anchor_y="top"
-            ).draw()
+                driver_code = entry.get('driver_code', '???')
+                team_color = entry.get('team_color', arcade.color.WHITE)
+                current_points = entry.get('current_points', 0)
+                projected_points = entry.get('projected_points', 0)
+                projected_position = entry.get('projected_position', i + 1)
+                position_change = entry.get('position_change', 0)
+                race_points = entry.get('race_points', 0)
+                has_fastest_lap = entry.get('has_fastest_lap', False)
 
-            # Change indicator
-            arcade.Text(
-                change_symbol,
-                panel_left + 32,
-                row_y,
-                change_color,
-                12,
-                anchor_y="top"
-            ).draw()
+                # Position change indicator
+                if position_change > 0:
+                    change_symbol = "▲"
+                    change_color = arcade.color.GREEN
+                elif position_change < 0:
+                    change_symbol = "▼"
+                    change_color = arcade.color.RED
+                else:
+                    change_symbol = "─"
+                    change_color = arcade.color.LIGHT_GRAY
 
-            # Driver code with team color
-            arcade.Text(
-                driver_code,
-                panel_left + 50,
-                row_y,
-                team_color,
-                12,
-                bold=True,
-                anchor_y="top"
-            ).draw()
+                # Points delta
+                delta_text = f"+{race_points}" if race_points > 0 else "─"
+                delta_color = arcade.color.GREEN if race_points > 0 else arcade.color.LIGHT_GRAY
 
-            # Current points
-            arcade.Text(
-                f"{int(current_points)}",
-                panel_left + 140,
-                row_y,
-                arcade.color.LIGHT_GRAY,
-                12,
-                anchor_y="top"
-            ).draw()
+                # Add fastest lap indicator for races
+                if has_fastest_lap and self.session_type == 'R':
+                    delta_text += " ⚡"
 
-            # Projected points
-            arcade.Text(
-                f"{int(projected_points)}",
-                panel_left + 220,
-                row_y,
-                arcade.color.WHITE,
-                12,
-                anchor_y="top"
-            ).draw()
+                # Create and cache all text objects for this entry
+                entry_texts = [
+                    arcade.Text(f"{projected_position}", panel_left + 10, row_y, arcade.color.WHITE, 12, anchor_y="top"),
+                    arcade.Text(change_symbol, panel_left + 32, row_y, change_color, 12, anchor_y="top"),
+                    arcade.Text(driver_code, panel_left + 50, row_y, team_color, 12, bold=True, anchor_y="top"),
+                    arcade.Text(f"{int(current_points)}", panel_left + 140, row_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top"),
+                    arcade.Text(f"{int(projected_points)}", panel_left + 220, row_y, arcade.color.WHITE, 12, anchor_y="top"),
+                    arcade.Text(delta_text, panel_left + 310, row_y, delta_color, 12, anchor_y="top")
+                ]
+                self._cached_text_objects['entries'].append(entry_texts)
 
-            # Points delta
-            delta_text = f"+{race_points}" if race_points > 0 else "─"
-            delta_color = arcade.color.GREEN if race_points > 0 else arcade.color.LIGHT_GRAY
-
-            # Add fastest lap indicator for races
-            if has_fastest_lap and self.session_type == 'R':
-                delta_text += " ⚡"
-
-            arcade.Text(
-                delta_text,
-                panel_left + 310,
-                row_y,
-                delta_color,
-                12,
-                anchor_y="top"
-            ).draw()
+        # Draw all cached entry text objects
+        for entry_texts in self._cached_text_objects['entries']:
+            for text_obj in entry_texts:
+                text_obj.draw()
 
         # Show indicator if more entries exist than can be displayed
         if len(self.entries) > self.max_visible_entries:
             indicator_y = start_y - (len(visible_entries) * self.row_height) - 5
-            arcade.Text(
-                f"... +{len(self.entries) - self.max_visible_entries} more",
-                panel_left + 10,
-                indicator_y,
-                arcade.color.DARK_GRAY,
-                10,
-                italic=True,
-                anchor_y="top"
-            ).draw()
+            if 'more_indicator' not in self._cached_text_objects or needs_regeneration:
+                self._cached_text_objects['more_indicator'] = arcade.Text(
+                    f"... +{len(self.entries) - self.max_visible_entries} more",
+                    panel_left + 10,
+                    indicator_y,
+                    arcade.color.DARK_GRAY,
+                    10,
+                    italic=True,
+                    anchor_y="top"
+                )
+            self._cached_text_objects['more_indicator'].draw()
     
 # Build track geometry from example lap telemetry
 
