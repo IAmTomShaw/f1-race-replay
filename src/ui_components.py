@@ -1151,7 +1151,7 @@ class ChampionshipStandingsComponent(BaseComponent):
         """Create and cache the title text object."""
         if 'title' not in self._cached_text_objects:
             self._cached_text_objects['title'] = arcade.Text(
-                "DRIVERS CHAMPIONSHIP",
+                "Live standings",
                 panel_left + 10,
                 panel_top - 10,
                 arcade.color.WHITE,
