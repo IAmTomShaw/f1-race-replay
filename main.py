@@ -1,4 +1,4 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
 
 from src.interfaces.qualifying import run_qualifying_replay
@@ -79,6 +79,11 @@ if __name__ == "__main__":
     round_number = int(sys.argv[round_index])
   else:
     round_number = 12  # Default round number
+
+  if "--list-rounds" in sys.argv:
+    list_rounds(year)
+  elif "--list-sprints" in sys.argv:
+    list_sprints(year)
 
   playback_speed = 1
 

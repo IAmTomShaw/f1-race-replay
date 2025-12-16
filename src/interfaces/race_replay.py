@@ -16,7 +16,7 @@ from src.ui_components import (
 
 # Kept these as "default" starting sizes, but they are no longer hard limits
 SCREEN_WIDTH = 1920
-SCREEN_HEIGHT = 1080
+SCREEN_HEIGHT = 1200
 SCREEN_TITLE = "F1 Race Replay"
 
 class F1RaceReplayWindow(arcade.Window):
@@ -215,7 +215,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp):
             c.on_resize(self)
 
     def world_to_screen(self, x, y):
@@ -395,6 +395,7 @@ class F1RaceReplayWindow(arcade.Window):
             "[←/→]    Rewind / FastForward",
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
+            "[B]       Toggle Progress Bar",
         ]
         
         for i, line in enumerate(legend_lines):
@@ -446,10 +447,18 @@ class F1RaceReplayWindow(arcade.Window):
         elif symbol == arcade.key.R:
             self.frame_index = 0.0
             self.playback_speed = 1.0
+        elif symbol == arcade.key.B:
+            self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
+        if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
         if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
+
+    def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
+        """Handle mouse motion for hover effects on progress bar."""
+        self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)

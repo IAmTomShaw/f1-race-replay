@@ -28,6 +28,7 @@ class QualifyingReplay(arcade.Window):
         )
         self.leaderboard.set_entries(self.data.get("results", []))
         self.frames = []
+        self.drs_zones = []
         self.n_frames = 0
         self.min_speed = 0.0
         self.max_speed = 0.0
@@ -246,6 +247,24 @@ class QualifyingReplay(arcade.Window):
                 arcade.Text("Gear", chart_left + 10, gear_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
                 arcade.Text("Throttle / Brake (%)", chart_left + 10, ctrl_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
 
+                # DRS key at right of the speed subtitle (green square + label)
+                key_size = 12
+                key_padding_right = 100
+                # Align vertically with the subtitle (use same y offset, center the square)
+                key_y = speed_top + 10 + (key_size * 0.5)
+                square_x = chart_right - key_padding_right - (key_size / 2)
+
+                drs_key_rect = arcade.XYWH(square_x, key_y, key_size, key_size)
+                arcade.draw_rect_filled(drs_key_rect, arcade.color.GREEN)
+                arcade.Text(
+                    "DRS active",
+                    square_x + (key_size * 0.5) + 6,
+                    key_y,
+                    arcade.color.ANTI_FLASH_WHITE,
+                    12,
+                    anchor_y="center"
+                ).draw()
+
                 # compute global ranges from all frames (use distance for x-axis) - Should be max of 1.0 rel_dist, but just in case
 
                 all_dists = [ self._pick_telemetry_value(f.get("telemetry", {}), "rel_dist") for f in frames ]
@@ -271,6 +290,56 @@ class QualifyingReplay(arcade.Window):
                 draw_throttle = []
                 draw_brake = []
                 draw_gears = []
+
+                # The speed chart background will have sections of it shaded green to indicate where DRS was active
+
+                # find the drs zones for this lap that the driver has already passed.
+                # If they have partially passed a zone, shade up to their current distance only.
+
+                drs_zones_to_show = []
+
+                current_frame = frames[self.frame_index]
+                current_tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
+                current_dist = self._pick_telemetry_value(current_tel, "dist")
+
+                for dz in self.drs_zones:
+                    zone_start = dz.get("zone_start")
+                    zone_end = dz.get("zone_end")
+                    if zone_start is None or zone_end is None:
+                        continue
+                    if current_dist >= zone_start:
+                        # driver has passed at least the start of this zone
+                        shade_end = min(zone_end, current_dist)
+                        drs_zones_to_show.append({
+                            "zone_start": zone_start,
+                            "zone_end": shade_end
+                        })
+
+                for dz in drs_zones_to_show:
+                    # Convert to float to handle string values
+                    try:
+                        zone_start = float(dz['zone_start'])
+                        shade_end = float(dz['zone_end'])
+                    except (ValueError, TypeError):
+                        continue  # Skip invalid zones
+
+                    # Get the full distance range from all frames
+                    all_abs_dists = [self._pick_telemetry_value(f.get("telemetry", {}), "dist") for f in frames]
+                    all_abs_dists = [d for d in all_abs_dists if d is not None]
+                    if not all_abs_dists:
+                        continue
+
+                    full_abs_d_min, full_abs_d_max = min(all_abs_dists), max(all_abs_dists)
+                    if full_abs_d_max == full_abs_d_min:
+                        continue
+
+                    # map to screen coords using absolute distances
+                    nx1 = (zone_start - full_abs_d_min) / (full_abs_d_max - full_abs_d_min)
+                    nx2 = (shade_end - full_abs_d_min) / (full_abs_d_max - full_abs_d_min)
+                    x1pix = chart_left + nx1 * chart_w
+                    x2pix = chart_left + nx2 * chart_w
+                    drs_rect = arcade.XYWH((x1pix + x2pix) * 0.5, speed_bottom + speed_h * 0.5, x2pix - x1pix, speed_h)
+                    arcade.draw_rect_filled(drs_rect, (0, 100, 0, 100)) # semi-transparent green
 
                 # Collect values frame-by-frame (safe for mixed datasets)
                 for f in frames[: self.frame_index + 1]:
@@ -371,7 +440,11 @@ class QualifyingReplay(arcade.Window):
                 current_frame = frames[self.frame_index]
                 current_t = current_frame.get("t", 0.0)
 
-                arcade.Text(f"Lap Time: {format_time(current_t)}", map_left + 10, map_top - 30, arcade.color.ANTI_FLASH_WHITE, 16).draw()
+                formatted_time = format_time(current_t)
+
+                arcade.Text(f"Lap Time: {formatted_time}", map_left + 10, map_top - 30, arcade.color.ANTI_FLASH_WHITE, 16).draw()
+
+                arcade.Text(f"Playback Speed: {self.playback_speed:.1f}x", map_left + 10, map_top - 50, arcade.color.ANTI_FLASH_WHITE, 14).draw()
 
                 # Legends
                 legend_x = chart_right - 100
@@ -576,6 +649,7 @@ class QualifyingReplay(arcade.Window):
                     self.chart_active = True
                     # cache arrays for fast access and search
                     frames = seg.get("frames", [])
+                    drs_zones = seg.get("drs_zones", [])
                     times = [float(f.get("t")) for f in frames if f.get("t") is not None]
                     xs = [ (f.get("telemetry") or {}).get("x") for f in frames ]
                     ys = [ (f.get("telemetry") or {}).get("y") for f in frames ]
@@ -587,6 +661,7 @@ class QualifyingReplay(arcade.Window):
                     self._speeds = np.array([float(s) for s in speeds if s is not None]) if speeds else None
                     # populate top-level frames/n_frames and min/max speeds for chart scaling
                     self.frames = frames
+                    self.drs_zones = drs_zones
                     self.n_frames = len(frames)
                     if self._speeds is not None and self._speeds.size > 0:
                         self.min_speed = float(np.min(self._speeds))
