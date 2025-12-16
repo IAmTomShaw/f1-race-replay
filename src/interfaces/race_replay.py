@@ -1,7 +1,11 @@
 import os
 import arcade
 import numpy as np
-from src.f1_data import FPS, get_championship_standings, calculate_points_for_position
+from src.f1_data import (
+    FPS,
+    get_championship_standings,
+    calculate_points_for_position
+)
 from src.ui_components import (
     LeaderboardComponent,
     WeatherComponent,

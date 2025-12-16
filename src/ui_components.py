@@ -1026,8 +1026,6 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
     
     return events
 
-
-
 class ChampionshipStandingsComponent(BaseComponent):
     def __init__(self, x: int = 20, width: int = 400, top_offset: int = 40):
         self.x = x
