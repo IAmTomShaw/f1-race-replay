@@ -1037,6 +1037,7 @@ class ChampionshipStandingsComponent(BaseComponent):
         self.session_type = 'R'  # 'R' for Race, 'S' for Sprint
         self.row_height = 20
         self.visible = True
+        self.max_visible_entries = 20  # Default to showing all drivers
 
     def set_entries(self, entries: List[dict], session_type: str = 'R'):
         """
@@ -1062,6 +1063,23 @@ class ChampionshipStandingsComponent(BaseComponent):
     def toggle_visibility(self):
         """Toggle component visibility"""
         self.visible = not self.visible
+
+    def on_resize(self, window):
+        """Calculate maximum visible entries based on available vertical space"""
+        # Reserve space for legend at bottom (approximately 200px including margin)
+        legend_space = 200
+        # Reserve space for progress bar at bottom
+        progress_bar_space = 70
+        # Title and header space
+        header_space = 60
+
+        # Calculate available space for entries
+        panel_top = window.height - self.top_offset
+        available_space = panel_top - legend_space - progress_bar_space - header_space
+
+        # Calculate how many entries can fit
+        max_entries = max(5, int(available_space / self.row_height))  # Minimum 5 entries
+        self.max_visible_entries = min(max_entries, 20)  # Maximum 20 entries
 
     def draw(self, window):
         if not self.visible or not self.entries:
@@ -1091,9 +1109,10 @@ class ChampionshipStandingsComponent(BaseComponent):
         arcade.Text("Projected", panel_left + 220, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
         arcade.Text("Δ", panel_left + 310, header_y, arcade.color.LIGHT_GRAY, 12, anchor_y="top").draw()
 
-        # Draw entries
+        # Draw entries (limited to max_visible_entries)
         start_y = header_y - 20
-        for i, entry in enumerate(self.entries):
+        visible_entries = self.entries[:self.max_visible_entries]
+        for i, entry in enumerate(visible_entries):
             row_y = start_y - (i * self.row_height)
 
             driver_code = entry.get('driver_code', '???')
@@ -1183,6 +1202,19 @@ class ChampionshipStandingsComponent(BaseComponent):
                 row_y,
                 delta_color,
                 12,
+                anchor_y="top"
+            ).draw()
+
+        # Show indicator if more entries exist than can be displayed
+        if len(self.entries) > self.max_visible_entries:
+            indicator_y = start_y - (len(visible_entries) * self.row_height) - 5
+            arcade.Text(
+                f"... +{len(self.entries) - self.max_visible_entries} more",
+                panel_left + 10,
+                indicator_y,
+                arcade.color.DARK_GRAY,
+                10,
+                italic=True,
                 anchor_y="top"
             ).draw()
     

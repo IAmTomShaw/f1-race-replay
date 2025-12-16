@@ -126,6 +126,9 @@ class F1RaceReplayWindow(arcade.Window):
         # Trigger initial scaling calculation
         self.update_scaling(self.width, self.height)
 
+        # Initialize component sizing
+        self.championship_comp.on_resize(self)
+
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
@@ -230,7 +233,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.championship_comp):
             c.on_resize(self)
 
     def world_to_screen(self, x, y):
