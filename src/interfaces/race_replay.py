@@ -43,6 +43,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.finished_drivers = []
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
+        self.toggle_drs_zones = True 
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240)
@@ -72,7 +73,7 @@ class F1RaceReplayWindow(arcade.Window):
          self.x_inner, self.y_inner,
          self.x_outer, self.y_outer,
          self.x_min, self.x_max,
-         self.y_min, self.y_max) = build_track_from_example_lap(example_lap)
+         self.y_min, self.y_max, self.drs_zones) = build_track_from_example_lap(example_lap)
 
         # Build a dense reference polyline (used for projecting car (x,y) -> along-track distance)
         ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
@@ -286,6 +287,26 @@ class F1RaceReplayWindow(arcade.Window):
             arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
         if len(self.screen_outer_points) > 1:
             arcade.draw_line_strip(self.screen_outer_points, track_color, 4)
+        
+        # 2.5 Draw DRS Zones (green segments on outer track edge)
+        if hasattr(self, 'drs_zones') and self.drs_zones and self.toggle_drs_zones:
+            drs_color = (0, 255, 0)  # Bright green for DRS zones
+            
+            for _, zone in enumerate(self.drs_zones):
+                start_idx = zone["start"]["index"]
+                end_idx = zone["end"]["index"]
+                
+                # Extract the outer track points for this DRS zone segment
+                drs_outer_points = []
+                for i in range(start_idx, min(end_idx + 1, len(self.x_outer))):
+                    x = self.x_outer.iloc[i]
+                    y = self.y_outer.iloc[i]
+                    sx, sy = self.world_to_screen(x, y)
+                    drs_outer_points.append((sx, sy))
+                
+                # Draw the DRS zone segment
+                if len(drs_outer_points) > 1:
+                    arcade.draw_line_strip(drs_outer_points, drs_color, 6)
 
         # 3. Draw Cars
         frame = self.frames[idx]
@@ -385,6 +406,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
+<<<<<<< HEAD
         legend_y = 150 # Height of legend block
         legend_icons = self.legend_comp._control_icons_textures # icons
         legend_lines = [
@@ -394,6 +416,17 @@ class F1RaceReplayWindow(arcade.Window):
             ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
             ("[R]       Restart"),
             ("[B]       Toggle Progress Bar"),
+=======
+        legend_y = 180 # Height of legend block
+        legend_lines = [
+            "Controls:",
+            "[SPACE]  Pause/Resume",
+            "[←/→]    Rewind / FastForward",
+            "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
+            "[R]       Restart",
+            "[D]       Toggle DRS Zones",
+            "[B]       Toggle Progress Bar",
+>>>>>>> d4431bd (Add DRS zone visualization to race and qualifying replays)
         ]
         
         for i, lines in enumerate(legend_lines):
@@ -472,6 +505,8 @@ class F1RaceReplayWindow(arcade.Window):
         elif symbol == arcade.key.R:
             self.frame_index = 0.0
             self.playback_speed = 1.0
+        elif symbol == arcade.key.D:
+            self.toggle_drs_zones = not self.toggle_drs_zones
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
 

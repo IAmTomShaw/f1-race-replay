@@ -112,7 +112,7 @@ class QualifyingReplay(arcade.Window):
          self.x_inner, self.y_inner,
          self.x_outer, self.y_outer,
          self.x_min, self.x_max,
-         self.y_min, self.y_max) = build_track_from_example_lap(example_lap.get_telemetry())
+         self.y_min, self.y_max, self.drs_zones) = build_track_from_example_lap(example_lap.get_telemetry())
          
         ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
         self._ref_xs = np.array([p[0] for p in ref_points])
@@ -1016,6 +1016,7 @@ class QualifyingReplay(arcade.Window):
                     # populate top-level frames/n_frames and min/max speeds for chart scaling
                     self.frames = frames
                     self.drs_zones = drs_zones
+                    print("DRS zones loaded:", self.drs_zones)
                     self.n_frames = len(frames)
                     if self._speeds is not None and self._speeds.size > 0:
                         self.min_speed = float(np.min(self._speeds))

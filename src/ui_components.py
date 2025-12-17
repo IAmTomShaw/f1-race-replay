@@ -40,6 +40,7 @@ class LegendComponent(BaseComponent):
             "[←/→]    Rewind / FastForward",
             "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
             "[R]       Restart",
+            "[D]       Toggle DRS Zones",
         ]
     def draw(self, window):
         for i, line in enumerate(self.lines):
@@ -1314,7 +1315,7 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
 # Build track geometry from example lap telemetry
 
 def build_track_from_example_lap(example_lap, track_width=200):
-
+    drs_zones = plotDRSzones(example_lap)
     plot_x_ref = example_lap["X"]
     plot_y_ref = example_lap["Y"]
 
@@ -1342,4 +1343,36 @@ def build_track_from_example_lap(example_lap, track_width=200):
     y_max = max(plot_y_ref.max(), y_inner.max(), y_outer.max())
 
     return (plot_x_ref, plot_y_ref, x_inner, y_inner, x_outer, y_outer,
-            x_min, x_max, y_min, y_max)
+            x_min, x_max, y_min, y_max, drs_zones)
+
+# Plot DRS Zones along the track sides to show DRS Zones on the track
+def plotDRSzones(example_lap):
+   x_val = example_lap["X"]
+   y_val = example_lap["Y"]
+   drs_zones = []
+   drs_start = None
+   
+   for i, val in enumerate(example_lap["DRS"]):
+       if val in [10, 12, 14]:
+           if drs_start is None:
+               drs_start = i
+       else:
+           if drs_start is not None:
+               drs_end = i - 1
+               zone = {
+                   "start": {"x": x_val.iloc[drs_start], "y": y_val.iloc[drs_start], "index": drs_start},
+                   "end": {"x": x_val.iloc[drs_end], "y": y_val.iloc[drs_end], "index": drs_end}
+               }
+               drs_zones.append(zone)
+               drs_start = None
+   
+   # Handle case where DRS zone extends to end of lap
+   if drs_start is not None:
+       drs_end = len(example_lap["DRS"]) - 1
+       zone = {
+           "start": {"x": x_val.iloc[drs_start], "y": y_val.iloc[drs_start], "index": drs_start},
+           "end": {"x": x_val.iloc[drs_end], "y": y_val.iloc[drs_end], "index": drs_end}
+       }
+       drs_zones.append(zone)
+   
+   return drs_zones
