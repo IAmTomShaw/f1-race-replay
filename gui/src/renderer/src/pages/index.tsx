@@ -1,6 +1,6 @@
 import YearCard from '@renderer/components/year-card'
 
-export default function Home() {
+export default function Home(): React.ReactElement {
   const years = [2019, 2020, 2021, 2022, 2023, 2024, 2025]
   return (
     <>
