@@ -297,7 +297,7 @@ class F1RaceReplayWindow(arcade.Window):
             arcade.draw_text(
                 code,
                 sx,
-                sy + 10,  # Position text above the dot
+                sy + 20,  # Position text above the dot
                 arcade.color.WHITE,
                 font_size=10,
                 anchor_x="center",
