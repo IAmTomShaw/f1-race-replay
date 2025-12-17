@@ -83,10 +83,11 @@ if __name__ == "__main__":
     list_rounds(year)
   elif "--list-sprints" in sys.argv:
     list_sprints(year)
+  else:
 
-  playback_speed = 1
+    playback_speed = 1
 
-# Session type selection
-  session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-  
-  main(year, round_number, playback_speed, session_type=session_type)
+    # Session type selection
+    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+    
+    main(year, round_number, playback_speed, session_type=session_type)

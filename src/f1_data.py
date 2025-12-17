@@ -842,7 +842,6 @@ def list_rounds(year):
     schedule = fastf1.get_event_schedule(year)
     for _, event in schedule.iterrows():
         print(f"{event['RoundNumber']}: {event['EventName']}")
-    sys.exit()
 
 def list_sprints(year):
     """Lists all sprint rounds for a given year."""
@@ -860,4 +859,3 @@ def list_sprints(year):
     else:
         for _, event in sprints.iterrows():
             print(f"{event['RoundNumber']}: {event['EventName']}")
-    sys.exit()
