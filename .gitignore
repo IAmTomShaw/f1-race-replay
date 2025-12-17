@@ -1,4 +1,3 @@
-
 venv/
 
 output_animation.mp4
@@ -11,3 +10,5 @@ __pycache__/
 computed_data/
 
 .DS_Store
+
+GEMINI.md
