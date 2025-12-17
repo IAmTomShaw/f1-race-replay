@@ -3,7 +3,7 @@ import { useRoutes } from 'react-router-dom'
 import routes from '~react-pages'
 import Footer from './components/footer'
 
-export default function App() {
+export default function App(): React.ReactElement {
   return (
     <>
       <main>{useRoutes(routes)}</main>

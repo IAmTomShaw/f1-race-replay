@@ -11,8 +11,8 @@ declare global {
   }
 }
 
-export default function YearCard({ year }: YearCardProps) {
-  const runPython = (year: number) => {
+export default function YearCard({ year }: YearCardProps): React.ReactElement {
+  const runPython = (year: number): void => {
     window.api.runPython({ year: year, round: 2 })
 
     // Optional: listen to Python output
