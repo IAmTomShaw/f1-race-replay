@@ -406,7 +406,6 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-<<<<<<< HEAD
         legend_y = 150 # Height of legend block
         legend_icons = self.legend_comp._control_icons_textures # icons
         legend_lines = [
@@ -415,18 +414,8 @@ class F1RaceReplayWindow(arcade.Window):
             ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
             ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
             ("[R]       Restart"),
-            ("[B]       Toggle Progress Bar"),
-=======
-        legend_y = 180 # Height of legend block
-        legend_lines = [
-            "Controls:",
-            "[SPACE]  Pause/Resume",
-            "[←/→]    Rewind / FastForward",
-            "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
-            "[R]       Restart",
-            "[D]       Toggle DRS Zones",
-            "[B]       Toggle Progress Bar",
->>>>>>> d4431bd (Add DRS zone visualization to race and qualifying replays)
+            ("[D]       Toggle DRS Zones"),
+            ("[B]       Toggle Progress Bar")
         ]
         
         for i, lines in enumerate(legend_lines):
