@@ -292,16 +292,36 @@ class F1RaceReplayWindow(arcade.Window):
         for code, pos in frame["drivers"].items():
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
+            bg_color = (
+                min(255, color[0] + 100), 
+                min(255, color[1] + 100), 
+                min(255, color[2] + 100), 
+                120                  
+                )
             if code == self.selected_driver:
                 # Highlight selected driver with a larger circle
                 arcade.draw_circle_filled(sx, sy, 10, color)
-                arcade.Text(code,
-                          sx + 4, sy + 15, 
-                          color, 22).draw()
+                text = arcade.Text(code, sx + 4, sy + 15, color, 22)
+                text.draw()
+                text_width = text.right - text.left
+                text_height = text.top - text.bottom
+                arcade.draw_rect_filled(
+                    arcade.Rect(
+                        x=text.x + text_width / 2,
+                        y=text.y + text_height / 2 - 11,
+                        left=text.left,
+                        bottom=text.bottom,
+                        right=text.right,
+                        top=text.top,
+                        width=text_width + 4,
+                        height=text_height - 8
+                        ),
+                    color=bg_color
+                    )
             else:
                 arcade.draw_circle_filled(sx, sy, 6, color)
         
-        # --- UI ELEMENTS (Dynamic Positioning) ---
+        # --- UI ELEMENTS (Dynamic Posit ioning) ---
         
         # Determine Leader info using projected along-track distance (more robust than dist)
         # Use the progress metric in metres for each driver and use that to order the leaderboard.
