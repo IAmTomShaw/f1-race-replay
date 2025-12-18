@@ -8,6 +8,7 @@ from src.ui_components import (
     LegendComponent, 
     DriverInfoComponent, 
     RaceProgressBarComponent,
+    RaceInfoComponent,
     extract_race_events,
     build_track_from_example_lap
 )
@@ -20,7 +21,7 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, session=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -49,6 +50,16 @@ class F1RaceReplayWindow(arcade.Window):
         self.weather_comp = WeatherComponent(left=20, top_offset=170)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
+        
+        # Race info component
+        self.race_info_comp = RaceInfoComponent(right_margin=right_ui_margin, top_offset=40)
+        if session:
+            # Extract race information from session
+            country = session.event.get('Country', session.event.get('Location', ''))
+            track_name = session.event.get('EventName', '')
+            year = session.event.get('EventDate', '').year if hasattr(session.event.get('EventDate', ''), 'year') else ''
+            round_num = session.event.get('RoundNumber', '')
+            self.race_info_comp.set_race_info(country=country, track_name=track_name, year=str(year), round_num=str(round_num))
         
         # Progress bar component with race event markers
         self.progress_bar_comp = RaceProgressBarComponent(
@@ -212,7 +223,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_info_comp):
             c.on_resize(self)
 
     def world_to_screen(self, x, y):
@@ -385,7 +396,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 150 # Height of legend block
+        legend_y = 250 # Height of legend block (increased to fit all controls)
         legend_icons = self.legend_comp._control_icons_textures # icons
         legend_lines = [
             ("Controls:"),
@@ -394,6 +405,8 @@ class F1RaceReplayWindow(arcade.Window):
             ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
             ("[R]       Restart"),
             ("[B]       Toggle Progress Bar"),
+            ("[I]       Toggle Race Info"),
+            ("[C/T/Y/N] Toggle Country/Track/Year/rouNd"),
         ]
         
         for i, lines in enumerate(legend_lines):
@@ -440,6 +453,9 @@ class F1RaceReplayWindow(arcade.Window):
         # Selected driver info component
         self.driver_info_comp.draw(self)
         
+        # Race info component
+        self.race_info_comp.draw(self)
+        
         # Race Progress Bar with event markers (DNF, flags, leader changes)
         self.progress_bar_comp.draw(self)
                     
@@ -474,6 +490,16 @@ class F1RaceReplayWindow(arcade.Window):
             self.playback_speed = 1.0
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+        elif symbol == arcade.key.I:
+            self.race_info_comp.toggle_panel() # toggle race info panel
+        elif symbol == arcade.key.C:
+            self.race_info_comp.toggle_country() # toggle country
+        elif symbol == arcade.key.T:
+            self.race_info_comp.toggle_track() # toggle track name
+        elif symbol == arcade.key.Y:
+            self.race_info_comp.toggle_year() # toggle year
+        elif symbol == arcade.key.N:
+            self.race_info_comp.toggle_round() # toggle round number
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it

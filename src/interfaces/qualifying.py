@@ -2,7 +2,7 @@ import arcade
 import threading
 import time
 import numpy as np
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent
+from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent, RaceInfoComponent
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
@@ -71,6 +71,15 @@ class QualifyingReplay(arcade.Window):
 
         # Legend component for control icons
         self.legend_comp = LegendComponent()
+        
+        # Race info component
+        self.race_info_comp = RaceInfoComponent(right_margin=right_ui_margin, top_offset=40)
+        # Extract race information from session
+        country = session.event.get('Country', session.event.get('Location', ''))
+        track_name = session.event.get('EventName', '')
+        year = session.event.get('EventDate', '').year if hasattr(session.event.get('EventDate', ''), 'year') else ''
+        round_num = session.event.get('RoundNumber', '')
+        self.race_info_comp.set_race_info(country=country, track_name=track_name, year=str(year), round_num=str(round_num))
 
         # Build the track layout from an example lap
 
@@ -618,7 +627,7 @@ class QualifyingReplay(arcade.Window):
 
             # Controls Legend - Bottom Left (keeps small offset from left UI edge)
             legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-            legend_y = 180 # Height of legend block
+            legend_y = 250 # Height of legend block (increased to fit all controls)
             legend_icons = self.legend_comp._control_icons_textures # icons
             legend_lines = [
                 ("Controls:"),
@@ -626,7 +635,9 @@ class QualifyingReplay(arcade.Window):
                 ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
                 ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
                 ("[R]       Restart"),
-                ("[C]       Toggle comparison driver telemetry")
+                ("[O]       Toggle comparison driver telemetry"),
+                ("[I]       Toggle Race Info"),
+                ("[C/T/Y/N] Toggle Country/Track/Year/rouNd"),
             ]
             for i, lines in enumerate(legend_lines):
                 line = lines[0] if isinstance(lines, tuple) else lines
@@ -681,6 +692,9 @@ class QualifyingReplay(arcade.Window):
 
         self.leaderboard.draw(self)
         self.qualifying_segment_selector_modal.draw(self)
+        
+        # Race info component
+        self.race_info_comp.draw(self)
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
@@ -756,9 +770,19 @@ class QualifyingReplay(arcade.Window):
             self.play_time = self.play_start_t
             self.playback_speed = 1.0
             self.paused = True
-        elif symbol == arcade.key.C:
-            # Toggle the ability to see the comparison driver's telemetry
+        elif symbol == arcade.key.O:
+            # Toggle the ability to see the comparison driver's telemetry (changed from C to O)
             self.show_comparison_telemetry = not self.show_comparison_telemetry
+        elif symbol == arcade.key.I:
+            self.race_info_comp.toggle_panel() # toggle race info panel
+        elif symbol == arcade.key.C:
+            self.race_info_comp.toggle_country() # toggle country
+        elif symbol == arcade.key.T:
+            self.race_info_comp.toggle_track() # toggle track name
+        elif symbol == arcade.key.Y:
+            self.race_info_comp.toggle_year() # toggle year
+        elif symbol == arcade.key.N:
+            self.race_info_comp.toggle_round() # toggle round number
 
     def load_driver_telemetry(self, driver_code: str, segment_name: str):
 
