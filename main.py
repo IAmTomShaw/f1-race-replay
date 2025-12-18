@@ -52,9 +52,32 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
         # Get the drivers who participated in the race
 
-        race_telemetry = get_race_telemetry(session, session_type=session_type)
+    # Get example lap for track layout
+    # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
+    example_lap = None
+    
+    try:
+        print("Attempting to load qualifying session for track layout...")
+        quali_session = load_session(year, round_number, 'Q')
+        if quali_session is not None and len(quali_session.laps) > 0:
+            fastest_quali = quali_session.laps.pick_fastest()
+            if fastest_quali is not None:
+                quali_telemetry = fastest_quali.get_telemetry()
+                if 'DRS' in quali_telemetry.columns:
+                    example_lap = quali_telemetry
+                    print(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
+    except Exception as e:
+        print(f"Could not load qualifying session: {e}")
 
-        # Get example lap for track layout
+    # fallback: Use fastest race lap
+    if example_lap is None:
+        fastest_lap = session.laps.pick_fastest()
+        if fastest_lap is not None:
+            example_lap = fastest_lap.get_telemetry()
+            print("Using fastest race lap (DRS detection may use speed-based fallback)")
+        else:
+            print("Error: No valid laps found in session")
+            return
 
         example_lap = session.laps.pick_fastest().get_telemetry()
 
@@ -99,15 +122,15 @@ if __name__ == "__main__":
     else:
         round_number = 12  # Default round number
 
-    if "--list-rounds" in sys.argv:
-        list_rounds(year)
-    elif "--list-sprints" in sys.argv:
-        list_sprints(year)
+  if "--list-rounds" in sys.argv:
+    list_rounds(year)
+  elif "--list-sprints" in sys.argv:
+    list_sprints(year)
+  else:
 
     playback_speed = 1
 
-# Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else (
-        'S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-
+    # Session type selection
+    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+    
     main(year, round_number, playback_speed, session_type=session_type)
