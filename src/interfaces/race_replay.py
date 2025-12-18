@@ -3,16 +3,18 @@ import arcade
 import numpy as np
 from src.f1_data import FPS
 from src.ui_components import (
-    LeaderboardComponent, 
-    WeatherComponent, 
-    LegendComponent, 
-    DriverInfoComponent, 
+    LeaderboardComponent,
+    WeatherComponent,
+    LegendComponent,
+    DriverInfoComponent,
     RaceProgressBarComponent,
     extract_race_events,
-    build_track_from_example_lap
+    build_track_from_example_lap,
+    RaceControlComponent
 )
 
 
+# Kept these as "default" starting sizes, but they are no longer hard limits
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1200
 SCREEN_TITLE = "F1 Race Replay"
@@ -20,7 +22,7 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, race_control_messages=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -34,6 +36,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.paused = False
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
+        self.race_control_messages = race_control_messages or []
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -49,7 +52,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.weather_comp = WeatherComponent(left=20, top_offset=170)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
-        
+        self.rc_comp = RaceControlComponent()
         # Progress bar component with race event markers
         self.progress_bar_comp = RaceProgressBarComponent(
             left_margin=left_ui_margin,
@@ -58,7 +61,7 @@ class F1RaceReplayWindow(arcade.Window):
             height=24,
             marker_height=16
         )
-        
+
         # Extract race events for the progress bar
         race_events = extract_race_events(frames, track_statuses, total_laps or 0)
         self.progress_bar_comp.set_race_data(
@@ -439,10 +442,14 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Selected driver info component
         self.driver_info_comp.draw(self)
-        
+
+        # Race Control component
+        self.rc_comp.draw(self)
+
         # Race Progress Bar with event markers (DNF, flags, leader changes)
         self.progress_bar_comp.draw(self)
-                    
+
+
     def on_update(self, delta_time: float):
         if self.paused:
             return
@@ -483,7 +490,7 @@ class F1RaceReplayWindow(arcade.Window):
             return
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
-        
+
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)

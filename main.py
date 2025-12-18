@@ -61,6 +61,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
         chart=chart,
+        race_control_messages=race_telemetry.get('race_control_messages', [])
     )
 
 if __name__ == "__main__":

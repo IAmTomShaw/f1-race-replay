@@ -24,11 +24,11 @@ def parse_time_string(time_str: str) -> Optional[float]:
     time_str = str(time_str).split(" ", 2)[-1]  # Take the time part after "X days "
   else:
     time_str = str(time_str).split(" ")[0]  # Remove any trailing text after space
-    
+
   if time_str is None:
     print('1parse_time_string output: None')
     return None
-  
+
   s = str(time_str).strip()
   if s == "":
     print('2parse_time_string output: None')

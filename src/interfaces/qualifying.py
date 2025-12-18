@@ -374,6 +374,56 @@ class QualifyingReplay(arcade.Window):
                     drs_rect = arcade.XYWH((x1pix + x2pix) * 0.5, speed_bottom + speed_h * 0.5, x2pix - x1pix, speed_h)
                     arcade.draw_rect_filled(drs_rect, (0, 100, 0, 100)) # semi-transparent green
 
+                # The speed chart background will have sections of it shaded green to indicate where DRS was active
+
+                # find the drs zones for this lap that the driver has already passed.
+                # If they have partially passed a zone, shade up to their current distance only.
+
+                drs_zones_to_show = []
+
+                current_frame = frames[self.frame_index]
+                current_tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
+                current_dist = self._pick_telemetry_value(current_tel, "dist")
+
+                for dz in self.drs_zones:
+                    zone_start = dz.get("zone_start")
+                    zone_end = dz.get("zone_end")
+                    if zone_start is None or zone_end is None:
+                        continue
+                    if current_dist >= zone_start:
+                        # driver has passed at least the start of this zone
+                        shade_end = min(zone_end, current_dist)
+                        drs_zones_to_show.append({
+                            "zone_start": zone_start,
+                            "zone_end": shade_end
+                        })
+
+                for dz in drs_zones_to_show:
+                    # Convert to float to handle string values
+                    try:
+                        zone_start = float(dz['zone_start'])
+                        shade_end = float(dz['zone_end'])
+                    except (ValueError, TypeError):
+                        continue  # Skip invalid zones
+
+                    # Get the full distance range from all frames
+                    all_abs_dists = [self._pick_telemetry_value(f.get("telemetry", {}), "dist") for f in frames]
+                    all_abs_dists = [d for d in all_abs_dists if d is not None]
+                    if not all_abs_dists:
+                        continue
+
+                    full_abs_d_min, full_abs_d_max = min(all_abs_dists), max(all_abs_dists)
+                    if full_abs_d_max == full_abs_d_min:
+                        continue
+
+                    # map to screen coords using absolute distances
+                    nx1 = (zone_start - full_abs_d_min) / (full_abs_d_max - full_abs_d_min)
+                    nx2 = (shade_end - full_abs_d_min) / (full_abs_d_max - full_abs_d_min)
+                    x1pix = chart_left + nx1 * chart_w
+                    x2pix = chart_left + nx2 * chart_w
+                    drs_rect = arcade.XYWH((x1pix + x2pix) * 0.5, speed_bottom + speed_h * 0.5, x2pix - x1pix, speed_h)
+                    arcade.draw_rect_filled(drs_rect, (0, 100, 0, 100)) # semi-transparent green
+
                 # Collect values frame-by-frame (safe for mixed datasets)
                 for f_i, f in enumerate(frames[:self.frame_index + 1]):
                     tel = f.get("telemetry", {}) if isinstance(f.get("telemetry", {}), dict) else {}
@@ -526,6 +576,10 @@ class QualifyingReplay(arcade.Window):
                 current_frame = frames[self.frame_index]
                 current_t = current_frame.get("t", 0.0)
                     
+                formatted_time = format_time(current_t)
+
+                arcade.Text(f"Lap Time: {formatted_time}", map_left + 10, map_top - 30, arcade.color.ANTI_FLASH_WHITE, 16).draw()
+
                 formatted_time = format_time(current_t)
 
                 arcade.Text(f"Lap Time: {formatted_time}", map_left + 10, map_top - 30, arcade.color.ANTI_FLASH_WHITE, 16).draw()
