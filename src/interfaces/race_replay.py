@@ -292,7 +292,14 @@ class F1RaceReplayWindow(arcade.Window):
         for code, pos in frame["drivers"].items():
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            arcade.draw_circle_filled(sx, sy, 6, color)
+            if code == self.selected_driver:
+                # Highlight selected driver with a larger circle
+                arcade.draw_circle_filled(sx, sy, 10, color)
+                arcade.Text(code,
+                          sx + 4, sy + 15, 
+                          color, 22).draw()
+            else:
+                arcade.draw_circle_filled(sx, sy, 6, color)
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
