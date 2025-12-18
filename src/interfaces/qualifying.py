@@ -866,11 +866,11 @@ class QualifyingReplay(arcade.Window):
                 ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
                 ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
                 ("[R]       Restart"),
-                ("[C]       Toggle comparison driver"),
+                ("[D]       Toggle DRS zones on track map"),
+                ("[C]       Toggle comparison driver telemetry"),
                 ("[V]       Cycle comparison session (Q1/Q2/Q3)"),
                 ("[G]       Ghost comparison mode"),
                 ("[H]       Toggle ghost visibility"),
-                ("[D]       Toggle DRS zones"),
                 ("[X]       Clear ghost driver"),
             ]
 
