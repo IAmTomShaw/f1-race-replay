@@ -940,6 +940,127 @@ class RaceProgressBarComponent(BaseComponent):
         return False
 
 
+class RaceInfoComponent(BaseComponent):
+    """
+    Display race information (country, track name, year, round) in the GUI.
+    Users can toggle individual fields on/off to avoid visual clutter.
+    """
+    
+    def __init__(self, right_margin: int = 260, top_offset: int = 40):
+        """
+        Initialize the race info component.
+        
+        Args:
+            right_margin: Right margin from window edge
+            top_offset: Distance from top of window
+        """
+        self.right_margin = right_margin
+        self.top_offset = top_offset
+        
+        # Race information
+        self.country: str = ""
+        self.track_name: str = ""
+        self.year: str = ""
+        self.round: str = ""
+        
+        # Visibility toggles for each field
+        self._show_panel: bool = True
+        self._show_country: bool = False
+        self._show_track: bool = True
+        self._show_year: bool = True
+        self._show_round: bool = False
+        
+    def set_race_info(self, country: str = "", track_name: str = "", year: str = "", round_num: str = ""):
+        """Set the race information to display."""
+        self.country = country
+        self.track_name = track_name
+        self.year = str(year) if year else ""
+        self.round = str(round_num) if round_num else ""
+        
+    def toggle_panel(self) -> bool:
+        """Toggle the entire panel visibility."""
+        self._show_panel = not self._show_panel
+        return self._show_panel
+        
+    def toggle_country(self) -> bool:
+        """Toggle country visibility."""
+        self._show_country = not self._show_country
+        return self._show_country
+        
+    def toggle_track(self) -> bool:
+        """Toggle track name visibility."""
+        self._show_track = not self._show_track
+        return self._show_track
+        
+    def toggle_year(self) -> bool:
+        """Toggle year visibility."""
+        self._show_year = not self._show_year
+        return self._show_year
+        
+    def toggle_round(self) -> bool:
+        """Toggle round visibility."""
+        self._show_round = not self._show_round
+        return self._show_round
+        
+    def draw(self, window):
+        """Render the race information."""
+        if not self._show_panel:
+            return
+            
+        # Collect visible fields
+        visible_fields = []
+        
+        if self._show_country and self.country:
+            visible_fields.append(("Country", self.country))
+        if self._show_track and self.track_name:
+            visible_fields.append(("Track", self.track_name))
+        if self._show_year and self.year:
+            visible_fields.append(("Year", self.year))
+        if self._show_round and self.round:
+            visible_fields.append(("Round", self.round))
+            
+        # Skip rendering if no fields are visible
+        if not visible_fields:
+            return
+            
+        # Calculate dimensions
+        line_height = 22
+        padding = 12
+        box_width = 280
+        box_height = len(visible_fields) * line_height + padding * 2
+        
+        # Position in top-right corner with minimum spacing
+        # Use max to ensure at least 20px from the right edge
+        spacing_from_right = max(20, self.right_margin + 20)
+        right = window.width - spacing_from_right
+        top = window.height - self.top_offset
+        left = right - box_width
+        bottom = top - box_height
+        
+        center_x = (left + right) / 2
+        center_y = (top + bottom) / 2
+        
+        # Draw background box
+        bg_rect = arcade.XYWH(center_x, center_y, box_width, box_height)
+        arcade.draw_rect_filled(bg_rect, (0, 0, 0, 200))
+        arcade.draw_rect_outline(bg_rect, (100, 100, 100), 2)
+        
+        # Draw each visible field
+        cursor_y = top - padding - 11  # Start from top, accounting for text anchor
+        
+        for label, value in visible_fields:
+            # Draw label and value on the same line
+            text_x = left + padding
+            arcade.Text(
+                f"{label}: {value}",
+                text_x, cursor_y,
+                arcade.color.WHITE, 14,
+                anchor_y="center"
+            ).draw()
+            cursor_y -= line_height
+
+
+
 def extract_race_events(frames: List[dict], track_statuses: List[dict], total_laps: int) -> List[dict]:
     """
     Extract race events from frame data for the progress bar.
