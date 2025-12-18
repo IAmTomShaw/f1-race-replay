@@ -2,6 +2,8 @@ from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, 
 from src.arcade_replay import run_arcade_replay
 
 from src.interfaces.qualifying import run_qualifying_replay
+from datetime import date
+import argparse
 import sys
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R'):
@@ -64,30 +66,43 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     )
 
 if __name__ == "__main__":
+  
+  # Grab the current year as a default for --year option (so we don't have to pass it in every time)
+  current_year = date.today().year
+  
+  # Set up the argument parser
+  parser = argparse.ArgumentParser(description='A Python application for visualizing Formula 1 race telemetry and replaying race events with interactive controls and a graphical interface.', 
+                                   epilog='Follow the project at: https://github.com/IAmTomShaw/f1-race-replay')
 
-  # Get the year and round number from user input
+  parser.add_argument('-y', '--year', type=int, default=current_year,
+                      help=f"Specify race year (default - {current_year})")
+  parser.add_argument('-r', '--round', type=int, default=12,
+                      help='Specify race round (default - 12)')
+  parser.add_argument('--version', action='version', version="%(prog)s 0.1.0")
+  
+  sessions = parser.add_argument_group('Sessions other than the main race')
+  sessions.add_argument('-s', '--sprint', dest='session_type', action='store_const', const='S', default='R',
+                        help='Look at the sprint race')
+  sessions.add_argument('-q', '--quali', dest='session_type', action='store_const', const='Q', default='R',
+                        help='Look at qualifying')
+  sessions.add_argument('-sq', '--sprint-quali', dest='session_type', action='store_const', const='SQ', default='R',
+                        help='Look at sprint race quialifying')
+  
+  lists=parser.add_argument_group('List available data')
+  lists.add_argument('-lr', '--list-rounds', action='store_true', default=False,
+                     help='List rounds for a given race year')
+  lists.add_argument('-ls', '--list-sprints', action='store_true', default=False,
+                     help='List sprint races for a given year')
 
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
+  args=parser.parse_args()
+
+#  print(args)
+
+  if args.list_rounds:
+    list_rounds(args.year)
+  elif args.list_sprints:
+    list_sprints(args.year)
   else:
-    year = 2025  # Default year
-
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
-
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
-  else:
-
     playback_speed = 1
-
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
     
-    main(year, round_number, playback_speed, session_type=session_type)
+    main(args.year, args.round, playback_speed, session_type=args.session_type)
