@@ -4,7 +4,6 @@ from src.arcade_replay import run_arcade_replay
 from src.interfaces.qualifying import run_qualifying_replay
 from datetime import date
 import argparse
-import sys
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R'):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
@@ -49,9 +48,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Run the arcade replay
 
-    # Check for optional chart flag
-    chart = "--chart" in sys.argv
-
     run_arcade_replay(
         frames=race_telemetry['frames'],
         track_statuses=race_telemetry['track_statuses'],
@@ -62,7 +58,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
-        chart=chart,
     )
 
 if __name__ == "__main__":
