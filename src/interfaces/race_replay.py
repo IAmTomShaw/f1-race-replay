@@ -294,15 +294,16 @@ class F1RaceReplayWindow(arcade.Window):
             color = self.driver_colors.get(code, arcade.color.WHITE)
             arcade.draw_circle_filled(sx, sy, 6, color)
             # Add driver abbreviation text
-            arcade.draw_text(
-                code,
-                sx,
-                sy + 20,  # Position text above the dot
-                arcade.color.WHITE,
-                font_size=10,
-                anchor_x="center",
-                anchor_y="center"
-            )
+            if self.selected_driver == code:
+                arcade.draw_text(
+                    code,
+                    sx,
+                    sy + 20,  # Position text above the dot
+                    arcade.color.WHITE,
+                    font_size=10,
+                    anchor_x="center",
+                    anchor_y="center"
+                )
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
