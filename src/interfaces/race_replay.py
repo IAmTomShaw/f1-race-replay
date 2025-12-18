@@ -406,7 +406,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 150 # Height of legend block
+        legend_y = 180 # Height of legend block
         legend_icons = self.legend_comp._control_icons_textures # icons
         legend_lines = [
             ("Controls:"),
