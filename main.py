@@ -1,7 +1,7 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
-
 from src.interfaces.qualifying import run_qualifying_replay
+from src.analysis.comparison import TelemetryComparator
 import sys
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R'):
@@ -13,14 +13,58 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
   # Enable cache for fastf1
   enable_cache()
 
+  # CHECK FOR CLI COMPARISON MODE (Stand-alone)
+  if "--compare" in sys.argv:
+    try:
+        comp_index = sys.argv.index("--compare")
+        # Ensure we have enough arguments
+        if comp_index + 2 >= len(sys.argv):
+             print("Error: --compare requires two driver codes. Example: --compare VER HAM")
+             return
+
+        driver_a = sys.argv[comp_index + 1]
+        driver_b = sys.argv[comp_index + 2]
+        
+        # Optional Lap
+        lap_num = None
+        if "--lap" in sys.argv:
+            try:
+                lap_idx = sys.argv.index("--lap") + 1
+                lap_num = int(sys.argv[lap_idx])
+            except (ValueError, IndexError):
+                print("Warning: Invalid lap number provided, defaulting to fastest lap.")
+
+        # Run Analysis
+        comparator = TelemetryComparator(session, driver_a, driver_b, lap_num)
+        stats = comparator.process()
+        
+        print("\n" + "="*40)
+        print(f" COMPARISON: {driver_a} vs {driver_b}")
+        print("="*40)
+        print(f"Lap Time Diff: {stats['lap_time_diff']:.3f}s (Negative means {driver_a} was faster)")
+        print(f"Top Speed Diff: {stats['top_speed_diff']:.1f} km/h")
+        print(f"Avg Throttle: {driver_a}={stats['avg_throttle_a']:.1f}% vs {driver_b}={stats['avg_throttle_b']:.1f}%")
+        print("="*40)
+        print("Launching Visualization Window...")
+        
+        comparator.plot_comparison()
+        
+    except Exception as e:
+        print(f"An error occurred during comparison: {e}")
+        import traceback
+        traceback.print_exc()
+        
+    # Exit after comparison so we don't start the arcade replay
+    return
+
+
+  # STANDARD MODES (Qualifying / Race Replay)
   if session_type == 'Q' or session_type == 'SQ':
 
     # Get the drivers who participated and their lap times
-
     qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
 
     # Run the arcade screen showing qualifying results
-
     title = f"{session.event['EventName']} - {'Sprint Qualifying' if session_type == 'SQ' else 'Qualifying Results'}"
     
     run_qualifying_replay(
@@ -32,17 +76,14 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
   else:
 
     # Get the drivers who participated in the race
-
     race_telemetry = get_race_telemetry(session, session_type=session_type)
 
     # Get example lap for track layout
-
     example_lap = session.laps.pick_fastest().get_telemetry()
 
     drivers = session.drivers
 
     # Get circuit rotation
-
     circuit_rotation = get_circuit_rotation(session)
 
     # Run the arcade replay
@@ -50,6 +91,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     # Check for optional chart flag
     chart = "--chart" in sys.argv
 
+    # Pass the session object here so the replay window can use it for dynamic comparisons
     run_arcade_replay(
         frames=race_telemetry['frames'],
         track_statuses=race_telemetry['track_statuses'],
@@ -61,6 +103,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
         chart=chart,
+        session=session 
     )
 
 if __name__ == "__main__":

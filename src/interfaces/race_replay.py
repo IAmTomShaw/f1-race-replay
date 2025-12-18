@@ -11,7 +11,7 @@ from src.ui_components import (
     extract_race_events,
     build_track_from_example_lap
 )
-
+from src.analysis.comparison import TelemetryComparator
 
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1200
@@ -20,7 +20,7 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, session=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -34,6 +34,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.paused = False
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
+        self.session = session # Store the session for analysis
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -110,6 +111,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
+        self.selected_drivers = [] # For comparison mode (list of strings)
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
@@ -390,6 +392,7 @@ class F1RaceReplayWindow(arcade.Window):
         legend_lines = [
             ("Controls:"),
             ("[SPACE]  Pause/Resume"),
+            (f"Compare {'(' + str(len(self.selected_drivers)) + '/2)' if self.selected_drivers else '(Select 2)'}", ("[", "]"), ("C")),
             ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
             ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
             ("[R]       Restart"),
@@ -405,7 +408,12 @@ class F1RaceReplayWindow(arcade.Window):
             # Draw icons if any
             if icon_keys:
                 control_icon_x = legend_x + 12
+                # If icon_keys is a single string (not a list/tuple), wrap it
+                if isinstance(icon_keys, str):
+                    icon_keys = [icon_keys]
+                    
                 for key in icon_keys:
+                    # Special handle for text keys like "C" that might not have images
                     icon_texture = legend_icons.get(key)
                     if icon_texture:
                         control_icon_y = legend_y - (i * 25) + 5 # slight vertical offset
@@ -417,6 +425,10 @@ class F1RaceReplayWindow(arcade.Window):
                             alpha = 255
                         )
                         control_icon_x += icon_size + 6  # spacing between icons  
+                    else:
+                        # Draw Text fallback for keys like [C] if no icon
+                        pass # handled by text drawing logic typically, but here we can't easily injection into 'brackets' logic.
+                        
             # Draw brackets if any              
             if brackets:
                 for j in range(len(brackets)):
@@ -440,8 +452,13 @@ class F1RaceReplayWindow(arcade.Window):
         # Selected driver info component
         self.driver_info_comp.draw(self)
         
-        # Race Progress Bar with event markers (DNF, flags, leader changes)
+        # Race Progress Bar
         self.progress_bar_comp.draw(self)
+
+        # Draw Comparison Prompt if 2 drivers selected
+        if len(self.selected_drivers) == 2:
+            prompt_text = f"COMPARE: {self.selected_drivers[0]} vs {self.selected_drivers[1]} - Press [C]"
+            arcade.draw_text(prompt_text, self.width/2, self.height - 100, arcade.color.CYAN, 20, anchor_x="center", bold=True)
                     
     def on_update(self, delta_time: float):
         if self.paused:
@@ -473,7 +490,20 @@ class F1RaceReplayWindow(arcade.Window):
             self.frame_index = 0.0
             self.playback_speed = 1.0
         elif symbol == arcade.key.B:
-            self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+            self.progress_bar_comp.toggle_visibility()
+        elif symbol == arcade.key.C:
+            # Trigger Comparison Mode
+            if len(self.selected_drivers) == 2 and self.session:
+                d1 = self.selected_drivers[0]
+                d2 = self.selected_drivers[1]
+                print(f"Launching comparison for {d1} vs {d2}...")
+                try:
+                    # Note: We trigger this in a blocking way, which pauses the arcade window loop
+                    # This is acceptable for a pop-up analysis tool.
+                    comparator = TelemetryComparator(self.session, d1, d2)
+                    comparator.plot_comparison()
+                except Exception as e:
+                    print(f"Error launching comparison: {e}")
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
@@ -483,6 +513,8 @@ class F1RaceReplayWindow(arcade.Window):
             return
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
+        self.selected_drivers = []
+        self.leaderboard_comp.selection = []
         
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar."""
