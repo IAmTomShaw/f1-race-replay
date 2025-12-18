@@ -12,7 +12,8 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Driver Status:** Drivers who retire or go out are marked as "OUT" on the leaderboard.
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
-- **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers.
+- **Driver Name on Track:** When a driver is selected on the leaderboard their name will appear on the track.
 
 ## Controls
 
@@ -92,11 +93,11 @@ f1-race-replay/
 │   └── preview.png           # Race replay preview image
 ├── src/
 │   ├── f1_data.py            # Telemetry loading, processing, and frame generation
-│   ├── arcade_replay.py      # Visualization and UI logic
-│   └── ui_components.py      # UI components like buttons and leaderboard
+│   ├── arcade_replay.py      # Entry point for the arcade replay
+│   ├── ui_components.py      # UI components like buttons and leaderboard
 │   ├── interfaces/
-│   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
-│   │   └── race_replay.py    # Race replay interface and telemetry visualization
+│   │   ├── qualifying.py     # Qualifying session interface and telemetry visualization
+│   │   └── race_replay.py    # Race replay visualization and UI logic
 │   └── lib/
 │       └── tyres.py          # Type definitions for telemetry data structures
 │       └── time.py           # Time formatting utilities
