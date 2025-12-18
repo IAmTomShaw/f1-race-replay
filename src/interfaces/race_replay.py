@@ -509,8 +509,20 @@ class F1RaceReplayWindow(arcade.Window):
         if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         # default: clear selection if clicked elsewhere
-        self.selected_driver = None
+        idx = min(int(self.frame_index), self.n_frames - 1)
+        frame = self.frames[idx]
+
+        #calculate distances to all drivers
+        positions = [(code, (self.world_to_screen(pos["x"], pos["y"]))) for code, pos in frame["drivers"].items()]
+        click_distance = [np.sqrt(np.abs(position[1][0] - x)**2 + np.abs(position[1][1] - y)**2) for position in positions]
+        min_index = np.argmin(click_distance)
         
+        #select driver if within 20 pixels
+        if click_distance[min_index] < 20:
+            self.selected_driver = positions[min_index][0]
+        else:
+            self.selected_driver = None
+
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
