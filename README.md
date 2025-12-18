@@ -36,24 +36,50 @@ Install dependencies:
 ```bash
 pip install -r requirements.txt
 ```
+or using `uv` (https://docs.astral.sh/uv):
+```bash
+uv sync
+```
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
 ## Usage
 
+To display all options:
+
+```bash
+python main.py -h
+```
+or using `uv`:
+```bash
+uv run f1-race-replay -h
+```
+
 Run the main script and specify the year and round:
 ```bash
-python main.py --year 2025 --round 12
+python main.py --year 2025 --round 13
+```
+or using `uv`:
+```bash
+uv run f1-race-replay --year 2025 --round 13
 ```
 
 To run a Sprint session (if the event has one), add `--sprint`:
 ```bash
-python main.py --year 2025 --round 12 --sprint
+python main.py --year 2025 --round 13 --sprint
+```
+or using `uv`:
+```bash
+uv run f1-race-replay --year 2025 --round 13 --sprint
 ```
 
 The application will load a pre-computed telemetry dataset if you have run it before for the same event. To force re-computation of telemetry data, use the `--refresh-data` flag:
 ```bash
-python main.py --year 2025 --round 12 --refresh-data
+python main.py --year 2025 --round 13 --refresh-data
+```
+or using `uv`:
+```bash
+uv run f1-race-replay --year 2025 --round 13 --refresh-data
 ```
 
 ### Search Round Numbers (including Sprints)
@@ -62,52 +88,77 @@ To find the round number for a specific Grand Prix event, you can use the `--lis
 ```bash
 python main.py --year 2025 --list-rounds
 ```
+or using `uv`:
+```bash
+uv run f1-race-replay --year 2025 --list-rounds
+```
 
 To return a list of events that include Sprint sessions, use the `--list-sprints` flag:
 ```bash
 python main.py --year 2025 --list-sprints
+```
+or using `uv`:
+```bash
+uv run f1-race-replay --year 2025 --list-sprints
 ```
 
 ### Qualifying Session Replay
 
 To run a Qualifying session replay, use the `--qualifying` flag:
 ```bash
-python main.py --year 2025 --round 12 --qualifying
+python main.py --year 2025 --round 13 --qualifying
+```
+or using `uv`:
+```bash
+uv run f1-race-replay --year 2025 --round 13 --qualifying
 ```
 
 To run a Sprint Qualifying session (if the event has one), add `--sprint`:
 ```bash
-python main.py --year 2025 --round 12 --qualifying --sprint
+python main.py --year 2025 --round 13 --sprint-qualifying
+```
+or using `uv`:
+```bash
+uv run f1-race-replay --year 2025 --round 13 --sprint-qualifying
 ```
 
 ## File Structure
 
 ```
 f1-race-replay/
-├── main.py                    # Entry point, handles session loading and starts the replay
-├── requirements.txt           # Python dependencies
-├── README.md                  # Project documentation
-├── roadmap.md                 # Planned features and project vision
-├── resources/
-│   └── preview.png           # Race replay preview image
-├── src/
-│   ├── f1_data.py            # Telemetry loading, processing, and frame generation
-│   ├── arcade_replay.py      # Visualization and UI logic
-│   └── ui_components.py      # UI components like buttons and leaderboard
-│   ├── interfaces/
-│   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
-│   │   └── race_replay.py    # Race replay interface and telemetry visualization
-│   └── lib/
-│       └── tyres.py          # Type definitions for telemetry data structures
-│       └── time.py           # Time formatting utilities
-└── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
-└── computed_data/            # Computed telemetry data (created automatically upon first run)
+│   contributors.md                     # List of contributors
+│   main.py                             # Entry point, handles session loading and starts the replay
+│   pyproject.toml                      # Project packaging informations
+│   README.md                           # Project documentation
+│   requirements.txt                    # Python dependencies
+│   roadmap.md                          # Planned features and project vision
+│   uv.lock                             # uv lock file
+├───resources
+│       preview.png                     # Race replay preview image
+└───src
+    └───f1_race_replay
+        │   arcade_replay.py            # Visualization and UI logic
+        │   f1_data.py                  # Telemetry loading, processing, and frame generation
+        │   main.py                     # CLI entry point
+        │   ui_components.py            # UI components like buttons and leaderboard
+        ├───images
+        │   ├───controls/               # Images for the controls
+        │   ├───tyres/                  # Images for the tyres representings racers
+        │   └───weather/                # Images for the weather conditions
+        ├───interfaces
+        │       qualifying.py           # Qualifying session interface and telemetry visualization
+        │       race_replay.py          # Race replay interface and telemetry visualization
+        └───lib
+                time.py                 # Time formatting utilities
+                tyres.py                # Type definitions for telemetry data structures
+├───.fastf1-cache/                      # FastF1 cache folder (created automatically upon first run)
+├───computed_data/                      # Computed telemetry data (created automatically upon first run)
 ```
 
 ## Customization
 
-- Change track width, colors, and UI layout in `src/arcade_replay.py`.
-- Adjust telemetry processing in `src/f1_data.py`.
+- Change track width, colors, and UI layout in `src/f1_race_replay/arcade_replay.py`.
+- Adjust telemetry processing in `src/f1_race_replay/f1_data.py`.
 
 ## Contributing
 

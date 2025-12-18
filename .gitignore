@@ -1,5 +1,7 @@
 
 venv/
+.venv
+.ruff_cache
 
 output_animation.mp4
 .fastf1-cache

@@ -1,0 +1,27 @@
+[build-system]
+requires = ["uv_build>=0.9.18,<0.10.0"]
+build-backend = "uv_build"
+
+[project]
+name = "f1-race-replay"
+version = "0.1.0"
+description = "A Python application for visualizing Formula 1 race telemetry and replaying race events with interactive controls and a graphical interface."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "arcade",
+    "fastf1",
+    "matplotlib",
+    "numpy",
+    "pandas",
+    "pyglet",
+]
+
+[project.scripts]
+f1-race-replay = "f1_race_replay.main:main"
+
+[dependency-groups]
+lint = ["ruff"]
+
+[tool.ruff]
+line-length = 120
