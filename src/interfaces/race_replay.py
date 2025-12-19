@@ -20,7 +20,7 @@ SCREEN_TITLE = "F1 Race Replay"
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
-                 playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
+                 playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, circuit_corners=None,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
@@ -38,6 +38,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
+        self.circuit_corners = circuit_corners
         self._rot_rad = float(np.deg2rad(self.circuit_rotation)) if self.circuit_rotation else 0.0
         self._cos_rot = float(np.cos(self._rot_rad))
         self._sin_rot = float(np.sin(self._rot_rad))
@@ -321,6 +322,26 @@ class F1RaceReplayWindow(arcade.Window):
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
             arcade.draw_circle_filled(sx, sy, 6, color)
+
+
+        # Circuit corner numbers
+        if self.circuit_corners is not None:
+            for _, corner in self.circuit_corners.iterrows():
+                sx, sy = self.world_to_screen(corner["X"], corner["Y"])
+
+                # arcade.draw_circle_filled(sx, sy, 9, (20, 20, 20, 200))
+                # arcade.draw_circle_outline(sx, sy, 9, arcade.color.WHITE, 2)
+
+                arcade.Text(
+                    str(corner["Number"]),
+                    sx,
+                    sy,
+                    arcade.color.WHITE,
+                    12,
+                    bold=True,
+                    anchor_x="center",
+                    anchor_y="center"
+                ).draw()
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
