@@ -413,7 +413,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 180 # Height of legend block
+        legend_y = 200 # Height of legend block
         legend_icons = self.legend_comp._control_icons_textures # icons
         legend_lines = [
             ("Controls:"),
@@ -423,6 +423,8 @@ class F1RaceReplayWindow(arcade.Window):
             ("[R]       Restart"),
             ("[D]       Toggle DRS Zones"),
             ("[B]       Toggle Progress Bar"),
+            ("[Shift + Click] Select Multiple Drivers")
+
         ]
         
         for i, lines in enumerate(legend_lines):

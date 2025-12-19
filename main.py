@@ -78,7 +78,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         track_statuses=race_telemetry['track_statuses'],
         example_lap=example_lap,
         drivers=drivers,
-        playback_speed=1.0,
+        playback_speed=playback_speed,
         driver_colors=race_telemetry['driver_colors'],
         title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
         total_laps=race_telemetry['total_laps'],
