@@ -32,7 +32,12 @@ Recently added support for Qualifying session replays with telemetry visualizati
 - [Arcade](https://api.arcade.academy/en/latest/)
 - numpy
 
-Install dependencies:
+Install dependencies using uv (recommended):
+```bash
+uv sync
+```
+
+Or using pip:
 ```bash
 pip install -r requirements.txt
 ```
@@ -42,6 +47,13 @@ FastF1 cache folder will be created automatically on first run. If it is not cre
 ## Usage
 
 Run the main script and specify the year and round:
+
+With uv (recommended):
+```bash
+uv run python main.py --year 2025 --round 12
+```
+
+Or with Python directly:
 ```bash
 python main.py --year 2025 --round 12
 ```
@@ -53,7 +65,7 @@ python main.py --year 2025 --round 12 --sprint
 
 The application will load a pre-computed telemetry dataset if you have run it before for the same event. To force re-computation of telemetry data, use the `--refresh-data` flag:
 ```bash
-python main.py --year 2025 --round 12 --refresh-data
+uv run python main.py --year 2025 --round 12 --refresh-data
 ```
 
 ### Search Round Numbers (including Sprints)
