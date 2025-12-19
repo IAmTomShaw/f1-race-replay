@@ -125,7 +125,7 @@ class LeaderboardComponent(BaseComponent):
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
         self.grid_positions = grid_positions or {}  # Starting grid positions for position delta
-        self.show_delta = True  # Toggle for showing positions gained/lost
+        self.show_delta = False  # Toggle for showing positions gained/lost
         self._tyre_textures = {}
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")

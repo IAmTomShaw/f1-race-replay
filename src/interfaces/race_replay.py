@@ -50,7 +50,7 @@ class F1RaceReplayWindow(arcade.Window):
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, grid_positions=grid_positions)
-        self.show_position_delta = True  # Toggle for showing positions gained/lost
+        self.show_position_delta = False  # Toggle for showing positions gained/lost
         self.weather_comp = WeatherComponent(left=20, top_offset=170)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
@@ -416,11 +416,10 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 210 # Height of legend block (increased to fit all controls with bottom padding)
+        legend_y = 220 # Height of legend block (increased to fit all controls with bottom padding)
         legend_icons = self.legend_comp._control_icons_textures # icons
         
         # Show current state of position delta toggle
-        delta_state = "ON" if self.show_position_delta else "OFF"
         legend_lines = [
             ("Controls:"),
             ("[SPACE]  Pause/Resume"),
@@ -429,7 +428,7 @@ class F1RaceReplayWindow(arcade.Window):
             ("[R]       Restart"),
             ("[D]       Toggle DRS Zones"),
             ("[B]       Toggle Progress Bar"),
-            (f"[G]      Toggle Grid Pos"),
+            ("[G]       Toggle Grid Position Delta"),
             ("[Shift + Click] Select Multiple Drivers")
 
         ]
