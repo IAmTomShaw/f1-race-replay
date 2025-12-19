@@ -179,13 +179,18 @@ class LeaderboardComponent(BaseComponent):
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
                 arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
 
-                # Draw the textured rect
-                arcade.draw_texture_rect(
-                    rect=rect,
-                    texture=tyre_texture,
-                    angle=0,
-                    alpha=255
-                )
+            # Draw Tyre Age
+            tyre_age = pos.get("tyre_age")
+            if tyre_age is not None:
+                arcade.Text(
+                    f"L{int(tyre_age)}",
+                    left_x + self.width - 22,
+                    top_y - 12,
+                    arcade.color.LIGHT_GRAY,
+                    10,
+                    anchor_x="right",
+                    anchor_y="center"
+                ).draw()
 
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
