@@ -2,9 +2,9 @@ from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, 
 from src.arcade_replay import run_arcade_replay
 
 from src.interfaces.qualifying import run_qualifying_replay
-import sys
+import argparse
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R'):
+def main(year=None, round_number=None, playback_speed=1, session_type='R', chart=False, refresh_data=False):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
@@ -17,7 +17,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Get the drivers who participated and their lap times
 
-    qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+    qualifying_session_data = get_quali_telemetry(session, session_type=session_type, refresh_data=refresh_data)
 
     # Run the arcade screen showing qualifying results
 
@@ -33,7 +33,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Get the drivers who participated in the race
 
-    race_telemetry = get_race_telemetry(session, session_type=session_type)
+    race_telemetry = get_race_telemetry(session, session_type=session_type, refresh_data=refresh_data)
 
     # Get example lap for track layout
     # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
@@ -70,9 +70,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Run the arcade replay
 
-    # Check for optional chart flag
-    chart = "--chart" in sys.argv
-
     run_arcade_replay(
         frames=race_telemetry['frames'],
         track_statuses=race_telemetry['track_statuses'],
@@ -87,30 +84,48 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     )
 
 if __name__ == "__main__":
+  parser = argparse.ArgumentParser(
+    description="F1 Arcade Replay Tool - Replay races, sprints, and qualifying sessions",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+  )
 
   # Get the year and round number from user input
+  parser.add_argument("--year", type=int, default=2025, help="F1 season year")
+  parser.add_argument("--round", type=int, default=12, help="Race round number")  
 
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
+  session_group = parser.add_mutually_exclusive_group()
+  session_group.add_argument("--qualifying", action="store_true", help="Run qualifying replay")
+  session_group.add_argument("--sprint-qualifying", action="store_true", help="Run sprint qualifying replay")
+  session_group.add_argument("--sprint", action="store_true", help="Run sprint race replay")
 
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
+  parser.add_argument("--list-rounds", action="store_true", help="List all rounds for a season")
+  parser.add_argument("--list-sprints", action="store_true", help="List sprint rounds for a season")
+  parser.add_argument("--chart", action="store_true", help="Show telemetry charts during replay")
+  parser.add_argument("--refresh-data", action="store_true", help="Refresh data from source instead of using cached data")
 
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
-  else:
-
-    playback_speed = 1
-
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+  args = parser.parse_args()
+  
+  if args.list_rounds:
+    list_rounds(args.year)
+    exit(0)
     
-    main(year, round_number, playback_speed, session_type=session_type)
+  if args.list_sprints:
+    list_sprints(args.year)
+    exit(0)
+    
+  if args.qualifying:
+    session_type = 'Q'
+  elif args.sprint_qualifying:
+    session_type = 'SQ'
+  elif args.sprint:
+    session_type = 'S'
+  else:
+    session_type = 'R'
+  
+  playback_speed = 1
+  
+  year = args.year
+  round_number = args.round
+  chart = args.chart
+  refresh_data = args.refresh_data
+  main(year, round_number, playback_speed, session_type=session_type, chart=chart, refresh_data=refresh_data)
