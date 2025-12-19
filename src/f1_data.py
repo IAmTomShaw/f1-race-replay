@@ -43,6 +43,7 @@ def _process_single_driver(args):
     rel_dist_all = []
     lap_numbers = []
     tyre_compounds = []
+    tyre_ages = []
     speed_all = []
     gear_all = []
     drs_all = []
@@ -57,6 +58,7 @@ def _process_single_driver(args):
         lap_tel = lap.get_telemetry()
         lap_number = lap.LapNumber
         tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
+        tyre_age = lap['TyreLife'] if not pd.isna(lap['TyreLife']) else 0
 
         if lap_tel.empty:
             continue
@@ -82,6 +84,7 @@ def _process_single_driver(args):
         rel_dist_all.append(rd_lap)
         lap_numbers.append(np.full_like(t_lap, lap_number))
         tyre_compounds.append(np.full_like(t_lap, tyre_compund_as_int))
+        tyre_ages.append(np.full_like(t_lap, tyre_age))
         speed_all.append(speed_kph_lap)
         gear_all.append(gear_lap)
         drs_all.append(drs_lap)
@@ -93,21 +96,28 @@ def _process_single_driver(args):
 
     # Concatenate all arrays at once for better performance
     all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                  lap_numbers, tyre_compounds, tyre_ages, speed_all, gear_all, drs_all]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    tyre_compounds, tyre_ages, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
 
     # Sort all arrays by time in one operation
     order = np.argsort(t_all)
     all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                lap_numbers, tyre_compounds, tyre_ages, speed_all, gear_all, drs_all]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
+    tyre_compounds, tyre_ages, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
 
     throttle_all = np.concatenate(throttle_all)[order]
     brake_all = np.concatenate(brake_all)[order]
+
+    stints = laps_driver.groupby('Stint').agg({
+        'Compound': 'first', 
+        'LapNumber': 'min'
+    }).reset_index().sort_values('LapNumber')
+    
+    stint_history = stints[['Compound', 'LapNumber']].to_dict('records')
 
     print(f"Completed telemetry for driver: {driver_code}")
     
@@ -121,6 +131,7 @@ def _process_single_driver(args):
             "rel_dist": rel_dist_all,                   
             "lap": lap_numbers,
             "tyre": tyre_compounds,
+            "tyre_age": tyre_ages,
             "speed": speed_all,
             "gear": gear_all,
             "drs": drs_all,
@@ -129,7 +140,8 @@ def _process_single_driver(args):
         },
         "t_min": t_all.min(),
         "t_max": t_all.max(),
-        "max_lap": driver_max_lap
+        "max_lap": driver_max_lap,
+        "stint_history": stint_history
     }
 
 def load_session(year, round_number, session_type='R'):
@@ -181,6 +193,7 @@ def get_race_telemetry(session, session_type='R'):
     }
 
     driver_data = {}
+    driver_stints = {}
 
     global_t_min = None
     global_t_max = None
@@ -204,6 +217,7 @@ def get_race_telemetry(session, session_type='R'):
         
         code = result["code"]
         driver_data[code] = result["data"]
+        driver_stints[code] = result["stint_history"]
         
         t_min = result["t_min"]
         t_max = result["t_max"]
@@ -237,6 +251,7 @@ def get_race_telemetry(session, session_type='R'):
             data["rel_dist"][order],
             data["lap"][order],
             data["tyre"][order],
+            data["tyre_age"][order],
             data["speed"][order],
             data["gear"][order],
             data["drs"][order],
@@ -246,7 +261,7 @@ def get_race_telemetry(session, session_type='R'):
         
         resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
         x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
+        tyre_resampled, tyre_age_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
  
         resampled_data[code] = {
             "t": timeline,
@@ -256,6 +271,7 @@ def get_race_telemetry(session, session_type='R'):
             "rel_dist": rel_dist_resampled,
             "lap": lap_resampled,
             "tyre": tyre_resampled,
+            "tyre_age": tyre_age_resampled,
             "speed": speed_resampled,
             "gear": gear_resampled,
             "drs": drs_resampled,
@@ -344,6 +360,7 @@ def get_race_telemetry(session, session_type='R'):
                 "lap": int(round(d["lap"][i])),
                 "rel_dist": float(d["rel_dist"][i]),
                 "tyre": float(d["tyre"][i]),
+                "tyre_age": int(d["tyre_age"][i]),
                 "speed": float(d['speed'][i]),
                 "gear": int(d['gear'][i]),
                 "drs": int(d['drs'][i]),
@@ -379,6 +396,7 @@ def get_race_telemetry(session, session_type='R'):
                 "lap": car["lap"],
                 "rel_dist": round(car["rel_dist"], 4),
                 "tyre": car["tyre"],
+                "tyre_age": car["tyre_age"],
                 "position": position,
                 "speed": car['speed'],
                 "gear": car['gear'],
@@ -425,6 +443,7 @@ def get_race_telemetry(session, session_type='R'):
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
             "total_laps": int(max_lap_number),
+            "driver_stints": driver_stints,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Saved Successfully!")
@@ -434,6 +453,7 @@ def get_race_telemetry(session, session_type='R'):
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
+        "driver_stints": driver_stints,
     }
 
 
