@@ -327,10 +327,26 @@ class F1RaceReplayWindow(arcade.Window):
         # Circuit corner numbers
         if self.circuit_corners is not None:
             for _, corner in self.circuit_corners.iterrows():
-                sx, sy = self.world_to_screen(corner["X"], corner["Y"])
+                cx, cy = corner["X"], corner["Y"]
+                
+                outer = np.array(self.world_outer_points)
+                dists = (outer[:, 0] - cx) ** 2 + (outer[:, 1] - cy) ** 2
+                idx = int(np.argmin(dists))
+                ox, oy = outer[idx]
+                
+                dx = ox - cx
+                dy = oy - cy
+                length = (dx**2 + dy**2) ** 0.5
+                if length == 0:
+                    continue
+                dx /= length
+                dy /= length
+                
+                OFFSET = 1.5  
+                px = ox + dx * OFFSET
+                py = oy + dy * OFFSET
 
-                # arcade.draw_circle_filled(sx, sy, 9, (20, 20, 20, 200))
-                # arcade.draw_circle_outline(sx, sy, 9, arcade.color.WHITE, 2)
+                sx, sy = self.world_to_screen(px, py)
 
                 arcade.Text(
                     str(corner["Number"]),
