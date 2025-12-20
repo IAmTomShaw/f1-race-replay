@@ -1,17 +1,14 @@
 import os
 import arcade
 import numpy as np
-from src.f1_data import FPS
-from src.ui_components import (
-    LeaderboardComponent, 
-    WeatherComponent, 
-    LegendComponent, 
-    DriverInfoComponent, 
-    RaceProgressBarComponent,
-    RaceControlsComponent,
-    extract_race_events,
-    build_track_from_example_lap
-)
+from src.data.processing import FPS
+from src.ui.components.leaderboard import LeaderboardComponent
+from src.ui.components.weather import WeatherComponent
+from src.ui.components.legend import LegendComponent
+from src.ui.components.driver_info import DriverInfoComponent
+from src.ui.components.progress_bar import RaceProgressBarComponent
+from src.ui.components.controls import RaceControlsComponent
+from src.ui.utils import extract_race_events, build_track_from_example_lap
 
 
 SCREEN_WIDTH = 1920
@@ -255,9 +252,9 @@ class F1RaceReplayWindow(arcade.Window):
 
         # 1. Draw Background (stretched to fit new window size)
         if self.bg_texture:
-            arcade.draw_lrbt_rectangle_textured(
-                left=0, right=self.width,
-                bottom=0, top=self.height,
+            rect = arcade.XYWH(self.width / 2, self.height / 2, self.width, self.height)
+            arcade.draw_texture_rect(
+                rect=rect,
                 texture=self.bg_texture
             )
 
@@ -282,13 +279,13 @@ class F1RaceReplayWindow(arcade.Window):
         track_color = STATUS_COLORS.get("GREEN", (150, 150, 150))
 
         if current_track_status == "2":
-            track_color = STATUS_COLORS.get("YELLOW")
+            track_color = STATUS_COLORS.get("YELLOW", (220, 180, 0))
         elif current_track_status == "4":
-            track_color = STATUS_COLORS.get("SC")
+            track_color = STATUS_COLORS.get("SC", (180, 100, 30))
         elif current_track_status == "5":
-            track_color = STATUS_COLORS.get("RED")
+            track_color = STATUS_COLORS.get("RED", (200, 30, 30))
         elif current_track_status == "6" or current_track_status == "7":
-            track_color = STATUS_COLORS.get("VSC")
+            track_color = STATUS_COLORS.get("VSC", (200, 130, 50))
  
         if len(self.screen_inner_points) > 1:
             arcade.draw_line_strip(self.screen_inner_points, track_color, 4)

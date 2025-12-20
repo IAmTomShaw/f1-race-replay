@@ -1,4 +1,3 @@
-import os
 import arcade
 from src.interfaces.race_replay import F1RaceReplayWindow
 
@@ -9,7 +8,7 @@ SCREEN_TITLE = "F1 Race Replay"
 
 def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
                       playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, total_laps=None, chart=False):
-    window = F1RaceReplayWindow(
+    F1RaceReplayWindow(
         frames=frames,
         track_statuses=track_statuses,
         example_lap=example_lap,
