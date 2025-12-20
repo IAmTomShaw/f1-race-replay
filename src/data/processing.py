@@ -321,7 +321,7 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
 
     telemetry = fastest_lap.get_telemetry()
     if telemetry is None or telemetry.empty or 'Time' not in telemetry or len(telemetry) == 0:
-        return {"frames": [], "track_statuses": []}
+        return {"frames": [], "track_statuses": [], "max_speed": 0.0, "min_speed": 0.0}
 
     # Build arrays directly from dataframes
     t_arr = telemetry["Time"].dt.total_seconds().to_numpy()
