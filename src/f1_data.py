@@ -20,6 +20,41 @@ def enable_cache():
 
     # Enable local cache
     fastf1.Cache.enable_cache('.fastf1-cache')
+    
+# Validate requested session for the event
+def normalize_session_type(year, round_number, session_type):
+    
+    
+    enable_cache()
+
+    event = fastf1.get_event(year, round_number)
+
+    available_sessions = []
+    for i in range(1, 6):
+        key = f"Session{i}"
+        if key in event and event[key]:
+            available_sessions.append(event[key])
+
+    mapping = {
+        "R": "Race",
+        "Q": "Qualifying",
+        "S": "Sprint",
+        "SQ": "Sprint Qualifying",
+    }
+
+    requested_name = mapping.get(session_type)
+
+    if requested_name not in available_sessions:
+        print(
+            f"\n[WARN] Requested session '{requested_name}' does NOT exist "
+            f"for {event['EventName']} ({year})."
+        )
+        print(f"[INFO] Available sessions: {', '.join(available_sessions)}")
+        print("[ABORT] Please choose a valid session.\n")
+        return None
+    #Returns session_type if valid, else None
+    return session_type
+
 
 FPS = 25
 DT = 1 / FPS
@@ -134,6 +169,10 @@ def _process_single_driver(args):
 
 def load_session(year, round_number, session_type='R'):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
+    session_type = normalize_session_type(year, round_number, session_type)
+    if session_type is None:
+        return None # abort due to invalid session
+        
     session = fastf1.get_session(year, round_number, session_type)
     session.load(telemetry=True, weather=True)
     return session
