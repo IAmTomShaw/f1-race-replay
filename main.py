@@ -4,9 +4,12 @@ from src.arcade_replay import run_arcade_replay
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R'):
+def main(year=None, round_number=None, playback_speed=1, session_type='R', custom_title=None, custom_description=None):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
+
+  if session is None:
+      return
 
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
 
@@ -36,31 +39,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     race_telemetry = get_race_telemetry(session, session_type=session_type)
 
     # Get example lap for track layout
-    # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
-    example_lap = None
-    
-    try:
-        print("Attempting to load qualifying session for track layout...")
-        quali_session = load_session(year, round_number, 'Q')
-        if quali_session is not None and len(quali_session.laps) > 0:
-            fastest_quali = quali_session.laps.pick_fastest()
-            if fastest_quali is not None:
-                quali_telemetry = fastest_quali.get_telemetry()
-                if 'DRS' in quali_telemetry.columns:
-                    example_lap = quali_telemetry
-                    print(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
-    except Exception as e:
-        print(f"Could not load qualifying session: {e}")
 
-    # fallback: Use fastest race lap
-    if example_lap is None:
-        fastest_lap = session.laps.pick_fastest()
-        if fastest_lap is not None:
-            example_lap = fastest_lap.get_telemetry()
-            print("Using fastest race lap (DRS detection may use speed-based fallback)")
-        else:
-            print("Error: No valid laps found in session")
-            return
+    example_lap = session.laps.pick_fastest().get_telemetry()
 
     drivers = session.drivers
 
@@ -78,9 +58,10 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         track_statuses=race_telemetry['track_statuses'],
         example_lap=example_lap,
         drivers=drivers,
-        playback_speed=playback_speed,
+        playback_speed=1.0,
         driver_colors=race_telemetry['driver_colors'],
-        title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
+        title=custom_title if custom_title else f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
+        description=custom_description, # Pass the custom description
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
         chart=chart,
@@ -107,10 +88,16 @@ if __name__ == "__main__":
   elif "--list-sprints" in sys.argv:
     list_sprints(year)
   else:
-
     playback_speed = 1
 
     # Session type selection
     session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
     
-    main(year, round_number, playback_speed, session_type=session_type)
+    custom_title = None
+    custom_description = None
+
+    if "--historical-moment" in sys.argv and year == 2021 and round_number == 22 and session_type == 'R':
+        custom_title = "2021 Abu Dhabi Grand Prix"
+        custom_description = "A dramatic championship decider between Max Verstappen and Lewis Hamilton, going down to the final lap!"
+        
+    main(year, round_number, playback_speed, session_type=session_type, custom_title=custom_title, custom_description=custom_description)
