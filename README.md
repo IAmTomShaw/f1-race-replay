@@ -13,7 +13,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
 - **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
-- **Menu**: Easy to use GUI menu to select races and start replays.
+- **GUI Menu**: Easy to use GUI menu to select races and start replays.
 
 ## Controls
 
