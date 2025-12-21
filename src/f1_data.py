@@ -132,9 +132,23 @@ def _process_single_driver(args):
         "max_lap": driver_max_lap
     }
 
-def load_session(year, round_number, session_type='R'):
-    # session_type: 'R' (Race), 'S' (Sprint) etc.
-    session = fastf1.get_session(year, round_number, session_type)
+def load_session(year, country=None, round_number=None, session_type='R'):
+    """
+    If `round_number` is provided (not None), it will be used as the `gp`
+    Otherwise `country` (a string) will be used and FastF1's fuzzy matching resolves the event.
+    session_type: 'R' (Race), 'S' (Sprint) etc.
+    """
+    enable_cache()
+
+    # Prefer explicit round number when provided
+    if round_number is not None:
+        gp = round_number
+    else:
+        if country is None:
+            raise ValueError("Either `round_number` or `country` must be provided to load_session")
+        gp = country
+
+    session = fastf1.get_session(year, gp, session_type)
     session.load(telemetry=True, weather=True)
     return session
 

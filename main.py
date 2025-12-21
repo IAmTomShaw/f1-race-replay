@@ -4,9 +4,9 @@ from src.arcade_replay import run_arcade_replay
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R'):
-  print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
-  session = load_session(year, round_number, session_type)
+def main(year=None, country=None, round_number=None, playback_speed=1, session_type='R'):
+  print(f"Loading F1 {year} Round {round_number if round_number is not None else country} Session {session_type}")
+  session = load_session(year, country=country, round_number=round_number, session_type=session_type)
 
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
 
@@ -41,7 +41,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     
     try:
         print("Attempting to load qualifying session for track layout...")
-        quali_session = load_session(year, round_number, 'Q')
+        quali_session = load_session(year, country=country, round_number=round_number, session_type='Q')
         if quali_session is not None and len(quali_session.laps) > 0:
             fastest_quali = quali_session.laps.pick_fastest()
             if fastest_quali is not None:
@@ -95,12 +95,18 @@ if __name__ == "__main__":
     year = int(sys.argv[year_index])
   else:
     year = 2025  # Default year
+  
+  if "--country" in sys.argv:
+    country_index = sys.argv.index("--country") + 1
+    country = sys.argv[country_index]
+  else:
+    country = None
 
   if "--round" in sys.argv:
     round_index = sys.argv.index("--round") + 1
     round_number = int(sys.argv[round_index])
   else:
-    round_number = 12  # Default round number
+    round_number = None  # Default round number
 
   if "--list-rounds" in sys.argv:
     list_rounds(year)
@@ -113,4 +119,4 @@ if __name__ == "__main__":
     # Session type selection
     session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
     
-    main(year, round_number, playback_speed, session_type=session_type)
+    main(year=year, country=country, round_number=round_number, playback_speed=playback_speed, session_type=session_type)
