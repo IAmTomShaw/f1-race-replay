@@ -80,6 +80,18 @@ To run a Sprint Qualifying session (if the event has one), add `--sprint`:
 python main.py --year 2025 --round 12 --qualifying --sprint
 ```
 
+### Historical Moments
+
+Experience curated replays of iconic F1 races. These moments are enhanced with custom descriptions to provide context and highlight the drama of the event.
+
+To launch a historical moment, use the `--historical-moment` flag along with the specific year and round.
+
+**Example: 2021 Abu Dhabi Grand Prix**
+Relive the thrilling championship decider:
+```bash
+python main.py --year 2021 --round 22 --historical-moment
+```
+
 ## File Structure
 
 ```
