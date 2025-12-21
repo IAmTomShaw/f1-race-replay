@@ -217,11 +217,14 @@ class F1RaceReplayWindow(arcade.Window):
     def on_resize(self, width, height):
         """Called automatically by Arcade when window is resized."""
         super().on_resize(width, height)
-        self.update_scaling(width, height)
+        # Only update scaling if window is fully initialized
+        # (x_min is set after track is built, which happens after super().__init__)
+        if hasattr(self, 'x_min'):
+            self.update_scaling(width, height)
         # notify components
-        self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
-            c.on_resize(self)
+            self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
+            for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
+                c.on_resize(self)
 
     def world_to_screen(self, x, y):
         # Rotate around the track centre (if rotation is set), then scale+translate
