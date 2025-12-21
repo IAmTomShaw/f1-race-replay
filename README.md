@@ -13,6 +13,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
 - **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **Menu**: Easy to use GUI menu to select races and start replays.
 
 ## Controls
 
@@ -31,6 +32,7 @@ Recently added support for Qualifying session replays with telemetry visualizati
 - [FastF1](https://github.com/theOehrly/Fast-F1)
 - [Arcade](https://api.arcade.academy/en/latest/)
 - numpy
+- [Node.js](https://nodejs.org/en) (GUI only)
 
 Install dependencies:
 
@@ -40,7 +42,49 @@ pip install -r requirements.txt
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
-## Usage
+## Usage (GUI)
+
+### Windows
+
+Running the gui is as simple as running the `start-gui.bat` script. This script will create a virtual environment and install the required dependencies. Once the dependencies are installed, the GUI will be started.
+
+### Linux / MacOS
+
+To run the GUI on Linux or MacOS, currently you will need to install the dependencies and start the GUI manually.
+To install the dependencies, run the following command in the terminal:
+
+1. Create a Python virtual environment:
+
+   ```bash
+   python -m venv .venv
+   ```
+
+2. Activate the Python virtual environment:
+
+   ```bash
+   source .venv/bin/activate
+   ```
+
+3. Install the Python dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Install the Node.js dependencies:
+
+   ```bash
+   cd gui
+   npm install
+   ```
+
+5. Start the GUI:
+
+   ```bash
+   npm run dev
+   ```
+
+## Usage CLI
 
 Run the main script and specify the year and round:
 
