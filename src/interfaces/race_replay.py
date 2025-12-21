@@ -119,6 +119,13 @@ class F1RaceReplayWindow(arcade.Window):
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
+                
+        # Key-held state for continuous rewind/forward
+        self._key_left_held = False
+        self._key_right_held = False
+        
+        # Legend (controls help) collapsed state
+        self._legend_collapsed = False
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
@@ -291,9 +298,9 @@ class F1RaceReplayWindow(arcade.Window):
             track_color = STATUS_COLORS.get("VSC")
  
         if len(self.screen_inner_points) > 1:
-            arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
+            arcade.draw_line_strip(self.screen_inner_points, track_color, 5)
         if len(self.screen_outer_points) > 1:
-            arcade.draw_line_strip(self.screen_outer_points, track_color, 4)
+            arcade.draw_line_strip(self.screen_outer_points, track_color, 5)
         
         # 2.5 Draw DRS Zones (green segments on outer track edge)
         if hasattr(self, 'drs_zones') and self.drs_zones and self.toggle_drs_zones:
@@ -320,7 +327,7 @@ class F1RaceReplayWindow(arcade.Window):
         for code, pos in frame["drivers"].items():
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            arcade.draw_circle_filled(sx, sy, 6, color)
+            arcade.draw_circle_filled(sx, sy, 8, color)
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
@@ -414,59 +421,67 @@ class F1RaceReplayWindow(arcade.Window):
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
         legend_y = 200 # Height of legend block
-        legend_icons = self.legend_comp._control_icons_textures # icons
-        legend_lines = [
-            ("Controls:"),
-            ("[SPACE]  Pause/Resume"),
-            ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
-            ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
-            ("[R]       Restart"),
-            ("[D]       Toggle DRS Zones"),
-            ("[B]       Toggle Progress Bar"),
-            ("[Shift + Click] Select Multiple Drivers")
-
-        ]
         
-        for i, lines in enumerate(legend_lines):
-            line = lines[0] if isinstance(lines, tuple) else lines # main text
-            brackets = lines[1] if isinstance(lines, tuple) and len(lines) > 2 else None # brackets only if icons exist
-            icon_keys = lines[2] if isinstance(lines, tuple) and len(lines) > 2 else None # icon keys
+        # Draw toggle indicator for legend (always visible)
+        toggle_text = "[L] Show Controls" if self._legend_collapsed else "[L] Hide"
+        arcade.Text(toggle_text, legend_x, legend_y + 25, arcade.color.GRAY, 12).draw()
         
-            icon_size = 14
-            # Draw icons if any
-            if icon_keys:
-                control_icon_x = legend_x + 12
-                for key in icon_keys:
-                    icon_texture = legend_icons.get(key)
-                    if icon_texture:
-                        control_icon_y = legend_y - (i * 25) + 5 # slight vertical offset
-                        rect = arcade.XYWH(control_icon_x, control_icon_y, icon_size, icon_size)
-                        arcade.draw_texture_rect(
-                            rect = rect,
-                            texture = icon_texture,
-                            angle = 0,
-                            alpha = 255
-                        )
-                        control_icon_x += icon_size + 6  # spacing between icons  
-            # Draw brackets if any              
-            if brackets:
-                for j in range(len(brackets)):
-                    arcade.Text(
-                        brackets[j],
-                        legend_x + (j * (icon_size + 5)),
-                        legend_y - (i * 25),
-                        arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
-                        14,
-                    ).draw()
-            # Draw the text line
-            arcade.Text(
-                line,
-                legend_x + (60 if icon_keys else 0),
-                legend_y - (i * 25),
-                arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
-                14,
-                bold=(i == 0)
-            ).draw()
+        # Skip legend drawing if collapsed
+        if self._legend_collapsed:
+            pass  # Don't draw the controls legend
+        else:
+            legend_icons = self.legend_comp._control_icons_textures # icons
+            legend_lines = [
+                ("Controls:"),
+                ("[SPACE]  Pause/Resume"),
+                ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
+                ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
+                ("[R]       Restart"),
+                ("[D]       Toggle DRS Zones"),
+                ("[B]       Toggle Progress Bar"),
+                ("[Shift + Click] Select Multiple Drivers")
+            ]
+            
+            for i, lines in enumerate(legend_lines):
+                line = lines[0] if isinstance(lines, tuple) else lines # main text
+                brackets = lines[1] if isinstance(lines, tuple) and len(lines) > 2 else None # brackets only if icons exist
+                icon_keys = lines[2] if isinstance(lines, tuple) and len(lines) > 2 else None # icon keys
+            
+                icon_size = 14
+                # Draw icons if any
+                if icon_keys:
+                    control_icon_x = legend_x + 12
+                    for key in icon_keys:
+                        icon_texture = legend_icons.get(key)
+                        if icon_texture:
+                            control_icon_y = legend_y - (i * 25) + 5 # slight vertical offset
+                            rect = arcade.XYWH(control_icon_x, control_icon_y, icon_size, icon_size)
+                            arcade.draw_texture_rect(
+                                rect = rect,
+                                texture = icon_texture,
+                                angle = 0,
+                                alpha = 255
+                            )
+                            control_icon_x += icon_size + 6  # spacing between icons  
+                # Draw brackets if any              
+                if brackets:
+                    for j in range(len(brackets)):
+                        arcade.Text(
+                            brackets[j],
+                            legend_x + (j * (icon_size + 5)),
+                            legend_y - (i * 25),
+                            arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
+                            14,
+                        ).draw()
+                # Draw the text line
+                arcade.Text(
+                    line,
+                    legend_x + (60 if icon_keys else 0),
+                    legend_y - (i * 25),
+                    arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
+                    14,
+                    bold=(i == 0)
+                ).draw()
         
         # Selected driver info component
         self.driver_info_comp.draw(self)
@@ -483,6 +498,14 @@ class F1RaceReplayWindow(arcade.Window):
     def on_update(self, delta_time: float):
         # Update race controls component (for flash animations)
         self.race_controls_comp.on_update(delta_time)
+        
+        # Continuous rewind/forward when keys are held (works even when paused)
+        # Speed matches the current playback speed setting
+        if self._key_left_held:
+            self.frame_index = max(0.0, self.frame_index - 60 * delta_time * self.playback_speed)
+        if self._key_right_held:
+            self.frame_index = min(float(self.n_frames - 1), self.frame_index + 60 * delta_time * self.playback_speed)
+        
         if self.paused:
             return
         self.frame_index += delta_time * FPS * self.playback_speed
@@ -494,10 +517,10 @@ class F1RaceReplayWindow(arcade.Window):
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
         elif symbol == arcade.key.RIGHT:
-            self.frame_index = min(self.frame_index + 10.0, self.n_frames - 1)
+            self._key_right_held = True
             self.race_controls_comp.flash_button('forward')
         elif symbol == arcade.key.LEFT:
-            self.frame_index = max(self.frame_index - 10.0, 0.0)
+            self._key_left_held = True
             self.race_controls_comp.flash_button('rewind')
         elif symbol == arcade.key.UP:
             self.playback_speed *= 2.0
@@ -525,6 +548,15 @@ class F1RaceReplayWindow(arcade.Window):
             self.toggle_drs_zones = not self.toggle_drs_zones
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+        elif symbol == arcade.key.L:
+            self._legend_collapsed = not self._legend_collapsed  # toggle legend visibility
+
+    def on_key_release(self, symbol: int, modifiers: int):
+        """Handle key release for continuous rewind/forward."""
+        if symbol == arcade.key.LEFT:
+            self._key_left_held = False
+        elif symbol == arcade.key.RIGHT:
+            self._key_right_held = False
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
@@ -541,3 +573,7 @@ class F1RaceReplayWindow(arcade.Window):
         """Handle mouse motion for hover effects on progress bar and controls."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
+    
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+        """Handle mouse release for continuous rewind/forward buttons."""
+        self.race_controls_comp.on_mouse_release(self, x, y, button, modifiers)
