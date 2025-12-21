@@ -97,6 +97,21 @@ To return a list of events that include Sprint sessions, use the `--list-sprints
 python main.py --year 2025 --list-sprints
 ```
 
+### Search Country (including Sprints)
+
+You can also select an event by country name instead of providing a round number. If `--round` is omitted and `--country` is provided, the application will attempt to find the event matching that country for the given year and load it.
+
+Examples:
+```bash
+python main.py --year 2025 --country australia
+python main.py --year 2025 --country australia --qualifying
+```
+
+Notes:
+- If both `--round` and `--country` are provided, `--round` takes priority.
+- Use `--list-rounds` or `--list-sprints` to find the exact round numbers when needed.
+
+
 ### Qualifying Session Replay
 
 To run a Qualifying session replay, use the `--qualifying` flag:
