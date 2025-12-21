@@ -38,28 +38,37 @@ def parse_time_string(time_str: str) -> Optional[float]:
   parts = re.split(r'[:.]', s)
   # Normalize to hh, mm, ss, micro
   hh = 0
-  micro = 0
+  mm = 0
+  ss = 0
+  micro_str = "0"
 
   try:
     if len(parts) == 4:
-      hh, mm, ss, micro = parts
+      h_str, m_str, s_str, micro_str = parts
+      hh = int(h_str)
+      mm = int(m_str)
+      ss = int(s_str)
     elif len(parts) == 3:
       # Ambiguity: could be HH:MM:SS OR MM:SS:micro
       # Decide by examining the last part length: if > 2 digits it's probably microseconds
       if len(parts[2]) > 2:
-        mm, ss, micro = parts
+        m_str, s_str, micro_str = parts
+        mm = int(m_str)
+        ss = int(s_str)
       else:
-        hh, mm, ss = parts
+        h_str, m_str, s_str = parts
+        hh = int(h_str)
+        mm = int(m_str)
+        ss = int(s_str)
     elif len(parts) == 2:
-      mm, ss = parts
+      m_str, s_str = parts
+      mm = int(m_str)
+      ss = int(s_str)
     else:
       print('3parse_time_string output: None')
       return None
-
-    hh = int(hh)
-    mm = int(mm)
-    ss = int(ss)
-    micro = int(str(micro)[:6].ljust(6, '0')) if micro is not None and str(micro) != "" else 0
+    
+    micro = int(micro_str[:6].ljust(6, '0')) if micro_str else 0
 
     total_seconds = hh * 3600 + mm * 60 + ss + micro / 1_000_000.0
 

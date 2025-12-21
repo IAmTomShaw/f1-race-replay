@@ -46,7 +46,9 @@ class LeaderboardComponent(BaseComponent):
                 arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
                 text_color = arcade.color.BLACK
             else:
-                text_color = color
+                # Ensure color is a tuple or Color object
+                text_color = color if isinstance(color, (tuple, list)) else arcade.color.WHITE
+            
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 

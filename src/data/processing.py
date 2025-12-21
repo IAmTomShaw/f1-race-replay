@@ -124,7 +124,7 @@ def get_race_telemetry(session, session_type='R'):
 
     # 4. Incorporate track status data
     track_status = session.track_status
-    formatted_track_statuses = []
+    formatted_track_statuses: List[Dict[str, Any]] = []
 
     for status in track_status.to_dict('records'):
         seconds = timedelta.total_seconds(status['Time'])
@@ -148,7 +148,7 @@ def get_race_telemetry(session, session_type='R'):
     num_frames = len(timeline)
     
     driver_codes = list(resampled_data.keys())
-    driver_arrays = {code: resampled_data[code] for code in driver_codes}
+    driver_arrays: Dict[str, Dict[str, Any]] = {code: resampled_data[code] for code in driver_codes}
 
     for i in range(num_frames):
         t = timeline[i]
