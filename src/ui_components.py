@@ -988,6 +988,10 @@ class RaceControlsComponent(BaseComponent):
         self._flash_button = None
         self._flash_timer = 0.0
         self._flash_duration = 0.3  # seconds
+        
+        # Mouse-held state for continuous rewind/forward
+        self._mouse_held_button = None  # 'rewind' or 'forward'
+        self._mouse_held_window = None  # Reference to window for on_update
 
         _controls_folder = os.path.join("images", "controls")
         if os.path.exists(_controls_folder):
@@ -1006,19 +1010,28 @@ class RaceControlsComponent(BaseComponent):
         self._hide_speed_text = window.width < 1000
     
     def on_update(self, delta_time: float):
-        """Update flash timer for keyboard feedback animation."""
+        """Update flash timer for keyboard feedback animation and handle mouse hold."""
         if self._flash_timer > 0:
             self._flash_timer = max(0, self._flash_timer - delta_time)
             if self._flash_timer == 0:
                 self._flash_button = None
+        
+        # Handle mouse-held continuous rewind/forward (speed-matched)
+        if self._mouse_held_button and self._mouse_held_window:
+            window = self._mouse_held_window
+            speed = getattr(window, 'playback_speed', 1.0)
+            if self._mouse_held_button == 'rewind' and hasattr(window, 'frame_index'):
+                window.frame_index = max(0.0, float(window.frame_index) - 60 * delta_time * speed)
+            elif self._mouse_held_button == 'forward' and hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
+                window.frame_index = min(float(window.n_frames - 1), float(window.frame_index) + 60 * delta_time * speed)
     
     def flash_button(self, button_name: str):
         """Trigger a visual flash effect for a button (used for keyboard feedback)."""
         self._flash_button = button_name
         self._flash_timer = self._flash_duration
-
+    
     def draw(self, window):
-        """Draw the three playback control buttons."""
+        """Draw the playback control buttons."""
         is_paused = getattr(window, 'paused', False)
         
         # Button positions
@@ -1175,9 +1188,9 @@ class RaceControlsComponent(BaseComponent):
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         """Handle button clicks."""
         if self._point_in_rect(x, y, self.rewind_rect):
-            # Rewind 10 frames
-            if hasattr(window, 'frame_index'):
-                window.frame_index = int(max(0, window.frame_index - 10))
+            # Start continuous rewind on mouse hold
+            self._mouse_held_button = 'rewind'
+            self._mouse_held_window = window
             return True
         elif self._point_in_rect(x, y, self.play_pause_rect):
             # Toggle pause
@@ -1185,9 +1198,9 @@ class RaceControlsComponent(BaseComponent):
                 window.paused = not window.paused
             return True
         elif self._point_in_rect(x, y, self.forward_rect):
-            # Forward 10 frames
-            if hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
-                window.frame_index = int(min(window.n_frames - 1, window.frame_index + 10))
+            # Start continuous forward on mouse hold
+            self._mouse_held_button = 'forward'
+            self._mouse_held_window = window
             return True
         elif self._point_in_rect(x, y,self.speed_increase_rect):
             # Increase speed
@@ -1200,6 +1213,11 @@ class RaceControlsComponent(BaseComponent):
                 window.playback_speed = max(0.1, window.playback_speed / 2)
             return True
         return False
+    
+    def on_mouse_release(self, window, x: float, y: float, button: int, modifiers: int):
+        """Handle mouse release to stop continuous rewind/forward."""
+        self._mouse_held_button = None
+        self._mouse_held_window = None
     
     def _point_in_rect(self, x: float, y: float, rect: tuple[float, float, float, float] | None) -> bool:
         """Check if point is inside rectangle."""
