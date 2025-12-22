@@ -39,6 +39,35 @@ pip install -r requirements.txt
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
+## Environment Setup
+
+To get started with this project locally, you can follow these steps:
+
+1. **Clone the Repository:**
+   ```bash
+   git clone https://github.com/IAmTomShaw/f1-race-replay
+    cd f1-race-replay
+    ```
+2. **Create a Virtual Environment:**
+    This process differs based on your operating system.
+    - On macOS/Linux:
+      ```bash
+      python3 -m venv venv
+      source venv/bin/activate
+      ```
+    - On Windows:
+      ```bash
+      python -m venv venv
+      .\venv\Scripts\activate
+      ```
+3. **Install Dependencies:**
+    ```bash
+    pip install -r requirements.txt
+    ```
+
+4. **Run the Application:**
+    You can now run the application using the instructions in the Usage section below.
+
 ## Usage
 
 Run the main script and specify the year and round:
@@ -115,7 +144,7 @@ f1-race-replay/
 
 ## Contributing
 
-There have been serveral contributions from the community that have helped enhance this project. I have added a [contributors.md](./contributors.md) file to acknowledge those who have contributed features and improvements.
+There have been several contributions from the community that have helped enhance this project. I have added a [contributors.md](./contributors.md) file to acknowledge those who have contributed features and improvements.
 
 If you would like to contribute, feel free to:
 
@@ -126,7 +155,7 @@ Please see [roadmap.md](./roadmap.md) for planned features and project vision.
 
 # Known Issues
 
-- The leaderboard appears to be inaccurate for the first few corners of the race. The leaderboard is also temporarily affected by a driver going in the pits. At the end of the race the leadeboard is sometimes affected by the drivers final x,y positions being further ahead than other drivers. These issues are known issues caused by innacuracies in the telemetry and being worked on for future releases. Its likely that these issues will be fixed in stages as improving the leaderboard accuracy is a complex task.
+- The leaderboard appears to be inaccurate for the first few corners of the race. The leaderboard is also temporarily affected by a driver going in the pits. At the end of the race, the leaderboard is sometimes affected by the drivers' final x,y positions being further ahead than other drivers. These are known issues caused by inaccuracies in the telemetry and are being worked on for future releases. It's likely that these issues will be fixed in stages as improving the leaderboard accuracy is a complex task.
 
 ## 📝 License
 
