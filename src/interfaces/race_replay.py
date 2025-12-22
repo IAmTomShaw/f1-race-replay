@@ -25,6 +25,28 @@ class F1RaceReplayWindow(arcade.Window):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
+        # Parse flag filepaths
+        flag_dir = os.path.join("images", "flags")
+        flag_map = {}
+        for path in os.listdir(flag_dir):
+            path = os.path.join(flag_dir, path)
+            race_name = os.path.basename(path).replace(".png", "").replace("_", " ").title()
+            flag_map[race_name] = os.path.abspath(path)
+        aliases = {
+            "Las Vegas": "United States",
+            "Miami": "United States",
+            "Emilia Romagna": "Italian"
+        }
+        for alias in aliases:
+            flag_map[alias] = flag_map[aliases[alias]]
+
+        # Load flag texture if available
+        gp_name = title.split("Grand Prix")[0].strip()
+        if gp_name in flag_map.keys():
+            self.flag_texture = arcade.load_texture(flag_map[gp_name])
+        else:
+            self.flag_texture = None
+
         self.frames = frames
         self.track_statuses = track_statuses
         self.n_frames = len(frames)
@@ -371,10 +393,22 @@ class F1RaceReplayWindow(arcade.Window):
         if self.total_laps is not None:
             lap_str += f"/{self.total_laps}"
 
-        # Draw HUD - Top Left                         
-        arcade.Text(lap_str,
+        # Draw HUD - Top Left      
+        lap_text = arcade.Text(lap_str,
                           20, self.height - 40, 
-                          arcade.color.WHITE, 24, anchor_y="top").draw()
+                          arcade.color.WHITE, 24, anchor_y="top")
+        lap_text.draw()
+        
+        # conditionally draw flag
+        if self.flag_texture is not None:
+            text_right = lap_text.x + lap_text.content_width
+            flag_x = text_right + (self.flag_texture.width*0.8) / 2 + 6
+            flag_y = lap_text.y - lap_text.content_height / 2
+            rect = arcade.XYWH(flag_x, flag_y, self.flag_texture.width*0.8, self.flag_texture.height*0.8)
+            arcade.draw_texture_rect(
+                rect = rect,
+                texture = self.flag_texture
+            )
         
         arcade.Text(f"Race Time: {time_str} (x{self.playback_speed})", 
                          20, self.height - 80, 
