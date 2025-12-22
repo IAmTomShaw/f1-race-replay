@@ -44,7 +44,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.finished_drivers = []
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
-        self.toggle_drs_zones = True 
+        self.toggle_drs_zones = True
+        self.toggle_pit_stops = False
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240)
@@ -432,6 +433,7 @@ class F1RaceReplayWindow(arcade.Window):
             ("[R]       Restart"),
             ("[D]       Toggle DRS Zones"),
             ("[B]       Toggle Progress Bar"),
+            ("[P]       Toggle Pit Stops"),
             ("[Shift + Click] Select Multiple Drivers")
 
         ]
@@ -534,6 +536,8 @@ class F1RaceReplayWindow(arcade.Window):
             self.toggle_drs_zones = not self.toggle_drs_zones
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+        elif symbol == arcade.key.P:
+            self.toggle_pit_stops = not self.toggle_pit_stops
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it

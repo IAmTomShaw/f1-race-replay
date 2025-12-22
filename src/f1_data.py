@@ -48,6 +48,7 @@ def _process_single_driver(args):
     drs_all = []
     throttle_all = []
     brake_all = []
+    stints_all = []
 
     total_dist_so_far = 0.0
 
@@ -57,6 +58,7 @@ def _process_single_driver(args):
         lap_tel = lap.get_telemetry()
         lap_number = lap.LapNumber
         tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
+        stint_number = lap.Stint
 
         if lap_tel.empty:
             continue
@@ -87,24 +89,25 @@ def _process_single_driver(args):
         drs_all.append(drs_lap)
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
+        stints_all.append(np.full_like(t_lap, stint_number))
 
     if not t_all:
         return None
 
     # Concatenate all arrays at once for better performance
     all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                  lap_numbers, tyre_compounds, speed_all, gear_all, drs_all, stints_all]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    tyre_compounds, speed_all, gear_all, drs_all, stints_all = [np.concatenate(arr) for arr in all_arrays]
 
     # Sort all arrays by time in one operation
     order = np.argsort(t_all)
     all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                lap_numbers, tyre_compounds, speed_all, gear_all, drs_all, stints_all]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
+    tyre_compounds, speed_all, gear_all, drs_all, stints_all = [arr[order] for arr in all_data]
 
     throttle_all = np.concatenate(throttle_all)[order]
     brake_all = np.concatenate(brake_all)[order]
@@ -126,6 +129,7 @@ def _process_single_driver(args):
             "drs": drs_all,
             "throttle": throttle_all,
             "brake": brake_all,
+            "stint": stints_all,
         },
         "t_min": t_all.min(),
         "t_max": t_all.max(),
@@ -242,11 +246,12 @@ def get_race_telemetry(session, session_type='R'):
             data["drs"][order],
             data["throttle"][order],
             data["brake"][order],
+            data["stint"][order]
         ]
         
         resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
         x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
+        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled, stint_resampled = resampled
  
         resampled_data[code] = {
             "t": timeline,
@@ -260,7 +265,8 @@ def get_race_telemetry(session, session_type='R'):
             "gear": gear_resampled,
             "drs": drs_resampled,
             "throttle": throttle_resampled,
-            "brake": brake_resampled
+            "brake": brake_resampled,
+            "stint": stint_resampled
         }
 
     # 4. Incorporate track status data into the timeline (for safety car, VSC, etc.)
@@ -349,6 +355,7 @@ def get_race_telemetry(session, session_type='R'):
                 "drs": int(d['drs'][i]),
                 "throttle": float(d['throttle'][i]),
                 "brake": float(d['brake'][i]),
+                "stint": int(np.nan_to_num(d["stint"][i], nan=1.0))
             })
 
         # If for some reason we have no drivers at this instant
@@ -385,6 +392,7 @@ def get_race_telemetry(session, session_type='R'):
                 "drs": car['drs'],
                 "throttle": car['throttle'],
                 "brake": car['brake'],
+                "stint": car["stint"]
             }
 
         weather_snapshot = {}
