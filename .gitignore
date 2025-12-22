@@ -6,6 +6,7 @@ output_animation.mp4
 still_frame.png
 
 .mypy_cache/
+.ruff_cache/
 __pycache__/
 
 computed_data/

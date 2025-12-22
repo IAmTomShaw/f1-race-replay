@@ -52,7 +52,7 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track
@@ -61,6 +61,19 @@ class LeaderboardComponent(BaseComponent):
                 icon_size = 16
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
                 arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
+                
+                # DRS Indicator
+                drs_val = pos.get("drs", 0)
+                # DRS is active if value >= 10
+                is_drs_on = drs_val and int(drs_val) >= 10
+                drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
+                
+                # Position dot to the left of the tyre icon
+                # tyre_icon_x is the center of the tyre icon
+                drs_dot_x = tyre_icon_x - icon_size - 4 
+                drs_dot_y = tyre_icon_y
+
+                arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
