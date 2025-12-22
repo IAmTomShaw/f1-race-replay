@@ -42,6 +42,7 @@ class LegendComponent(BaseComponent):
             ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
             ("[R]       Restart"),
             ("[D]       Toggle DRS Zones"),
+            ("[S]       Toggle Sector Zones"),
             ("[B]       Toggle Progress Bar"),
         ]
     
@@ -1468,8 +1469,24 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
     return events
 
 # Build track geometry from example lap telemetry
-def build_track_from_example_lap(example_lap, track_width=200):
+
+def build_track_from_example_lap(example_lap, track_width=200, sector_info=None):
+    """
+    Build track geometry from example lap telemetry.
+    
+    Args:
+        example_lap: DataFrame with X, Y, DRS, SessionTime columns
+        track_width: Width of the track in world units
+        sector_info: Optional dict with sector1_time, sector2_time session times in seconds
+                     for accurate sector boundary placement
+    
+    Returns:
+        Tuple of (plot_x_ref, plot_y_ref, x_inner, y_inner, x_outer, y_outer,
+                  x_min, x_max, y_min, y_max, drs_zones, sector_zones)
+    """
     drs_zones = plotDRSzones(example_lap)
+    sector_zones = get_sector_zones(example_lap, sector_info)
+    
     plot_x_ref = example_lap["X"]
     plot_y_ref = example_lap["Y"]
 
@@ -1497,7 +1514,7 @@ def build_track_from_example_lap(example_lap, track_width=200):
     y_max = max(plot_y_ref.max(), y_inner.max(), y_outer.max())
 
     return (plot_x_ref, plot_y_ref, x_inner, y_inner, x_outer, y_outer,
-            x_min, x_max, y_min, y_max, drs_zones)
+            x_min, x_max, y_min, y_max, drs_zones, sector_zones)
 
 # Plot DRS Zones along the track sides to show DRS Zones on the track
 def plotDRSzones(example_lap):
@@ -1530,3 +1547,87 @@ def plotDRSzones(example_lap):
        drs_zones.append(zone)
    
    return drs_zones
+
+
+# Extract sector boundaries from lap telemetry using sector session times
+# Returns a list of 3 sector zones with their start/end indices and colors
+def get_sector_zones(telemetry, lap_info=None):
+    """
+    Extract sector boundaries from lap telemetry.
+    
+    Args:
+        telemetry: DataFrame with X, Y, SessionTime columns
+        lap_info: Optional dict with sector1_time, sector2_time session times in seconds
+                  If not provided, divides track into equal thirds
+    
+    Returns:
+        List of 3 sector dicts with start_idx, end_idx, and color
+    """
+    if telemetry is None or len(telemetry) == 0:
+        return []
+    
+    x_val = telemetry["X"]
+    y_val = telemetry["Y"]
+    n_points = len(telemetry)
+    
+    # Sector colors: Sector 1 = Red, Sector 2 = Blue, Sector 3 = Yellow
+    SECTOR_COLORS = {
+        1: (236, 3, 5),    # Red for Sector 1
+        2: (5, 139, 179),   # Blue for Sector 2  
+        3: (236, 207, 1),   # Yellow for Sector 3
+    }
+    
+    sector1_end_idx = None
+    sector2_end_idx = None
+    
+    # Try to use sector session times if provided
+    if lap_info and "SessionTime" in telemetry.columns:
+        try:
+            session_times = telemetry["SessionTime"].dt.total_seconds().values
+            
+            s1_time = lap_info.get("sector1_time")  # Session time when S1 ends
+            s2_time = lap_info.get("sector2_time")  # Session time when S2 ends
+            
+            if s1_time is not None:
+                # Find index where session time is closest to sector 1 end time
+                sector1_end_idx = int(np.argmin(np.abs(session_times - s1_time)))
+            
+            if s2_time is not None:
+                # Find index where session time is closest to sector 2 end time
+                sector2_end_idx = int(np.argmin(np.abs(session_times - s2_time)))
+                
+        except Exception as e:
+            print(f"Could not determine sector boundaries from timing: {e}")
+    
+    # Ensure valid ordering
+    sector1_end_idx = max(1, min(sector1_end_idx, n_points - 2))
+    sector2_end_idx = max(sector1_end_idx + 1, min(sector2_end_idx, n_points - 1))
+    
+    sectors = [
+        {
+            "sector": 1,
+            "start_idx": 0,
+            "end_idx": sector1_end_idx,
+            "color": SECTOR_COLORS[1],
+            "start": {"x": x_val.iloc[0], "y": y_val.iloc[0]},
+            "end": {"x": x_val.iloc[sector1_end_idx], "y": y_val.iloc[sector1_end_idx]},
+        },
+        {
+            "sector": 2,
+            "start_idx": sector1_end_idx,
+            "end_idx": sector2_end_idx,
+            "color": SECTOR_COLORS[2],
+            "start": {"x": x_val.iloc[sector1_end_idx], "y": y_val.iloc[sector1_end_idx]},
+            "end": {"x": x_val.iloc[sector2_end_idx], "y": y_val.iloc[sector2_end_idx]},
+        },
+        {
+            "sector": 3,
+            "start_idx": sector2_end_idx,
+            "end_idx": n_points - 1,
+            "color": SECTOR_COLORS[3],
+            "start": {"x": x_val.iloc[sector2_end_idx], "y": y_val.iloc[sector2_end_idx]},
+            "end": {"x": x_val.iloc[n_points - 1], "y": y_val.iloc[n_points - 1]},
+        },
+    ]
+    
+    return sectors

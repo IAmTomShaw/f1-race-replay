@@ -21,7 +21,8 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
+                 sector_info=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -36,6 +37,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+        self.sector_info = sector_info  # Sector timing info for accurate sector boundaries
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -45,7 +47,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.finished_drivers = []
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
-        self.toggle_drs_zones = True 
+        self.toggle_drs_zones = True
+        self.toggle_sector_zones = False  # Sector visualization toggle (off by default)
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
@@ -82,7 +85,9 @@ class F1RaceReplayWindow(arcade.Window):
          self.x_inner, self.y_inner,
          self.x_outer, self.y_outer,
          self.x_min, self.x_max,
-         self.y_min, self.y_max, self.drs_zones) = build_track_from_example_lap(example_lap)
+         self.y_min, self.y_max, self.drs_zones, self.sector_zones) = build_track_from_example_lap(
+             example_lap, sector_info=sector_info
+         )
 
         # Build a dense reference polyline (used for projecting car (x,y) -> along-track distance)
         ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
@@ -317,6 +322,26 @@ class F1RaceReplayWindow(arcade.Window):
                 if len(drs_outer_points) > 1:
                     arcade.draw_line_strip(drs_outer_points, drs_color, 6)
 
+        # 2.6 Draw Sector Zones (colored segments on inner track edge)
+        # Sector 1 = Red, Sector 2 = Blue, Sector 3 = Yellow
+        if hasattr(self, 'sector_zones') and self.sector_zones and self.toggle_sector_zones:
+            for sector in self.sector_zones:
+                start_idx = sector["start_idx"]
+                end_idx = sector["end_idx"]
+                color = sector["color"]
+                
+                # Extract the inner track points for this sector segment
+                sector_inner_points = []
+                for i in range(start_idx, min(end_idx + 1, len(self.x_inner))):
+                    x = self.x_inner.iloc[i]
+                    y = self.y_inner.iloc[i]
+                    sx, sy = self.world_to_screen(x, y)
+                    sector_inner_points.append((sx, sy))
+                
+                # Draw the sector segment on inner edge
+                if len(sector_inner_points) > 1:
+                    arcade.draw_line_strip(sector_inner_points, color, 6)
+
         # 3. Draw Cars
         frame = self.frames[idx]
         for code, pos in frame["drivers"].items():
@@ -481,6 +506,8 @@ class F1RaceReplayWindow(arcade.Window):
             self.race_controls_comp.flash_button('rewind')
         elif symbol == arcade.key.D:
             self.toggle_drs_zones = not self.toggle_drs_zones
+        elif symbol == arcade.key.S:
+            self.toggle_sector_zones = not self.toggle_sector_zones
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
 
