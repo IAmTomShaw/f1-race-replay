@@ -70,6 +70,15 @@ To get started with this project locally, you can follow these steps:
 
 ## Usage
 
+CD into the root directory.
+
+Setup Python Environment (EG: f1-race-replay-main/)
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+```
+
 Run the main script and specify the year and round:
 ```bash
 python main.py --year 2025 --round 12
