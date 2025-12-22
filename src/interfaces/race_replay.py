@@ -451,6 +451,40 @@ class F1RaceReplayWindow(arcade.Window):
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         self.legend_comp.draw(self)
         
+        # Sector Color Legend - show when sectors are toggled on (horizontal layout below circuit)
+        if self.toggle_sector_zones and self.visible_hud:
+            # Position horizontally centered, below the circuit area
+            sector_legend_y = 155
+            
+            # Sector colors matching the track visualization
+            sector_items = [
+                ((236, 3, 5), "S1"),      # Red - Sector 1
+                ((5, 139, 179), "S2"),    # Blue - Sector 2
+                ((236, 207, 1), "S3"),    # Yellow - Sector 3
+            ]
+            
+            # Calculate total width for centering
+            item_width = 70  # Width per sector item
+            total_width = len(sector_items) * item_width
+            start_x = (self.width // 2) - (total_width // 2)
+            
+            for i, (color, label) in enumerate(sector_items):
+                item_x = start_x + (i * item_width)
+                
+                # Draw colored line/bar
+                arcade.draw_line(item_x, sector_legend_y, item_x + 25, sector_legend_y, color, 5)
+                
+                # Draw label text
+                arcade.Text(
+                    label,
+                    item_x + 32,
+                    sector_legend_y,
+                    arcade.color.WHITE,
+                    13,
+                    anchor_y="center",
+                    bold=True
+                ).draw()
+        
         # Selected driver info component
         self.driver_info_comp.draw(self)
         
