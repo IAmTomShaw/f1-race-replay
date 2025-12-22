@@ -1225,7 +1225,7 @@ class RaceControlsComponent(BaseComponent):
             return True
         return False
     
-    def _point_in_rect(self, x: float, y: float, rect: Optional[Tuple[float, float, float, float]] = None) -> bool:
+    def _point_in_rect(self, x: float, y: float, rect: tuple[float, float, float, float] | None) -> bool:
         """Check if point is inside rectangle."""
         if rect is None:
             return False
