@@ -120,9 +120,13 @@ f1-race-replay/
 ├── resources/
 │   └── preview.png           # Race replay preview image
 ├── src/
-│   ├── f1_data.py            # Telemetry loading, processing, and frame generation
 │   ├── arcade_replay.py      # Visualization and UI logic
-│   └── ui_components.py      # UI components like buttons and leaderboard
+│   ├── data/                 # Data processing and session management
+│   │   ├── processing.py     # Telemetry processing and frame generation
+│   │   └── session.py        # Session loading and management
+│   ├── ui/                   # UI components and utilities
+│   │   ├── components/       # Individual UI widgets (Leaderboard, Controls, etc.)
+│   │   └── utils.py          # UI helper functions
 │   ├── interfaces/
 │   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
 │   │   └── race_replay.py    # Race replay interface and telemetry visualization
@@ -136,7 +140,7 @@ f1-race-replay/
 ## Customization
 
 - Change track width, colors, and UI layout in `src/arcade_replay.py`.
-- Adjust telemetry processing in `src/f1_data.py`.
+- Adjust telemetry processing in `src/data/processing.py`.
 
 ## Contributing
 

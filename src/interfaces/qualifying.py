@@ -2,18 +2,18 @@ import arcade
 import threading
 import time
 import numpy as np
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent
-from src.f1_data import get_driver_quali_telemetry
-from src.f1_data import FPS
+from src.ui.utils import build_track_from_example_lap
+from src.ui.components.leaderboard import LapTimeLeaderboardComponent
+from src.ui.components.qualifying import QualifyingSegmentSelectorComponent
+from src.ui.components.controls import RaceControlsComponent
+from src.ui.components.legend import LegendComponent
+from src.data.processing import get_driver_quali_telemetry, FPS
 from src.lib.time import format_time
 
 SCREEN_WIDTH = 1920
 SCREEN_HEIGHT = 1080
 SCREEN_TITLE = "F1 Qualifying Telemetry"
 
-H_ROW = 38
-HEADER_H = 56
 LEFT_MARGIN = 40
 RIGHT_MARGIN = 40
 TOP_MARGIN = 40
@@ -92,16 +92,37 @@ class QualifyingReplay(arcade.Window):
             elif res['Q1'] is not None:
                 example_lap = self.session.laps.pick_drivers(res['code']).pick_fastest()
                 break
+        
+        if example_lap is None:
+            try:
+                example_lap = self.session.laps.pick_fastest()
+            except Exception:
+                pass
 
         self.world_scale = 1.0
         self.tx = 0
         self.ty = 0
 
-        (self.plot_x_ref, self.plot_y_ref,
-         self.x_inner, self.y_inner,
-         self.x_outer, self.y_outer,
-         self.x_min, self.x_max,
-         self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap.get_telemetry())
+        telemetry_data = example_lap.get_telemetry() if example_lap is not None else None
+
+        if telemetry_data is not None:
+            (self.plot_x_ref, self.plot_y_ref,
+            self.x_inner, self.y_inner,
+            self.x_outer, self.y_outer,
+            self.x_min, self.x_max,
+            self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(telemetry_data)
+        else:
+            self.plot_x_ref = []
+            self.plot_y_ref = []
+            self.x_inner = []
+            self.y_inner = []
+            self.x_outer = []
+            self.y_outer = []
+            self.x_min = 0
+            self.x_max = 100
+            self.y_min = 0
+            self.y_max = 100
+            self.drs_zones_xy = []
          
         ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
         self._ref_xs = np.array([p[0] for p in ref_points])
@@ -204,7 +225,6 @@ class QualifyingReplay(arcade.Window):
                 area_right = self.width - RIGHT_MARGIN
                 area_top = self.height - TOP_MARGIN
                 area_bottom = BOTTOM_MARGIN
-                area_w = max(10, area_right - area_left)
                 area_h = max(10, area_top - area_bottom)
 
                 # Split vertically: top half = chart, bottom half = circuit map
@@ -339,7 +359,6 @@ class QualifyingReplay(arcade.Window):
 
                 current_frame = frames[self.frame_index]
                 current_tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
-                current_comparison_tel = comparison_telemetry[self.frame_index].get("telemetry") if comparison_telemetry and self.frame_index < len(comparison_telemetry) else {}
                 current_dist = self._pick_telemetry_value(current_tel, "dist")
                 
                 for dz in self.drs_zones:
@@ -347,7 +366,7 @@ class QualifyingReplay(arcade.Window):
                     zone_end = dz.get("zone_end")
                     if zone_start is None or zone_end is None:
                         continue
-                    if current_dist >= zone_start:
+                    if current_dist is not None and current_dist >= zone_start:
                         # driver has passed at least the start of this zone
                         shade_end = min(zone_end, current_dist)
                         drs_zones_to_show.append({
@@ -1003,5 +1022,5 @@ class QualifyingReplay(arcade.Window):
                 self.paused = True
 
 def run_qualifying_replay(session, data, title="Qualifying Results"):
-    window = QualifyingReplay(session=session, data=data, title=title)
+    QualifyingReplay(session=session, data=data, title=title)
     arcade.run()
