@@ -77,7 +77,7 @@ class WeatherComponent(BaseComponent):
         panel_top = window.height - self.top_offset
         if not self.info and not getattr(window, "has_weather", False):
             return
-        # arcade.Text("Weather", self.left + 12, panel_top - 10, arcade.color.WHITE, 18, bold=True, anchor_y="top").draw()
+        arcade.Text("Weather", self.left + 12, panel_top - 10, arcade.color.WHITE, 18, bold=True, anchor_y="top").draw()
         def _fmt(val, suffix="", precision=1):
             return f"{val:.{precision}f}{suffix}" if val is not None else "N/A"
         info = self.info or {}
