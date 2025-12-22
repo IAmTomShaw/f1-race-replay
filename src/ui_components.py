@@ -141,6 +141,12 @@ class LeaderboardComponent(BaseComponent):
         self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+
+        if getattr(window, "toggle_pit_stops", False):
+            header_x = self.x + self.width - 38
+            header_y = leaderboard_y - 6
+            arcade.Text("Pits", header_x, header_y, arcade.color.WHITE, 14, bold=True, anchor_x="right", anchor_y="top").draw()
+
         self.rects = []
         for i, (code, color, pos, progress_m) in enumerate(self.entries):
             current_pos = i + 1
@@ -159,7 +165,14 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            # Pit Stops
+            if getattr(window, "toggle_pit_stops", False):
+                stint = pos.get("stint", 1)
+                pit_stops = max(0, stint - 1)
+                ps_x = right_x - 44
+                arcade.Text(str(pit_stops), ps_x, top_y, arcade.color.WHITE, 14, anchor_x="right", anchor_y="top", bold=True).draw()
+
+            # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track
