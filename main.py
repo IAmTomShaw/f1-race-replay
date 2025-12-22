@@ -4,7 +4,7 @@ from src.arcade_replay import run_arcade_replay
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R'):
+def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
@@ -70,9 +70,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
 
     # Run the arcade replay
 
-    # Check for optional chart flag
-    chart = "--chart" in sys.argv
-
     run_arcade_replay(
         frames=race_telemetry['frames'],
         track_statuses=race_telemetry['track_statuses'],
@@ -83,7 +80,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
-        chart=chart,
+        visible_hud=visible_hud
     )
 
 if __name__ == "__main__":
@@ -107,10 +104,13 @@ if __name__ == "__main__":
   elif "--list-sprints" in sys.argv:
     list_sprints(year)
   else:
-
     playback_speed = 1
+  
+  visible_hud = True
+  if "--no-hud" in sys.argv:
+    visible_hud = False
 
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-    
-    main(year, round_number, playback_speed, session_type=session_type)
+  # Session type selection
+  session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+  
+  main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud)
