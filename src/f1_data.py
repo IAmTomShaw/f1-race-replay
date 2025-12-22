@@ -155,6 +155,21 @@ def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
 
+def get_driver_laps(session):
+    driver_laps = {}
+    # Drop laps without a valid lap time 
+    laps_df = session.laps.dropna(subset=["LapTime"]) 
+
+    for driver_code, df in laps_df.groupby("Driver"):
+        driver_laps[driver_code] = dict(
+            zip(
+                df["LapNumber"].astype(int),
+                df["LapTime"].dt.total_seconds()
+            )
+        )
+    return driver_laps
+    
+
 def get_race_telemetry(session, session_type='R'):
 
     event_name = str(session).replace(' ', '_')
@@ -331,6 +346,12 @@ def get_race_telemetry(session, session_type='R'):
     driver_codes = list(resampled_data.keys())
     driver_arrays = {code: resampled_data[code] for code in driver_codes}
 
+    # Pre-compute driver lap time for easier lookup
+    driver_laps = get_driver_laps(session)
+    finished_lap = {code: 0 for code in driver_codes} # current lap per driver
+    fastest_lap_time = None
+    fastest_lap_driver = None
+
     for i in range(num_frames):
         t = timeline[i]
         snapshot = []
@@ -387,6 +408,19 @@ def get_race_telemetry(session, session_type='R'):
                 "brake": car['brake'],
             }
 
+        # Detect lap completions for fastest lap calculation
+        for code, car in frame_data.items():
+            cur_lap = car["lap"]
+            prev_lap = finished_lap[code]
+
+            if cur_lap > 1 and (cur_lap > prev_lap or prev_lap == max_lap_number):
+                lap_time = driver_laps.get(code, {}).get(prev_lap)
+                if lap_time and ( fastest_lap_time is None or lap_time < fastest_lap_time):
+                    fastest_lap_time = lap_time
+                    fastest_lap_driver = code
+
+            finished_lap[code] = cur_lap
+
         weather_snapshot = {}
         if weather_resampled:
             try:
@@ -407,7 +441,12 @@ def get_race_telemetry(session, session_type='R'):
             "t": round(t, 3),
             "lap": leader_lap,   # leader's lap at this time
             "drivers": frame_data,
+            "fastest_lap": {
+                "driver": fastest_lap_driver,
+                "time": fastest_lap_time, # could be used to show on screen as HUD/popup
+            }
         }
+
         if weather_snapshot:
             frame_payload["weather"] = weather_snapshot
 

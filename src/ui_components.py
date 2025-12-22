@@ -125,6 +125,13 @@ class LeaderboardComponent(BaseComponent):
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
         self._tyre_textures = {}
+        self._fast_lap_icon = None
+
+        # Load fast-lap texture from images/assets folder
+        fast_lap_path = os.path.join("images", "assets", "fast-lap.png")
+        if os.path.exists(fast_lap_path):
+            self._fast_lap_icon = arcade.load_texture(fast_lap_path)
+
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
@@ -134,7 +141,7 @@ class LeaderboardComponent(BaseComponent):
                     texture_path = os.path.join(tyres_folder, filename)
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
 
-    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
+    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float, bool]]):
         # entries sorted as expected
         self.entries = entries
     def draw(self, window):
@@ -142,7 +149,7 @@ class LeaderboardComponent(BaseComponent):
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
-        for i, (code, color, pos, progress_m) in enumerate(self.entries):
+        for i, (code, color, pos, progress_m,is_fastest) in enumerate(self.entries):
             current_pos = i + 1
             top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
@@ -159,13 +166,30 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            #Postion variables
+            x_start = left_x + self.width - 10
+            y_start = top_y - 12
+            icon_size = 16        
+
+            #Fastest Lap Check
+            if is_fastest:
+                if self._fast_lap_icon:
+                    fast_lap_x = x_start - 20
+                    fast_lap_y = y_start
+                    rect = arcade.XYWH(fast_lap_x, fast_lap_y, icon_size, icon_size)
+
+                    arcade.draw_texture_rect(
+                        rect=rect,
+                        texture=self._fast_lap_icon,
+                        angle=0,
+                        alpha=255
+                    )
+
+            # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
-                # position tyre icon inside the leaderboard area so it doesn't collide with track
-                tyre_icon_x = left_x + self.width - 10
-                tyre_icon_y = top_y - 12
-                icon_size = 16
+                tyre_icon_x = x_start
+                tyre_icon_y = y_start
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
                 arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
 
@@ -1201,7 +1225,7 @@ class RaceControlsComponent(BaseComponent):
             return True
         return False
     
-    def _point_in_rect(self, x: float, y: float, rect: tuple[float, float, float, float] | None) -> bool:
+    def _point_in_rect(self, x: float, y: float, rect: Optional[Tuple[float, float, float, float]] = None) -> bool:
         """Check if point is inside rectangle."""
         if rect is None:
             return False

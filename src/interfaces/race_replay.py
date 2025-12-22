@@ -399,12 +399,17 @@ class F1RaceReplayWindow(arcade.Window):
         # optionally expose weather_bottom for driver info layout
         self.weather_bottom = self.height - 170 - 130 if (weather_info or self.has_weather) else None
 
+        fastest_driver = None
+        if frame.get("fastest_lap"):
+            fastest_driver = frame["fastest_lap"]["driver"]
+
         # Draw leaderboard via component
         driver_list = []
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
-            driver_list.append((code, color, pos, progress_m))
+            is_fastest = (code == fastest_driver)
+            driver_list.append((code, color, pos, progress_m , is_fastest))
         driver_list.sort(key=lambda x: x[3], reverse=True)
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)
