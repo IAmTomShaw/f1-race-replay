@@ -67,6 +67,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
     # Get circuit rotation
 
     circuit_rotation = get_circuit_rotation(session)
+    circuit_info = session.get_circuit_info()
+    circuit_corners = circuit_info.corners
 
     # Run the arcade replay
 
@@ -83,6 +85,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R'):
         title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
+        circuit_corners=circuit_corners,
         chart=chart,
     )
 
