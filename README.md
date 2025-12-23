@@ -75,6 +75,11 @@ Run the main script and specify the year and round:
 python main.py --year 2025 --round 12
 ```
 
+To run without HUD:
+```bash
+python main.py --year 2025 --round 12 --no-hud
+```
+
 To run a Sprint session (if the event has one), add `--sprint`:
 ```bash
 python main.py --year 2025 --round 12 --sprint
