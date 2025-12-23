@@ -277,7 +277,22 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            # Time gap text (to leader). Draw right-aligned near the tyre icons.
+            gap_val = pos.get("gap")
+            gap_text = ""
+            if gap_val is not None:
+                try:
+                    g = float(gap_val)
+                    # don't show 0.0 for leader
+                    if g > 0.001:
+                        if g >= 60.0:
+                            gap_text = format_time(g)
+                        else:
+                            gap_text = f"+{g:.3f}"
+                except Exception:
+                    gap_text = ""
+
+            # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track
@@ -287,7 +302,7 @@ class LeaderboardComponent(BaseComponent):
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
                 arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
 
-                # Draw the textured rect
+                # Draw the textured rect (redundant safe-draw)
                 arcade.draw_texture_rect(
                     rect=rect,
                     texture=tyre_texture,
@@ -295,7 +310,7 @@ class LeaderboardComponent(BaseComponent):
                     alpha=255
                 )
 
-                # DRS Indicator
+                # DRS Indicator (drawn after gap so they don't overlap)
                 drs_val = pos.get("drs", 0)
                 # DRS is active if value >= 10
                 is_drs_on = drs_val and int(drs_val) >= 10
@@ -307,7 +322,15 @@ class LeaderboardComponent(BaseComponent):
                 drs_dot_y = tyre_icon_y
 
                 arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
+            else:
+                # if no tyre icon, still reserve space to draw gap near right edge
+                tyre_icon_x = left_x + self.width - 10
+                icon_size = 16
 
+            # Draw time gap text right-aligned to sit just left of the drs indicator
+            if gap_text:
+                gap_x = tyre_icon_x - icon_size - 14
+                arcade.Text(gap_text, gap_x, top_y, arcade.color.LIGHT_GRAY, 12, anchor_x="right", anchor_y="top").draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
