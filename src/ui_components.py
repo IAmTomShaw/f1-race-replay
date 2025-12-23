@@ -1231,6 +1231,7 @@ class RaceControlsComponent(BaseComponent):
         left, bottom, right, top = rect
         return left <= x <= right and bottom <= y <= top
 
+
 # Feature: fastest lap banner
 class FastestLapBannerComponent(BaseComponent):
     def __init__(self, left: float, top: float, width: float, height: float):
@@ -1238,19 +1239,32 @@ class FastestLapBannerComponent(BaseComponent):
         self.top = top
         self.width = width
         self.height = height
-
-        self.driver_code = "VER"
-        self.lap_time = "1:16.330"
-
-        self._fast_lap_icon = None
+        self.driver_code = None
+        self.lap_time = None
+        self.frames_left = None
+        self.prev_lap_time = None
 
     def draw(self, window):
+        if self.driver_code is None or self.lap_time is None:
+            return
+
+         # Only draw if there's a new fastest lap or timer hasn't expired
+        if self.prev_lap_time == self.lap_time:
+            if self.frames_left is not None:
+                if self.frames_left > 0:
+                    self.frames_left -= 1
+                else:
+                    return  # Do not draw if no new fastest lap and timer expired
+        else:
+            self.frames_left = 5   # Show for 5 frames, if driver updates, reset to 5 frames again
+
+        self.prev_lap_time = self.lap_time
         y = self.top - 40
        
          # Draw filled rectangle behind "FASTEST\nLAP"
         fastest_rect_width = 70
         fastest_rect_height = 40
-        fastest_rect_x = self.left - 25 # center x for FASTEST LAPS bg
+        fastest_rect_x = self.left - 25 
         fastest_rect = arcade.XYWH(fastest_rect_x, y, fastest_rect_width, fastest_rect_height)
         arcade.draw_rect_filled(fastest_rect, arcade.color.PURPLE)
 
@@ -1297,8 +1311,6 @@ class FastestLapBannerComponent(BaseComponent):
             anchor_x="left",
             anchor_y="center"
         ).draw()
-
-
 
 
 def extract_race_events(frames: List[dict], track_statuses: List[dict], total_laps: int) -> List[dict]:

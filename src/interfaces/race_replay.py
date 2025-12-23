@@ -402,8 +402,12 @@ class F1RaceReplayWindow(arcade.Window):
         self.weather_bottom = self.height - 170 - 130 if (weather_info or self.has_weather) else None
 
         fastest_driver = None
-        if frame.get("fastest_lap"):
+        if frame.get("fastest_lap").get("driver") and frame.get("fastest_lap").get("time"):
             fastest_driver = frame["fastest_lap"]["driver"]
+            fastest_time = frame["fastest_lap"]["time"]
+            self.fastest_lap_banner_comp.driver_code = fastest_driver
+            minutes, seconds = divmod(fastest_time, 60)
+            self.fastest_lap_banner_comp.lap_time = f"{int(minutes)}:{seconds:06.3f}"
 
         # Draw leaderboard via component
         driver_list = []
@@ -417,6 +421,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_comp.draw(self)
         # expose rects for existing hit test compatibility if needed
         self.leaderboard_rects = self.leaderboard_comp.rects
+
 
         self.fastest_lap_banner_comp.draw(self)
 
