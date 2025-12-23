@@ -9,6 +9,7 @@ from src.ui_components import (
     DriverInfoComponent, 
     RaceProgressBarComponent,
     RaceControlsComponent,
+    FastestLapBannerComponent,
     extract_race_events,
     build_track_from_example_lap
 )
@@ -51,7 +52,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.weather_comp = WeatherComponent(left=20, top_offset=170)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
-        
+
+        self.fastest_lap_banner_comp = FastestLapBannerComponent(left=self.width, top=self.height, width=200, height=50)
         # Progress bar component with race event markers
         self.progress_bar_comp = RaceProgressBarComponent(
             left_margin=left_ui_margin,
@@ -415,6 +417,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_comp.draw(self)
         # expose rects for existing hit test compatibility if needed
         self.leaderboard_rects = self.leaderboard_comp.rects
+
+        self.fastest_lap_banner_comp.draw(self)
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
