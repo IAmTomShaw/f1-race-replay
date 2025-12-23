@@ -219,13 +219,13 @@ class LeaderboardComponent(BaseComponent):
         self.row_height = 25
         self._tyre_textures = {}
         self._fast_lap_icon = None
+        self._visible: bool = visible
 
         # Load fast-lap texture from images/assets folder
         fast_lap_path = os.path.join("images", "assets", "fast-lap.png")
         if os.path.exists(fast_lap_path):
             self._fast_lap_icon = arcade.load_texture(fast_lap_path)
-
-        self._visible: bool = visible
+                    
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
