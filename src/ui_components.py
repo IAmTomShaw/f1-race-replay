@@ -167,14 +167,13 @@ class LeaderboardComponent(BaseComponent):
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
             #Postion variables
-            x_start = left_x + self.width - 10
             y_start = top_y - 12
             icon_size = 16        
 
             #Fastest Lap Check
             if is_fastest:
                 if self._fast_lap_icon:
-                    fast_lap_x = x_start - 20
+                    fast_lap_x = left_x - 10
                     fast_lap_y = y_start
                     rect = arcade.XYWH(fast_lap_x, fast_lap_y, icon_size, icon_size)
 
@@ -188,7 +187,7 @@ class LeaderboardComponent(BaseComponent):
             # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
-                tyre_icon_x = x_start
+                tyre_icon_x = left_x + self.width - 10
                 tyre_icon_y = y_start
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
                 arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
