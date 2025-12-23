@@ -22,7 +22,7 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -36,6 +36,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.paused = False
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
+        self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -48,9 +49,9 @@ class F1RaceReplayWindow(arcade.Window):
         self.toggle_drs_zones = True 
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
-        self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240)
-        self.weather_comp = WeatherComponent(left=20, top_offset=170)
-        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
+        self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
+        self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
+        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
 
         self.fastest_lap_banner_comp = FastestLapBannerComponent(left=self.width, top=self.height, width=200, height=50)
@@ -66,7 +67,8 @@ class F1RaceReplayWindow(arcade.Window):
         # Race control buttons component
         self.race_controls_comp = RaceControlsComponent(
             center_x=self.width // 2,
-            center_y=100
+            center_y=100,
+            visible = visible_hud
         )
         
         # Extract race events for the progress bar
@@ -114,6 +116,11 @@ class F1RaceReplayWindow(arcade.Window):
         self.bg_texture = arcade.load_texture(bg_path) if os.path.exists(bg_path) else None
 
         arcade.set_background_color(arcade.color.BLACK)
+
+        # Persistent UI Text objects (avoid per-frame allocations)
+        self.lap_text = arcade.Text("", 20, self.height - 40, arcade.color.WHITE, 24, anchor_y="top")
+        self.time_text = arcade.Text("", 20, self.height - 80, arcade.color.WHITE, 20, anchor_y="top")
+        self.status_text = arcade.Text("", 20, self.height - 120, arcade.color.WHITE, 24, bold=True, anchor_y="top")
 
         # Trigger initial scaling calculation
         self.update_scaling(self.width, self.height)
@@ -224,6 +231,14 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
         for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
             c.on_resize(self)
+        
+        # update persistent text positions
+        self.lap_text.x = 20
+        self.lap_text.y = self.height - 40
+        self.time_text.x = 20
+        self.time_text.y = self.height - 80
+        self.status_text.x = 20
+        self.status_text.y = self.height - 120
 
     def world_to_screen(self, x, y):
         # Rotate around the track centre (if rotation is set), then scale+translate
@@ -291,7 +306,7 @@ class F1RaceReplayWindow(arcade.Window):
             track_color = STATUS_COLORS.get("RED")
         elif current_track_status == "6" or current_track_status == "7":
             track_color = STATUS_COLORS.get("VSC")
- 
+            
         if len(self.screen_inner_points) > 1:
             arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
         if len(self.screen_outer_points) > 1:
@@ -339,6 +354,15 @@ class F1RaceReplayWindow(arcade.Window):
 
             # Project (x,y) to reference and combine with lap count
             projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+
+            # Fix for start-line wrap-around:
+            # If on Lap 1, and telemetry distance suggests we are near start (e.g. < 50% lap),
+            # but projection suggests we are near end (> 50% lap), it means we are behind the line.
+            # We subtract lap length to make progress negative (e.g. -10m instead of 4990m).
+            telemetry_dist = float(pos.get("dist", 0.0))
+            if lap == 1 and telemetry_dist < self._ref_total_length * 0.5 and projected_m > self._ref_total_length * 0.5:
+                projected_m -= self._ref_total_length
+
             # progress in metres since race start: (lap-1) * lap_length + projected_m
             progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
 
@@ -364,35 +388,30 @@ class F1RaceReplayWindow(arcade.Window):
         if self.total_laps is not None:
             lap_str += f"/{self.total_laps}"
 
-        # Draw HUD - Top Left                         
-        arcade.Text(lap_str,
-                          20, self.height - 40, 
-                          arcade.color.WHITE, 24, anchor_y="top").draw()
-        
-        arcade.Text(f"Race Time: {time_str} (x{self.playback_speed})", 
-                         20, self.height - 80, 
-                         arcade.color.WHITE, 20, anchor_y="top").draw()
-        
-        if current_track_status == "2":
-            status_text = "YELLOW FLAG"
-            arcade.Text(status_text, 
-                             20, self.height - 120,
-                             arcade.color.YELLOW, 24, bold=True, anchor_y="top").draw()
-        elif current_track_status == "5":
-            status_text = "RED FLAG"
-            arcade.Text(status_text, 
-                             20, self.height - 120, 
-                             arcade.color.RED, 24, bold=True, anchor_y="top").draw()
-        elif current_track_status == "6":
-            status_text = "VIRTUAL SAFETY CAR"
-            arcade.Text(status_text, 
-                             20, self.height - 120, 
-                             arcade.color.ORANGE, 24, bold=True, anchor_y="top").draw()
-        elif current_track_status == "4":
-            status_text = "SAFETY CAR"
-            arcade.Text(status_text, 
-                             20, self.height - 120, 
-                             arcade.color.BROWN, 24, bold=True, anchor_y="top").draw()
+        # Draw HUD - Top Left
+        if self.visible_hud:
+            self.lap_text.text = lap_str
+            self.time_text.text = f"Race Time: {time_str} (x{self.playback_speed})"
+            # default no status text
+            self.status_text.text = ""
+            # update status color and text if required
+            if current_track_status == "2":
+                self.status_text.text = "YELLOW FLAG"
+                self.status_text.color = arcade.color.YELLOW
+            elif current_track_status == "5":
+                self.status_text.text = "RED FLAG"
+                self.status_text.color = arcade.color.RED
+            elif current_track_status == "6":
+                self.status_text.text = "VIRTUAL SAFETY CAR"
+                self.status_text.color = arcade.color.ORANGE
+            elif current_track_status == "4":
+                self.status_text.text = "SAFETY CAR"
+                self.status_text.color = arcade.color.BROWN
+
+            self.lap_text.draw()
+            self.time_text.draw()
+            if self.status_text.text:
+                self.status_text.draw()
 
         # Weather component (set info then draw)
         weather_info = frame.get("weather") if frame else None
@@ -428,61 +447,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.fastest_lap_banner_comp.draw(self)
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
-        legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-        legend_y = 200 # Height of legend block
-        legend_icons = self.legend_comp._control_icons_textures # icons
-        legend_lines = [
-            ("Controls:"),
-            ("[SPACE]  Pause/Resume"),
-            ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
-            ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
-            ("[R]       Restart"),
-            ("[D]       Toggle DRS Zones"),
-            ("[B]       Toggle Progress Bar"),
-            ("[Shift + Click] Select Multiple Drivers")
-
-        ]
-        
-        for i, lines in enumerate(legend_lines):
-            line = lines[0] if isinstance(lines, tuple) else lines # main text
-            brackets = lines[1] if isinstance(lines, tuple) and len(lines) > 2 else None # brackets only if icons exist
-            icon_keys = lines[2] if isinstance(lines, tuple) and len(lines) > 2 else None # icon keys
-        
-            icon_size = 14
-            # Draw icons if any
-            if icon_keys:
-                control_icon_x = legend_x + 12
-                for key in icon_keys:
-                    icon_texture = legend_icons.get(key)
-                    if icon_texture:
-                        control_icon_y = legend_y - (i * 25) + 5 # slight vertical offset
-                        rect = arcade.XYWH(control_icon_x, control_icon_y, icon_size, icon_size)
-                        arcade.draw_texture_rect(
-                            rect = rect,
-                            texture = icon_texture,
-                            angle = 0,
-                            alpha = 255
-                        )
-                        control_icon_x += icon_size + 6  # spacing between icons  
-            # Draw brackets if any              
-            if brackets:
-                for j in range(len(brackets)):
-                    arcade.Text(
-                        brackets[j],
-                        legend_x + (j * (icon_size + 5)),
-                        legend_y - (i * 25),
-                        arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
-                        14,
-                    ).draw()
-            # Draw the text line
-            arcade.Text(
-                line,
-                legend_x + (60 if icon_keys else 0),
-                legend_y - (i * 25),
-                arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
-                14,
-                bold=(i == 0)
-            ).draw()
+        self.legend_comp.draw(self)
         
         # Selected driver info component
         self.driver_info_comp.draw(self)
