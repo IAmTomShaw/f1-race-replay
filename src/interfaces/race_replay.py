@@ -10,6 +10,7 @@ from src.ui_components import (
     RaceProgressBarComponent,
     RaceControlsComponent,
     ControlsPopupComponent,
+    FastestLapBannerComponent,
     extract_race_events,
     build_track_from_example_lap
 )
@@ -60,7 +61,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.controls_popup_comp.set_size(340, 230) # width/height of the popup box
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
 
-
+        self.fastest_lap_banner_comp = FastestLapBannerComponent(left=self.width, top=self.height, width=200, height=50)
         # Progress bar component with race event markers
         self.progress_bar_comp = RaceProgressBarComponent(
             left_margin=left_ui_margin,
@@ -434,6 +435,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_comp.draw(self)
         # expose rects for existing hit test compatibility if needed
         self.leaderboard_rects = self.leaderboard_comp.rects
+
+        self.fastest_lap_banner_comp.draw(self)
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         self.legend_comp.draw(self)

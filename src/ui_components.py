@@ -1584,6 +1584,76 @@ class RaceControlsComponent(BaseComponent):
         left, bottom, right, top = rect
         return left <= x <= right and bottom <= y <= top
 
+# Feature: fastest lap banner
+class FastestLapBannerComponent(BaseComponent):
+    def __init__(self, left: float, top: float, width: float, height: float):
+        self.left = (left - width) / 2
+        self.top = top
+        self.width = width
+        self.height = height
+
+        self.driver_code = "VER"
+        self.lap_time = "1:16.330"
+
+        self._fast_lap_icon = None
+
+    def draw(self, window):
+        y = self.top - 40
+       
+         # Draw filled rectangle behind "FASTEST\nLAP"
+        fastest_rect_width = 70
+        fastest_rect_height = 40
+        fastest_rect_x = self.left - 25 # center x for FASTEST LAPS bg
+        fastest_rect = arcade.XYWH(fastest_rect_x, y, fastest_rect_width, fastest_rect_height)
+        arcade.draw_rect_filled(fastest_rect, arcade.color.PURPLE)
+
+        # Draw "FASTEST\nLAP" text
+        arcade.Text(
+            "FASTEST\nLAP",
+            self.left - 50,
+            y,
+            arcade.color.WHITE,
+            9,
+            bold=True,
+            anchor_x="left",
+            anchor_y="center",
+            multiline=True,
+            width=40
+        ).draw()
+
+        rect_height = 40
+        rect_width = 220
+        rect_x = self.left + 50
+
+        rect = arcade.XYWH(rect_x, y, rect_width, rect_height)
+        arcade.draw_rect_outline(rect, arcade.color.PURPLE, 2)
+
+        # Draw driver code
+        arcade.Text(
+            self.driver_code,
+            self.left + 15,
+            y,
+            arcade.color.BLUE,
+            16,
+            bold=True,
+            anchor_x="left",
+            anchor_y="center"
+        ).draw()
+
+        # Draw lap time
+        arcade.Text(
+            self.lap_time,
+            self.left + 65,
+            y,
+            arcade.color.WHITE,
+            16,
+            anchor_x="left",
+            anchor_y="center"
+        ).draw()
+
+
+
+
 def extract_race_events(frames: List[dict], track_statuses: List[dict], total_laps: int) -> List[dict]:
     """
     Extract race events from frame data for the progress bar.
