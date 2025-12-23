@@ -249,6 +249,7 @@ class LeaderboardComponent(BaseComponent):
         self._tyre_textures = {}
         self._visible: bool = visible
         self._fast_lap_icon = None
+        self._visible: bool = visible
 
         # Load fast-lap texture from images/assets folder
         fast_lap_path = os.path.join("images", "assets", "fast-lap.png")
