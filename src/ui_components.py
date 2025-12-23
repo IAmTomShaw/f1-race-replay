@@ -624,6 +624,8 @@ class DriverInfoComponent(BaseComponent):
         arcade.Text(f"Gear: {driver_pos.get('gear', '-')}", left + 15, cursor_y, arcade.color.WHITE, 12,
                     anchor_y="center").draw()
         cursor_y -= row_gap
+        arcade.Text(f"RPM: {driver_pos.get('rpm', '-')}", left + 15, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        cursor_y -= row_gap
 
         drs_val = driver_pos.get('drs', 0)
         drs_str, drs_color = ("DRS: ON", arcade.color.GREEN) if drs_val in [10, 12, 14] else \
