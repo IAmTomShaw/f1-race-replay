@@ -1196,10 +1196,12 @@ class RaceControlsComponent(BaseComponent):
         if self._mouse_held_button and self._mouse_held_window:
             window = self._mouse_held_window
             speed = getattr(window, 'playback_speed', 1.0)
+            n_frames = getattr(window, 'n_frames', 0)
             if self._mouse_held_button == 'rewind' and hasattr(window, 'frame_index'):
-                window.frame_index = max(0.0, float(window.frame_index) - 60 * delta_time * speed)
-            elif self._mouse_held_button == 'forward' and hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
-                window.frame_index = min(float(window.n_frames - 1), float(window.frame_index) + 60 * delta_time * speed)
+                # Use int to support qualifying window which expects integer frame_index
+                window.frame_index = int(max(0, float(window.frame_index) - 60 * delta_time * speed))
+            elif self._mouse_held_button == 'forward' and hasattr(window, 'frame_index') and n_frames > 0:
+                window.frame_index = int(min(n_frames - 1, float(window.frame_index) + 60 * delta_time * speed))
     
     def flash_button(self, button_name: str):
         """Trigger a visual flash effect for a button (used for keyboard feedback)."""
