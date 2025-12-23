@@ -404,6 +404,8 @@ class F1RaceReplayWindow(arcade.Window):
         fastest_driver = None
         if frame.get("fastest_lap").get("driver") and frame.get("fastest_lap").get("time"):
             fastest_driver = frame["fastest_lap"]["driver"]
+            color = self.driver_colors.get(fastest_driver, arcade.color.WHITE)
+            self.fastest_lap_banner_comp.driver_color = color
             fastest_time = frame["fastest_lap"]["time"]
             self.fastest_lap_banner_comp.driver_code = fastest_driver
             minutes, seconds = divmod(fastest_time, 60)

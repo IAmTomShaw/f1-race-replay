@@ -1240,6 +1240,7 @@ class FastestLapBannerComponent(BaseComponent):
         self.width = width
         self.height = height
         self.driver_code = None
+        self.driver_color = arcade.color.WHITE
         self.lap_time = None
         self.frames_left = None
         self.prev_lap_time = None
@@ -1294,7 +1295,7 @@ class FastestLapBannerComponent(BaseComponent):
             self.driver_code,
             self.left + 15,
             y,
-            arcade.color.BLUE,
+            self.driver_color,
             16,
             bold=True,
             anchor_x="left",
