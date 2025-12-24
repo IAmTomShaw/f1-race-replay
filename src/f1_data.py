@@ -155,6 +155,27 @@ def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
 
+def get_starting_grid(session):
+    """
+    Extract starting grid positions for each driver.
+    Returns a dict mapping driver code (e.g., 'VER') to their grid position (1-20).
+    """
+    results = session.results
+    grid_positions = {}
+    
+    for _, row in results.iterrows():
+        driver_code = row["Abbreviation"]
+        grid_pos = row.get("GridPosition")
+        
+        # Handle NaN or missing grid positions (e.g., pit lane starts)
+        if pd.notna(grid_pos):
+            grid_positions[driver_code] = int(grid_pos)
+        else:
+            # If no grid position, use their qualifying position or default to 20
+            grid_positions[driver_code] = 20
+    
+    return grid_positions
+
 def get_race_telemetry(session, session_type='R'):
 
     event_name = str(session).replace(' ', '_')
@@ -418,6 +439,9 @@ def get_race_telemetry(session, session_type='R'):
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
 
+    # Get starting grid positions
+    grid_positions = get_starting_grid(session)
+
     # Save using pickle (10-100x faster than JSON)
     with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
         pickle.dump({
@@ -425,6 +449,7 @@ def get_race_telemetry(session, session_type='R'):
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
             "total_laps": int(max_lap_number),
+            "grid_positions": grid_positions,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Saved Successfully!")
@@ -434,6 +459,7 @@ def get_race_telemetry(session, session_type='R'):
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
+        "grid_positions": grid_positions,
     }
 
 

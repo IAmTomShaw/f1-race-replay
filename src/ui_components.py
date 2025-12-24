@@ -42,6 +42,7 @@ class LegendComponent(BaseComponent):
             ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
             ("[R]       Restart"),
             ("[D]       Toggle DRS Zones"),
+            ("[G]       Toggle Grid Position Delta"),
             ("[B]       Toggle Progress Bar"),
         ]
         self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
@@ -210,13 +211,15 @@ class WeatherComponent(BaseComponent):
         window.weather_bottom = last_y - 20
 
 class LeaderboardComponent(BaseComponent):
-    def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True):
+    def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True, grid_positions: dict = None):
         self.x = x
         self.width = width
         self.entries = []  # list of tuples (code, color, pos, progress_m)
         self.rects = []    # clickable rects per entry
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
+        self.grid_positions = grid_positions or {}  # Starting grid positions for position delta
+        self.show_delta = False  # Toggle for showing positions gained/lost
         self._tyre_textures = {}
         self._visible: bool = visible
         # Import the tyre textures from the images/tyres folder (all files)
@@ -252,6 +255,29 @@ class LeaderboardComponent(BaseComponent):
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
         # entries sorted as expected
         self.entries = entries
+
+    def _get_position_delta(self, code: str, current_pos: int) -> tuple:
+        """
+        Calculate positions gained/lost from starting grid.
+        Returns (delta_str, delta_color) tuple.
+        Positive delta = gained positions (green)
+        Negative delta = lost positions (red)
+        Zero = same position (gray)
+        """
+        grid_pos = self.grid_positions.get(code)
+        if grid_pos is None:
+            return ("", arcade.color.GRAY)
+        
+        # Delta = grid_pos - current_pos (positive means gained positions)
+        delta = grid_pos - current_pos
+        
+        if delta > 0:
+            return (f"+{delta}", (0, 200, 0))  # Green for gained
+        elif delta < 0:
+            return (f"{delta}", (220, 50, 50))  # Red for lost
+        else:
+            return ("—", arcade.color.GRAY)  # Gray dash for same
+
     def draw(self, window):
         # Skip rendering entirely if hidden
         if not self._visible:
@@ -274,10 +300,19 @@ class LeaderboardComponent(BaseComponent):
                 text_color = arcade.color.BLACK
             else:
                 text_color = color
-            text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
+            is_out = pos.get("rel_dist", 0) == 1
+            text = f"{current_pos}. {code}" if not is_out else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            # Position delta (gained/lost positions from grid) - only show if enabled and driver is still racing
+            if self.show_delta and not is_out:
+                delta_str, delta_color = self._get_position_delta(code, current_pos)
+                if delta_str:
+                    # Position delta after driver code, before tyre icon
+                    delta_x = left_x + 90  # After "1. VER" text
+                    arcade.Text(delta_str, delta_x, top_y, delta_color, 14, anchor_x="left", anchor_y="top", bold=True).draw()
+
+            # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track

@@ -8,7 +8,8 @@ SCREEN_HEIGHT = 1200
 SCREEN_TITLE = "F1 Race Replay"
 
 def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
-                      playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, total_laps=None,
+                      playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, total_laps=None, 
+                      grid_positions=None,
                       visible_hud=True):
     window = F1RaceReplayWindow(
         frames=frames,
@@ -20,6 +21,7 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
         title=title,
         total_laps=total_laps,
         circuit_rotation=circuit_rotation,
+        grid_positions=grid_positions,
         visible_hud=visible_hud,
     )
     arcade.run()
