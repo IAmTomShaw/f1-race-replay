@@ -1,5 +1,5 @@
 import arcade
-from typing import List, Tuple, Optional
+from typing import List, Literal, Tuple, Optional
 from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
 import numpy as np
@@ -19,13 +19,14 @@ def _format_wind_direction(degrees: Optional[float]) -> str:
 class BaseComponent:
     def on_resize(self, window): pass
     def draw(self, window): pass
-    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int): return False
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool: return False
 
 class LegendComponent(BaseComponent):
-    def __init__(self, x: int = 20, y: int = 150):
+    def __init__(self, x: int = 20, y: int = 220, visible=True): # Increased y to 220 to fit all lines
         self.x = x
         self.y = y
         self._control_icons_textures = {}
+        self._visible = visible
         # Load control icons from images/icons folder (all files)
         icons_folder = os.path.join("images", "controls")
         if os.path.exists(icons_folder):
@@ -35,32 +36,87 @@ class LegendComponent(BaseComponent):
                     texture_path = os.path.join(icons_folder, filename)
                     self._control_icons_textures[texture_name] = arcade.load_texture(texture_path)
         self.lines = [
-            "Controls:",
-            "[SPACE]  Pause/Resume",
-            "[←/→]    Rewind / FastForward",
-            "[↑/↓]    Speed +/- (0.5x, 1x, 2x, 4x)",
-            "[R]       Restart",
-            "[D]       Toggle DRS Zones",
+            ("Controls:"),
+            ("[SPACE]  Pause/Resume"),
+            ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
+            ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
+            ("[R]       Restart"),
+            ("[D]       Toggle DRS Zones"),
+            ("[B]       Toggle Progress Bar"),
         ]
+        self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        """
+        Toggle the visibility of the legend
+        """
+        self._visible = not self._visible
+        return self._visible
+    
+    def set_visible(self):
+        """
+        Set visibility of legend to True
+        """
+        self._visible = True
+    
     def draw(self, window):
-        for i, line in enumerate(self.lines):
-            arcade.Text(
-                line,
-                self.x,
-                self.y - (i * 25),
-                arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
-                14,
-                bold=(i == 0)
-            ).draw()
+        # Skip rendering entirely if hidden
+        if not self._visible:
+            return
+        for i, lines in enumerate(self.lines):
+            line = lines[0] if isinstance(lines, tuple) else lines # main text
+            brackets = lines[1] if isinstance(lines, tuple) and len(lines) > 2 else None # brackets only if icons exist
+            icon_keys = lines[2] if isinstance(lines, tuple) and len(lines) > 2 else None # icon keys
+        
+            icon_size = 14
+            # Draw icons if any
+            if icon_keys:
+                control_icon_x = self.x + 12
+                for key in icon_keys:
+                    icon_texture = self._control_icons_textures.get(key)
+                    if icon_texture:
+                        control_icon_y = self.y - (i * 25) + 5 # slight vertical offset
+                        rect = arcade.XYWH(control_icon_x, control_icon_y, icon_size, icon_size)
+                        arcade.draw_texture_rect(
+                            rect = rect,
+                            texture = icon_texture,
+                            angle = 0,
+                            alpha = 255
+                        )
+                        control_icon_x += icon_size + 6  # spacing between icons  
+            # Draw brackets if any              
+            if brackets:
+                for j in range(len(brackets)):
+                    self._text.font_size = 14
+                    self._text.bold = (i == 0)
+                    self._text.color = arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE
+                    self._text.text = brackets[j]
+                    self._text.x = self.x + (j * (icon_size + 5))
+                    self._text.y = self.y - (i * 25)
+                    self._text.draw()
+            # Draw the text line
+            self._text.text = line
+            self._text.x = self.x + (60 if icon_keys else 0)
+            self._text.y = self.y - (i * 25)
+            self._text.draw()
 
 class WeatherComponent(BaseComponent):
-    def __init__(self, left=20, width=280, height=130, top_offset=170):
+    def __init__(self, left=20, width=280, height=130, top_offset=170, visible=True):
         self.left = left
         self.width = width
         self.height = height
         self.top_offset = top_offset
         self.info = None
         self._weather_icon_textures = {}
+        self._visible: bool = visible
         # Load weather icons from images/weather folder (all files)
         weather_folder = os.path.join("images", "weather")
         if os.path.exists(weather_folder):
@@ -70,9 +126,36 @@ class WeatherComponent(BaseComponent):
                     texture_path = os.path.join(weather_folder, filename)
                     self._weather_icon_textures[texture_name] = arcade.load_texture(texture_path)
 
+        self._text = arcade.Text("", self.left + 12, 0, arcade.color.LIGHT_GRAY, 14, anchor_y="top")
+
     def set_info(self, info: Optional[dict]):
         self.info = info
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        """
+        Toggle the visibility of the weather
+        """
+        self._visible = not self._visible
+        return self._visible
+    
+    def set_visible(self):
+        """
+        Set visibility of weather to True
+        """
+        self._visible = True
+
     def draw(self, window):
+        # Skip rendering entirely if hidden
+        if not self._visible:
+            return
         panel_top = window.height - self.top_offset
         if not self.info and not getattr(window, "has_weather", False):
             return
@@ -90,8 +173,16 @@ class WeatherComponent(BaseComponent):
         ]
         
         start_y = panel_top - 36
+        last_y = start_y
+
+        self._text.font_size = 18; self._text.bold = True; self._text.color = arcade.color.WHITE
+        self._text.text = "Weather"
+        self._text.x = self.left + 12; self._text.y = panel_top - 10
+        self._text.draw()
+
         for idx, (label, value, icon_key) in enumerate(weather_lines):
             line_y = start_y - idx * 22
+            last_y = line_y
             # Draw weather icon
             weather_texture = self._weather_icon_textures.get(icon_key)
             if weather_texture:
@@ -107,18 +198,27 @@ class WeatherComponent(BaseComponent):
                 )
             
             # Draw text
+
             line_text = f"{label}: {value}"
-            arcade.Text(line_text, self.left + 38, line_y, arcade.color.LIGHT_GRAY, 14, anchor_y="top").draw()
+            
+            self._text.font_size = 14; self._text.bold = False; self._text.color = arcade.color.LIGHT_GRAY
+            self._text.text = line_text
+            self._text.x = self.left + 38; self._text.y = line_y
+            self._text.draw()
+
+        # Track the bottom of the weather panel so info boxes can stack below it
+        window.weather_bottom = last_y - 20
 
 class LeaderboardComponent(BaseComponent):
-    def __init__(self, x: int, right_margin: int = 260, width: int = 240):
+    def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True):
         self.x = x
         self.width = width
         self.entries = []  # list of tuples (code, color, pos, progress_m)
         self.rects = []    # clickable rects per entry
-        self.selected = None
+        self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
         self._tyre_textures = {}
+        self._visible: bool = visible
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
@@ -128,10 +228,35 @@ class LeaderboardComponent(BaseComponent):
                     texture_path = os.path.join(tyres_folder, filename)
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
 
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        """
+        Toggle the visibility of the leaderboard
+        """
+        self._visible = not self._visible
+        return self._visible
+    
+    def set_visible(self):
+        """
+        Set visibility of leaderboard to True
+        """
+        self._visible = True
+
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
         # entries sorted as expected
         self.entries = entries
     def draw(self, window):
+        # Skip rendering entirely if hidden
+        if not self._visible:
+            return
+        self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
@@ -142,7 +267,8 @@ class LeaderboardComponent(BaseComponent):
             left_x = self.x
             right_x = self.x + self.width
             self.rects.append((code, left_x, bottom_y, right_x, top_y))
-            if code == self.selected:
+
+            if code in self.selected:
                 rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
                 arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
                 text_color = arcade.color.BLACK
@@ -158,8 +284,8 @@ class LeaderboardComponent(BaseComponent):
                 tyre_icon_x = left_x + self.width - 10
                 tyre_icon_y = top_y - 12
                 icon_size = 16
-
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
+                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
 
                 # Draw the textured rect
                 arcade.draw_texture_rect(
@@ -169,16 +295,41 @@ class LeaderboardComponent(BaseComponent):
                     alpha=255
                 )
 
+                # DRS Indicator
+                drs_val = pos.get("drs", 0)
+                # DRS is active if value >= 10
+                is_drs_on = drs_val and int(drs_val) >= 10
+                drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
+                
+                # Position dot to the left of the tyre icon
+                # tyre_icon_x is the center of the tyre icon
+                drs_dot_x = tyre_icon_x - icon_size - 4 
+                drs_dot_y = tyre_icon_y
+
+                arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
+
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
             if left <= x <= right and bottom <= y <= top:
-                if self.selected == code:
-                    self.selected = None
+                # Detect multi-select modifiers
+                is_multi = (modifiers & arcade.key.MOD_SHIFT)
+
+                if is_multi:
+                    if code in self.selected:
+                        self.selected.remove(code)
+                    else:
+                        self.selected.append(code)
                 else:
-                    self.selected = code
-                # propagate selection to window for compatibility
-                window.selected_driver = self.selected
+                    # Single click: clear others and toggle selection
+                    if len(self.selected) == 1 and self.selected[0] == code:
+                        self.selected = []
+                    else:
+                        self.selected = [code]
+
+                # Propagate both list and single reference for compatibility
+                window.selected_drivers = self.selected
+                window.selected_driver = self.selected[-1] if self.selected else None
                 return True
         return False
 
@@ -188,14 +339,34 @@ class LapTimeLeaderboardComponent(BaseComponent):
         self.width = width
         self.entries = []  # list of dicts: {'pos', 'code', 'color', 'time'}
         self.rects = []    # clickable rects per entry
-        self.selected = None
+        self.selected = []  # Changed to list
         self.row_height = 25
+        self._visible = True
 
     def set_entries(self, entries: List[dict]):
         """Accept a list of dicts with keys: pos, code, color, time"""
         self.entries = entries or []
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        """
+        Toggle the visibility of the progress bar
+        """
+        self._visible = not self._visible
+        return self._visible
 
     def draw(self, window):
+        # Skip rendering entirely if hidden
+        if not self._visible:
+            return
+        self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
         arcade.Text("Lap Times", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
@@ -213,7 +384,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
             self.rects.append((code, left_x, bottom_y, right_x, top_y))
 
             # selection highlight
-            if code == self.selected:
+            if code in self.selected:
                 rect = arcade.XYWH((left_x + right_x) / 2, (top_y + bottom_y) / 2, right_x - left_x, top_y - bottom_y)
                 arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
                 text_color = arcade.color.BLACK
@@ -228,12 +399,21 @@ class LapTimeLeaderboardComponent(BaseComponent):
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
             if left <= x <= right and bottom <= y <= top:
-                if self.selected == code:
-                    self.selected = None
+                is_multi = (modifiers & arcade.key.MOD_SHIFT)
+
+                if is_multi:
+                    if code in self.selected:
+                        self.selected.remove(code)
+                    else:
+                        self.selected.append(code)
                 else:
-                    self.selected = code
-                # propagate selection to window
-                window.selected_driver = self.selected
+                    if len(self.selected) == 1 and self.selected[0] == code:
+                        self.selected = []
+                    else:
+                        self.selected = [code]
+
+                window.selected_drivers = self.selected
+                window.selected_driver = self.selected[-1] if self.selected else None
                 return True
         return False
 
@@ -344,12 +524,13 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
         
         if close_btn_left <= x <= close_btn_right and close_btn_bottom <= y <= close_btn_top:
             window.selected_driver = None
+            window.selected_drivers = []
             # Also clear leaderboard selection state so UI highlight is removed
-            if hasattr(window, "leaderboard") and getattr(window.leaderboard, "selected", None):
-                window.leaderboard.selected = None
+            if hasattr(window, "leaderboard"):
+                window.leaderboard.selected = []
             self.selected_segment = None
             return True
-        
+
         # Check segment clicks
         code = window.selected_driver
         results = window.data['results']
@@ -363,35 +544,25 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
                 segments.append({'time': driver_result['Q2'], 'segment': 2})
             if driver_result.get('Q3') is not None:
                 segments.append({'time': driver_result['Q3'], 'segment': 3})
-            
-            segment_height = 50
-            start_y = top - 80
-            
+
+            segment_height, start_y = 50, top - 80
+            left, right = center_x - self.width // 2, center_x + self.width // 2
+
             for i, data in enumerate(segments):
-                segment_top = start_y - (i * (segment_height + 10))
-                segment_bottom = segment_top - segment_height
-                segment_left = left + 20
-                segment_right = right - 20
-            
-                # If click falls inside this segment rect, toggle selection and start telemetry load
-                if segment_left <= x <= segment_right and segment_bottom <= y <= segment_top:
-                    segment = f"Q{data['segment']}"
-                    # call window API to load telemetry and hide modal/selection
+                s_top = start_y - (i * (segment_height + 10))
+                s_bottom = s_top - segment_height
+                if left + 20 <= x <= right - 20 and s_bottom <= y <= s_top:
                     try:
-                        # start loading telemetry on the main window
                         if hasattr(window, "load_driver_telemetry"):
-                            window.load_driver_telemetry(code, segment)
-                        # hide selector/modal and clear leaderboard highlight
+                            window.load_driver_telemetry(code, f"Q{data['segment']}")
                         window.selected_driver = None
+                        window.selected_drivers = []
                         if hasattr(window, "leaderboard"):
-                            window.leaderboard.selected = None
+                            window.leaderboard.selected = []
                     except Exception as e:
                         print("Error starting telemetry load:", e)
-
                     return True
-        
-        return True  # Consume all clicks when visible
-
+        return True # Consume all clicks when visible
 
 class GhostDriverSelectorComponent(BaseComponent):
     """Modal for selecting a ghost driver to compare against the main driver"""
@@ -675,42 +846,36 @@ class DriverInfoComponent(BaseComponent):
         self.min_top = min_top
 
     def draw(self, window):
-        if not getattr(window, "selected_driver", None):
-            return
+        # Support multiple selection via window.selected_drivers
+        codes = getattr(window, "selected_drivers", [])
+        if not codes:
+            # Fallback to single selection compatibility
+            single = getattr(window, "selected_driver", None)
+            codes = [single] if single else []
 
-        code = window.selected_driver
-        if not window.frames: return
+        if not codes or not window.frames:
+            return
 
         idx = min(int(window.frame_index), window.n_frames - 1)
         frame = window.frames[idx]
 
-        if code not in frame["drivers"]: return
-        driver_pos = frame["drivers"][code]
-
-        box_width = self.width
-        box_height = 160
-
-        center_x = self.left + box_width / 2
-
-        default_y = window.height / 2
+        box_width, box_height, gap = self.width, 210, 10
         weather_bottom = getattr(window, "weather_bottom", None)
+        current_top = weather_bottom - 20 if weather_bottom else window.height - 200
 
-        if weather_bottom:
-            top_limit = weather_bottom - 20
-            center_y = top_limit - (box_height / 2)
-        else:
-            center_y = default_y
+        for code in codes:
+            if code not in frame["drivers"]: continue
+            if current_top - box_height < self.min_top: break
 
-        center_y -= 30
+            driver_pos = frame["drivers"][code]
+            center_y = current_top - (box_height / 2)
+            self._draw_info_box(window, code, driver_pos, center_y, box_width, box_height)
+            current_top -= (box_height + gap)
 
-        # driver box height limit
-        center_y = max(center_y, self.min_top + box_height / 2)
-
-        # actual drawing area  (Top / Bottom / Left / Right)
-        top = center_y + box_height / 2
-        bottom = center_y - box_height / 2
-        left = center_x - box_width / 2
-        right = center_x + box_width / 2
+    def _draw_info_box(self, window, code, driver_pos, center_y, box_width, box_height):
+        center_x = self.left + box_width / 2
+        top, bottom = center_y + box_height / 2, center_y - box_height / 2
+        left, right = center_x - box_width / 2, center_x + box_width / 2
 
         rect = arcade.XYWH(center_x, center_y, box_width, box_height)
         arcade.draw_rect_filled(rect, (0, 0, 0, 200))
@@ -720,99 +885,96 @@ class DriverInfoComponent(BaseComponent):
 
         header_height = 30
         header_cy = top - (header_height / 2)
-        header_rect = arcade.XYWH(center_x, header_cy, box_width, header_height)
-        arcade.draw_rect_filled(header_rect, team_color)
+        arcade.draw_rect_filled(arcade.XYWH(center_x, header_cy, box_width, header_height), team_color)
+        arcade.Text(f"Driver: {code}", left + 10, header_cy, arcade.color.BLACK, 14, anchor_y="center",
+                    bold=True).draw()
 
-        arcade.Text(f"Driver: {code}", left + 10, header_cy,
-                    arcade.color.BLACK, 14, anchor_y="center", bold=True).draw()
-
-        header_bottom = top - header_height
-        cursor_y = header_bottom - 25
+        cursor_y, row_gap = top - header_height - 25, 25
         left_text_x = left + 15
-        row_gap = 25
 
-        # (A) Speed
+        # Telemetry Text
         speed = driver_pos.get('speed', 0)
-        arcade.Text(f"Speed: {speed:.0f} km/h", left_text_x, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        arcade.Text(f"Speed: {speed:.0f} km/h", left + 15, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        cursor_y -= row_gap
+        arcade.Text(f"Gear: {driver_pos.get('gear', '-')}", left + 15, cursor_y, arcade.color.WHITE, 12,
+                    anchor_y="center").draw()
         cursor_y -= row_gap
 
-        # (B) Gear
-        gear = driver_pos.get('gear', '-')
-        arcade.Text(f"Gear: {gear}", left_text_x, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
-        cursor_y -= row_gap
-
-        # (C) DRS
         drs_val = driver_pos.get('drs', 0)
-        drs_str = "DRS: OFF"
-        drs_color = arcade.color.GRAY
+        drs_str, drs_color = ("DRS: ON", arcade.color.GREEN) if drs_val in [10, 12, 14] else \
+            ("DRS: AVAIL", arcade.color.YELLOW) if drs_val == 8 else ("DRS: OFF", arcade.color.GRAY)
+        arcade.Text(drs_str, left + 15, cursor_y, drs_color, 12, anchor_y="center", bold=True).draw()
+        cursor_y -= row_gap
 
-        if drs_val in [10, 12, 14]:
-            drs_str = "DRS: ON"
-            drs_color = arcade.color.GREEN
-        elif drs_val == 8:
-            drs_str = "DRS: AVAIL"
-            drs_color = arcade.color.YELLOW
+        # Gaps (Calculated from Leaderboard)
+        gap_ahead, gap_behind = "Ahead: N/A", "Behind: N/A"
+        lb = getattr(window, "leaderboard", None) or \
+             getattr(window, "leaderboard_ui", None) or \
+             getattr(window, "leaderboard_comp", None)
 
-        arcade.Text(drs_str, left_text_x, cursor_y, drs_color, 12, anchor_y="center", bold=True).draw()
-        cursor_y -= (row_gap + 5)
+        if not lb and hasattr(window, "ui_components"):
+            for comp in window.ui_components:
+                if isinstance(comp, LeaderboardComponent):
+                    lb = comp
+                    break
 
-        # ---------------------------------------------------
-        # [4] vertical stick graph (right side)
-        # ---------------------------------------------------
-        # get data
-        throttle = driver_pos.get('throttle', 0)
-        brake = driver_pos.get('brake', 0)
+        # A fixed reference speed for all gap calculations (200 km/h = 55.56 m/s)
+        REFERENCE_SPEED_MS = 55.56
 
-        # 0~100 range normalization (preparing if the data has 0~1 range)
-        t_ratio = max(0.0, min(1.0, throttle / 100.0))
-        if brake > 1.0:
-            b_ratio = max(0.0, min(1.0, brake / 100.0))
-        else:
-            b_ratio = max(0.0, min(1.0, brake))
+        def calculate_gap(pos1, pos2):
+            # Calculate gap between two positions consistently
+            raw_dist = abs(pos1 - pos2)
+            dist = raw_dist / 10.0  # Convert to meters
+            time = dist / REFERENCE_SPEED_MS
+            return dist, time
 
-        # set graph location
-        bar_width = 20
-        bar_max_height = 80
-        bar_bottom_y = bottom + 35  # 바닥에서 약간 위
+        if lb and hasattr(lb, "entries") and lb.entries:
+            try:
+                idx = next(i for i, e in enumerate(lb.entries) if e[0] == code)
 
-        # center value of right section
-        right_section_center = right - 50
+                if idx > 0:  # Car Ahead
+                    code_ahead = lb.entries[idx - 1][0]
+                    curr_pos = lb.entries[idx][3]
+                    ahead_pos = lb.entries[idx - 1][3]
 
-        # (D) Throttle Bar
-        th_x = right_section_center - 15
+                    dist, time = calculate_gap(curr_pos, ahead_pos)
+                    gap_ahead = f"Ahead ({code_ahead}): +{time:.2f}s ({dist:.1f}m)"
 
-        # throttle label
-        arcade.Text("THR", th_x, bar_bottom_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
+                if idx < len(lb.entries) - 1:  # Car Behind
+                    code_behind = lb.entries[idx + 1][0]
+                    curr_pos = lb.entries[idx][3]
+                    behind_pos = lb.entries[idx + 1][3]
 
-        # throttle bg_color (grey) - XYWH는 중심점 기준이므로 계산 주의
-        # center Y = bottom Y + (height / 2)
-        bg_cy = bar_bottom_y + (bar_max_height / 2)
-        arcade.draw_rect_filled(arcade.XYWH(th_x, bg_cy, bar_width, bar_max_height), arcade.color.DARK_GRAY)
+                    dist, time = calculate_gap(curr_pos, behind_pos)
+                    gap_behind = f"Behind ({code_behind}): -{time:.2f}s ({dist:.1f}m)"
 
-        # throttle value (green) - filled from bottom to top
-        if t_ratio > 0:
-            val_height = bar_max_height * t_ratio
-            val_cy = bar_bottom_y + (val_height / 2)
-            arcade.draw_rect_filled(arcade.XYWH(th_x, val_cy, bar_width, val_height), arcade.color.GREEN)
+            except (StopIteration, IndexError):
+                pass
 
-        # (E) Brake Bar
-        br_x = right_section_center + 15
+        arcade.Text(gap_ahead, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
+        cursor_y -= 22
+        arcade.Text(gap_behind, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
 
-        # brake label
-        arcade.Text("BRK", br_x, bar_bottom_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
+        # Graphs
+        thr, brk = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
+        t_r, b_r = max(0.0, min(1.0, thr / 100.0)), max(0.0, min(1.0, brk / 100.0 if brk > 1.0 else brk))
+        bar_w, bar_h, b_y = 20, 80, bottom + 35
+        r_center = right - 50
 
-        # brake bg_color (grey)
-        arcade.draw_rect_filled(arcade.XYWH(br_x, bg_cy, bar_width, bar_max_height), arcade.color.DARK_GRAY)
-
-        # brake value (red)
-        if b_ratio > 0:
-            val_height = bar_max_height * b_ratio
-            val_cy = bar_bottom_y + (val_height / 2)
-            arcade.draw_rect_filled(arcade.XYWH(br_x, val_cy, bar_width, val_height), arcade.color.RED)
+        # Throttle
+        arcade.Text("THR", r_center - 15, b_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
+        arcade.draw_rect_filled(arcade.XYWH(r_center - 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
+        if t_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center - 15, b_y + (bar_h * t_r) / 2, bar_w, bar_h * t_r),
+                                            arcade.color.GREEN)
+        # Brake
+        arcade.Text("BRK", r_center + 15, b_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
+        arcade.draw_rect_filled(arcade.XYWH(r_center + 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
+        if b_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center + 15, b_y + (bar_h * b_r) / 2, bar_w, bar_h * b_r),
+                                            arcade.color.RED)
 
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
-      
+
 # Feature: race progress bar with event markers
 class RaceProgressBarComponent(BaseComponent):
     """
@@ -914,6 +1076,12 @@ class RaceProgressBarComponent(BaseComponent):
         Toggle the visibility of the progress bar
         """
         self._visible = not self._visible
+        
+        # Also hide/show related components
+        for comp in getattr(self, "_related_components", []):
+            if isinstance(comp, BaseComponent):
+                comp.visible = self._visible
+                
         return self._visible
         
     def _calculate_bar_dimensions(self, window):
@@ -1019,12 +1187,17 @@ class RaceProgressBarComponent(BaseComponent):
             self.COLORS["current_position"], 3
         )
         
-        # 6. Draw hover tooltip if applicable
+        # 6. Draw legend
+        self._draw_legend(window)
+    
+    # 7. Draw tooltips and overlays after the main draw to prevent them being occluded
+    def draw_overlays(self, window):
+        """Draw tooltips and other overlays that should appear on top of all UI elements."""
+        if not self._visible:
+            return
+        # Draw hover tooltip if applicable
         if self._hover_event:
             self._draw_tooltip(window, self._hover_event)
-            
-        # 7. Draw legend
-        self._draw_legend(window)
             
     def _draw_event_marker(self, event: dict, x: float, center_y: float):
         """Draw a single event marker based on type."""
@@ -1200,7 +1373,7 @@ class RaceProgressBarComponent(BaseComponent):
         else:
             self._hover_event = None
             
-    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         """Handle mouse click to seek to position."""
         if not self._visible:
             return False
@@ -1215,6 +1388,279 @@ class RaceProgressBarComponent(BaseComponent):
             return True
         return False
 
+# Feature: control race playback (play/pause, speed control, rewind/fast-forward)
+class RaceControlsComponent(BaseComponent):
+    """
+    A visual component with playback control buttons:
+    - Rewind button (left)
+    - Play/Pause button (center)
+    - Forward button (right)
+    """
+    def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = 40, visible=True):
+        self.center_x = center_x
+        self.center_y = center_y
+        self.button_size = button_size
+        self.button_spacing = 70
+        self.speed_container_offset = 200
+        self._hide_speed_text = False
+        self._control_textures = {}
+        self._visible = visible
+        
+        # Button rectangles for hit testing
+        self.rewind_rect = None
+        self.play_pause_rect = None
+        self.forward_rect = None
+        self.speed_increase_rect = None
+        self.speed_decrease_rect = None
+        
+        # Hover state
+        self.hover_button = None  # 'rewind/forward', 'play/pause', 'speed_increase', 'speed_decrease'
+        # Flash feedback state for keyboard shortcuts
+        self._flash_button = None
+        self._flash_timer = 0.0
+        self._flash_duration = 0.3  # seconds
+
+        _controls_folder = os.path.join("images", "controls")
+        if os.path.exists(_controls_folder):
+            for filename in os.listdir(_controls_folder):
+                if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                    texture_name = os.path.splitext(filename)[0]
+                    texture_path = os.path.join(_controls_folder, filename)
+                    self._control_textures[texture_name] = arcade.load_texture(texture_path)
+
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        """
+        Toggle the visibility of the controls
+        """
+        self._visible = not self._visible
+
+    def set_visible(self):
+        """
+        Set visibility of controls to True
+        """
+        self._visible = True
+
+    def on_resize(self, window):
+        """Recalculate control positions on window resize."""
+        self.center_x = window.width / 2
+        # Scale spacing and offset proportionally to window width (based on 1920px reference)
+        self.button_spacing = window.width * (70 / 1920)
+        self.speed_container_offset = window.width * (200 / 1920)
+        self._hide_speed_text = window.width < 1000
+    
+    def on_update(self, delta_time: float):
+        """Update flash timer for keyboard feedback animation."""
+        if self._flash_timer > 0:
+            self._flash_timer = max(0, self._flash_timer - delta_time)
+            if self._flash_timer == 0:
+                self._flash_button = None
+    
+    def flash_button(self, button_name: str):
+        """Trigger a visual flash effect for a button (used for keyboard feedback)."""
+        self._flash_button = button_name
+        self._flash_timer = self._flash_duration
+
+    def draw(self, window):
+        # Skip rendering entirely if hidden
+        if not self._visible:
+            return
+        """Draw the three playback control buttons."""
+        is_paused = getattr(window, 'paused', False)
+        
+        # Button positions
+        rewind_x = self.center_x - self.button_spacing
+        play_x = self.center_x
+        forward_x = self.center_x + self.button_spacing
+    
+        self._draw_rewind_icon(rewind_x, self.center_y)
+        
+        if is_paused:
+            self._draw_play_icon(play_x, self.center_y)
+        else:
+            self._draw_pause_icon(play_x, self.center_y)
+
+        self._draw_forward_icon(forward_x, self.center_y)
+
+        self._draw_speed_comp(forward_x + self.speed_container_offset, self.center_y, getattr(window, 'playback_speed', 1.0))
+
+    def draw_hover_effect(self, button_name: str, x: float, y: float, radius_offset: int = 2, border_width: int = 4):
+        """Draw hover outline effect for a button if it's currently hovered."""
+        if self.hover_button == button_name and getattr(self, f"{button_name}_rect", None):
+            arcade.draw_circle_outline(x, y, self.button_size // 2 + radius_offset, arcade.color.WHITE, border_width)
+        
+        # Show flash effect for keyboard feedback
+        if self._flash_button == button_name and self._flash_timer > 0:
+            # Pulsing ring effect based on timer
+            alpha = int(255 * (self._flash_timer / self._flash_duration))
+            flash_color = (*arcade.color.DIM_GRAY[:3], alpha)
+            arcade.draw_circle_outline(x, y, self.button_size // 2 + radius_offset + 2, flash_color, border_width + 1)
+
+    def _draw_play_icon(self, x: float, y: float):
+        self.draw_hover_effect('play_pause', x, self.center_y)
+        if 'play' in self._control_textures:
+            texture = self._control_textures['play']
+            rect = arcade.XYWH(x, y, self.button_size, self.button_size)
+            self.play_pause_rect = (x - self.button_size//2, y - self.button_size//2,
+                                   x + self.button_size//2, y + self.button_size//2)
+            arcade.draw_texture_rect(
+                    rect=rect,
+                    texture=texture,
+                    angle=0,
+                    alpha = 255
+                )
+    def _draw_pause_icon(self, x: float, y: float):
+        self.draw_hover_effect('play_pause', x, self.center_y)
+        if 'pause' in self._control_textures:
+            texture = self._control_textures['pause']
+            rect = arcade.XYWH(x, y, self.button_size, self.button_size)
+            self.play_pause_rect = (x - self.button_size//2, y - self.button_size//2,
+                                   x + self.button_size//2, y + self.button_size//2)
+            arcade.draw_texture_rect(
+                    rect=rect,
+                    texture=texture,
+                    angle=0,
+                    alpha = 255
+                )
+    def _draw_forward_icon(self, x: float, y: float):
+        self.draw_hover_effect('forward', x, self.center_y)
+        if 'rewind' in self._control_textures:
+            texture = self._control_textures['rewind']
+            rect = arcade.XYWH(x, y, self.button_size, self.button_size)
+            self.forward_rect = (x - self.button_size//2, y - self.button_size//2,
+                                x + self.button_size//2, y + self.button_size//2)
+            arcade.draw_texture_rect(
+                    rect=rect,
+                    texture=texture,
+                    angle=180,
+                    alpha = 255
+                )
+    def _draw_rewind_icon(self, x: float, y: float):
+        self.draw_hover_effect('rewind', x, self.center_y)
+        if 'rewind' in self._control_textures:
+            texture = self._control_textures['rewind']
+            rect = arcade.XYWH(x, y, self.button_size, self.button_size)
+            self.rewind_rect = (x - self.button_size//2, y - self.button_size//2,
+                               x + self.button_size//2, y + self.button_size//2)
+            arcade.draw_texture_rect(
+                    rect=rect,
+                    texture=texture,
+                    angle=0,
+                    alpha = 255
+                )
+    def _draw_speed_comp(self, x: float, y: float, speed: float):
+        """Draw speed multiplier text."""
+        if 'speed+' and 'speed-' in self._control_textures:
+            texture_plus = self._control_textures['speed+']
+            texture_minus = self._control_textures['speed-']
+            
+            # Container dimensions
+            if self._hide_speed_text:
+                container_width = self.button_size * 2.4
+            else:
+                container_width = self.button_size * 3.6
+            container_height = self.button_size * 1.2
+            
+            # Draw container background box
+            rect_container = arcade.XYWH(x, y, container_width, container_height)
+            arcade.draw_rect_filled(rect_container, (40, 40, 40, 200))
+
+            # Button positions inside container
+            button_offset = (container_width / 2) - (self.button_size / 2) - 5
+            
+            rect_minus = arcade.XYWH(x - button_offset, y, self.button_size, self.button_size)
+            rect_plus = arcade.XYWH(x + button_offset, y, self.button_size, self.button_size)
+            
+            self.speed_decrease_rect = (x - button_offset - self.button_size//2, y - self.button_size//2,
+                                       x - button_offset + self.button_size//2, y + self.button_size//2)
+            self.speed_increase_rect = (x + button_offset - self.button_size//2, y - self.button_size//2,
+                                       x + button_offset + self.button_size//2, y + self.button_size//2)
+            
+            # Draw minus button
+            arcade.draw_texture_rect(
+                    rect=rect_minus,
+                    texture=texture_minus,
+                    angle=0,
+                    alpha=255
+                )
+            
+            # Draw speed text in center
+            if not self._hide_speed_text:
+                arcade.Text(f"{speed:.1f}x", x, y - 5,
+                            arcade.color.WHITE, 14,
+                            anchor_x="center",
+                            bold=True).draw()
+            
+            # Draw plus button
+            arcade.draw_texture_rect(
+                    rect=rect_plus,
+                    texture=texture_plus,
+                    angle=0,
+                    alpha=255
+                )
+
+            # Draw hover highlights for speed buttons
+            self.draw_hover_effect('speed_increase', rect_plus.center_x, rect_plus.center_y, radius_offset=1, border_width=2)
+            self.draw_hover_effect('speed_decrease', rect_minus.center_x, rect_minus.center_y, radius_offset=1, border_width=2)
+            
+
+    def on_mouse_motion(self, window, x: float, y: float, dx: float, dy: float):
+        """Handle mouse hover effects."""
+        if self._point_in_rect(x, y, self.rewind_rect):
+            self.hover_button = 'rewind'
+        elif self._point_in_rect(x, y, self.play_pause_rect):
+            self.hover_button = 'play_pause'
+        elif self._point_in_rect(x, y, self.forward_rect):
+            self.hover_button = 'forward'
+        elif self._point_in_rect(x, y, self.speed_increase_rect):
+            self.hover_button = 'speed_increase'
+        elif self._point_in_rect(x, y, self.speed_decrease_rect):
+            self.hover_button = 'speed_decrease'
+        else:
+            self.hover_button = None
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
+        """Handle button clicks."""
+        if self._point_in_rect(x, y, self.rewind_rect):
+            # Rewind 10 frames
+            if hasattr(window, 'frame_index'):
+                window.frame_index = int(max(0, window.frame_index - 10))
+            return True
+        elif self._point_in_rect(x, y, self.play_pause_rect):
+            # Toggle pause
+            if hasattr(window, 'paused'):
+                window.paused = not window.paused
+            return True
+        elif self._point_in_rect(x, y, self.forward_rect):
+            # Forward 10 frames
+            if hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
+                window.frame_index = int(min(window.n_frames - 1, window.frame_index + 10))
+            return True
+        elif self._point_in_rect(x, y,self.speed_increase_rect):
+            # Increase speed
+            if hasattr(window, 'playback_speed'):
+                window.playback_speed = window.playback_speed * 2
+            return True
+        elif self._point_in_rect(x, y,self.speed_decrease_rect):
+            # Decrease speed
+            if hasattr(window, 'playback_speed'):
+                window.playback_speed = max(0.1, window.playback_speed / 2)
+            return True
+        return False
+    
+    def _point_in_rect(self, x: float, y: float, rect: tuple[float, float, float, float] | None) -> bool:
+        """Check if point is inside rectangle."""
+        if rect is None:
+            return False
+        left, bottom, right, top = rect
+        return left <= x <= right and bottom <= y <= top
 
 def extract_race_events(frames: List[dict], track_statuses: List[dict], total_laps: int) -> List[dict]:
     """
@@ -1311,9 +1757,7 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
     
     return events
 
-
 # Build track geometry from example lap telemetry
-
 def build_track_from_example_lap(example_lap, track_width=200):
     drs_zones = plotDRSzones(example_lap)
     plot_x_ref = example_lap["X"]

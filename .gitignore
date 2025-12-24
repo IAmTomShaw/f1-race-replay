@@ -11,3 +11,4 @@ __pycache__/
 computed_data/
 
 .DS_Store
+.idea
