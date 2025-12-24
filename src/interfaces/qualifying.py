@@ -61,6 +61,10 @@ class QualifyingReplay(arcade.Window):
         self.paused = True            # start paused by default
         self.playback_speed = 1.0     # 1.0 = realtime
         self.loading_telemetry = False
+        
+        # Key-held state for continuous rewind/forward
+        self._key_left_held = False
+        self._key_right_held = False
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -337,9 +341,9 @@ class QualifyingReplay(arcade.Window):
 
                 drs_zones_to_show = []
 
-                current_frame = frames[self.frame_index]
+                current_frame = frames[int(self.frame_index)]
                 current_tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
-                current_comparison_tel = comparison_telemetry[self.frame_index].get("telemetry") if comparison_telemetry and self.frame_index < len(comparison_telemetry) else {}
+                current_comparison_tel = comparison_telemetry[int(self.frame_index)].get("telemetry") if comparison_telemetry and self.frame_index < len(comparison_telemetry) else {}
                 current_dist = self._pick_telemetry_value(current_tel, "dist")
                 
                 for dz in self.drs_zones:
@@ -730,6 +734,10 @@ class QualifyingReplay(arcade.Window):
         """Pass mouse motion events to UI components."""
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
     
+    def on_mouse_release(self, x: int, y: int, button: int, modifiers: int):
+        """Handle mouse release for continuous rewind/forward buttons."""
+        self.race_controls_comp.on_mouse_release(self, x, y, button, modifiers)
+    
     def on_resize(self, width: int, height: int):
         """Handle the window being resized."""
         super().on_resize(width, height)
@@ -809,6 +817,11 @@ class QualifyingReplay(arcade.Window):
             # Toggle DRS zones on track map
             self.toggle_drs_zones = not self.toggle_drs_zones
             return
+        elif symbol == arcade.key.LEFT:
+            # Allow rewind even when lap is complete
+            self._key_left_held = True
+            self.race_controls_comp.flash_button('rewind')
+            return
         
         # Disable other controls when lap is complete
         if self.is_lap_complete():
@@ -818,13 +831,8 @@ class QualifyingReplay(arcade.Window):
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
         elif symbol == arcade.key.RIGHT:
-            # step forward by 10 frames (keep integer)
-            self.frame_index = int(min(self.frame_index + 10, max(0, self.n_frames - 1)))
+            self._key_right_held = True
             self.race_controls_comp.flash_button('forward')
-        elif symbol == arcade.key.LEFT:
-            # step backward by 10 frames (keep integer)
-            self.frame_index = int(max(self.frame_index - 10, 0))
-            self.race_controls_comp.flash_button('rewind')
         elif symbol == arcade.key.UP:
             self.playback_speed *= 2.0
             self.race_controls_comp.flash_button('speed_increase')
@@ -843,6 +851,13 @@ class QualifyingReplay(arcade.Window):
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
             self.race_controls_comp.flash_button('speed_increase')
+
+    def on_key_release(self, symbol: int, modifiers: int):
+        """Handle key release for continuous rewind/forward."""
+        if symbol == arcade.key.LEFT:
+            self._key_left_held = False
+        elif symbol == arcade.key.RIGHT:
+            self._key_right_held = False
 
     def load_driver_telemetry(self, driver_code: str, segment_name: str):
 
@@ -977,7 +992,21 @@ class QualifyingReplay(arcade.Window):
     def on_update(self, delta_time: float):
         # time-based playback synced to telemetry timestamps
         if not self.chart_active or self.loaded_telemetry is None:
+            self.race_controls_comp.on_update(delta_time)
             return
+        
+        # Continuous rewind/forward when keys are held (works even when paused)
+        # Speed matches the current playback speed setting
+        if self._key_left_held and self.n_frames > 0:
+            self.frame_index = int(max(0, self.frame_index - 60 * delta_time * self.playback_speed))
+            # Sync play_time with frame index
+            if self._times is not None and len(self._times) > 0:
+                self.play_time = float(self._times[self.frame_index])
+        if self._key_right_held and self.n_frames > 0:
+            self.frame_index = int(min(self.n_frames - 1, self.frame_index + 60 * delta_time * self.playback_speed))
+            if self._times is not None and len(self._times) > 0:
+                self.play_time = float(self._times[min(self.frame_index, len(self._times) - 1)])
+        
         if self.paused:
             self.race_controls_comp.on_update(delta_time)
             return
