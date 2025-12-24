@@ -38,6 +38,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     # Get example lap for track layout
     # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
     example_lap = None
+    sector_info = None  # Sector timing info for accurate sector boundaries
     
     try:
         print("Attempting to load qualifying session for track layout...")
@@ -49,6 +50,19 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
                 if 'DRS' in quali_telemetry.columns:
                     example_lap = quali_telemetry
                     print(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
+                    
+                    # Extract sector session times for accurate sector boundaries
+                    try:
+                        s1_time = fastest_quali['Sector1SessionTime']
+                        s2_time = fastest_quali['Sector2SessionTime']
+                        if s1_time is not None and s2_time is not None:
+                            sector_info = {
+                                "sector1_time": s1_time.total_seconds(),
+                                "sector2_time": s2_time.total_seconds(),
+                            }
+                            print(f"Extracted sector times: S1 ends at {s1_time}, S2 ends at {s2_time}")
+                    except Exception as e:
+                        print(f"Could not extract sector times: {e}")
     except Exception as e:
         print(f"Could not load qualifying session: {e}")
 
@@ -58,6 +72,19 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         if fastest_lap is not None:
             example_lap = fastest_lap.get_telemetry()
             print("Using fastest race lap (DRS detection may use speed-based fallback)")
+            
+            # Try to extract sector times from race lap too
+            try:
+                s1_time = fastest_lap['Sector1SessionTime']
+                s2_time = fastest_lap['Sector2SessionTime']
+                if s1_time is not None and s2_time is not None:
+                    sector_info = {
+                        "sector1_time": s1_time.total_seconds(),
+                        "sector2_time": s2_time.total_seconds(),
+                    }
+                    print(f"Extracted sector times: S1 ends at {s1_time}, S2 ends at {s2_time}")
+            except Exception as e:
+                print(f"Could not extract sector times: {e}")
         else:
             print("Error: No valid laps found in session")
             return
@@ -80,6 +107,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
+        sector_info=sector_info,
         visible_hud=visible_hud
     )
 
