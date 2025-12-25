@@ -341,34 +341,11 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Determine Leader info using projected along-track distance (more robust than dist)
         # Use the progress metric in metres for each driver and use that to order the leaderboard.
-        driver_progress = {}
-        for code, pos in frame["drivers"].items():
-            # parse lap defensively
-            lap_raw = pos.get("lap", 1)
-            try:
-                lap = int(lap_raw)
-            except Exception:
-                lap = 1
 
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
 
-            # Fix for start-line wrap-around:
-            # If on Lap 1, and telemetry distance suggests we are near start (e.g. < 50% lap),
-            # but projection suggests we are near end (> 50% lap), it means we are behind the line.
-            # We subtract lap length to make progress negative (e.g. -10m instead of 4990m).
-            telemetry_dist = float(pos.get("dist", 0.0))
-            if lap == 1 and telemetry_dist < self._ref_total_length * 0.5 and projected_m > self._ref_total_length * 0.5:
-                projected_m -= self._ref_total_length
-
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
-
-            driver_progress[code] = progress_m
-
-        # Leader is the one with greatest progress_m
-        if driver_progress:
-            leader_code = max(driver_progress, key=lambda c: driver_progress[c])
+        # Leader is the one with greatest distance
+        if frame["drivers"]:
+            leader_code = max(frame["drivers"], key=lambda c: float(frame["drivers"][c].get("dist", 0.0)))
             leader_lap = frame["drivers"][leader_code].get("lap", 1)
         else:
             leader_code = None
@@ -422,8 +399,9 @@ class F1RaceReplayWindow(arcade.Window):
         driver_list = []
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
-            driver_list.append((code, color, pos, progress_m))
+            # Use telemetry distance for sorting (more robust than visual projection)
+            dist_m = float(pos.get("dist", 0.0))
+            driver_list.append((code, color, pos, dist_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)

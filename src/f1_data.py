@@ -74,6 +74,11 @@ def _process_single_driver(args):
 
         # race distance = distance before this lap + distance within this lap
         race_d_lap = total_dist_so_far + d_lap
+        
+        # KEY FIX: accumulate distance for the next lap
+        # We take the last value of d_lap which represents the total distance of this lap
+        if len(d_lap) > 0:
+            total_dist_so_far += d_lap[-1]
 
         t_all.append(t_lap)
         x_all.append(x_lap)
