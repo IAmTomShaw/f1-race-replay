@@ -1,6 +1,2 @@
 fastf1
-pandas
-matplotlib
-numpy
 arcade
-pyglet
