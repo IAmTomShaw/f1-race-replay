@@ -306,9 +306,8 @@ class LeaderboardComponent(BaseComponent):
                 drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
                 
                 # Position dot to the left of the tyre icon
-                # tyre_icon_x is the center of the tyre icon
-                drs_dot_x = tyre_icon_x - icon_size - 4 
-                drs_dot_y = tyre_icon_y
+                drs_dot_x = tyre_x - 12 - 4 
+                drs_dot_y = tyre_y
 
                 arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
 
