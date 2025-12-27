@@ -643,15 +643,10 @@ class DriverInfoComponent(BaseComponent):
                     lb = comp
                     break
 
-        # A fixed reference speed for all gap calculations (200 km/h = 55.56 m/s)
-        REFERENCE_SPEED_MS = 55.56
-
-        def calculate_gap(pos1, pos2):
-            # Calculate gap between two positions consistently
-            raw_dist = abs(pos1 - pos2)
-            dist = raw_dist / 10.0  # Convert to meters
-            time = dist / REFERENCE_SPEED_MS
-            return dist, time
+        def calculate_time_gap(dist_m, speed_kph):
+            # Avoid division by zero
+            speed_ms = max(10.0, speed_kph / 3.6) # Minimum 10 m/s (~36 km/h) to prevent infinity
+            return dist_m / speed_ms
 
         if lb and hasattr(lb, "entries") and lb.entries:
             try:
@@ -661,17 +656,30 @@ class DriverInfoComponent(BaseComponent):
                     code_ahead = lb.entries[idx - 1][0]
                     curr_pos = lb.entries[idx][3]
                     ahead_pos = lb.entries[idx - 1][3]
-
-                    dist, time = calculate_gap(curr_pos, ahead_pos)
-                    gap_ahead = f"Ahead ({code_ahead}): +{time:.2f}s ({dist:.1f}m)"
+                    
+                    # Gap is ahead - curr
+                    dist = abs(ahead_pos - curr_pos) 
+                    # Time for ME to reach them -> Use MY speed
+                    my_speed = driver_pos.get('speed', 200)
+                    time = calculate_time_gap(dist, my_speed)
+                    
+                    gap_ahead = f"Ahead ({code_ahead}): +{time:.2f}s ({dist:.0f}m)"
 
                 if idx < len(lb.entries) - 1:  # Car Behind
                     code_behind = lb.entries[idx + 1][0]
+                    # car behind entry -> (code, color, pos_dict, progress_m)
+                    behind_entry = lb.entries[idx + 1] 
+                    behind_pos_dict = behind_entry[2]
+                    
                     curr_pos = lb.entries[idx][3]
-                    behind_pos = lb.entries[idx + 1][3]
+                    behind_pos = behind_entry[3]
 
-                    dist, time = calculate_gap(curr_pos, behind_pos)
-                    gap_behind = f"Behind ({code_behind}): -{time:.2f}s ({dist:.1f}m)"
+                    dist = abs(curr_pos - behind_pos)
+                    # Time for THEM to reach me -> Use THEIR speed
+                    their_speed = behind_pos_dict.get('speed', 200)
+                    time = calculate_time_gap(dist, their_speed)
+                    
+                    gap_behind = f"Behind ({code_behind}): -{time:.2f}s ({dist:.0f}m)"
 
             except (StopIteration, IndexError):
                 pass
