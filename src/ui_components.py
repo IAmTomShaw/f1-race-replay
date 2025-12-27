@@ -1121,6 +1121,9 @@ class RaceControlsComponent(BaseComponent):
     - Play/Pause button (center)
     - Forward button (right)
     """
+    
+    PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]
+
     def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = 40, visible=True):
         self.center_x = center_x
         self.center_y = center_y
@@ -1371,13 +1374,16 @@ class RaceControlsComponent(BaseComponent):
         elif self._point_in_rect(x, y,self.speed_increase_rect):
             # Increase speed
             if hasattr(window, 'playback_speed'):
-                if window.playback_speed < 1024:
-                    window.playback_speed = window.playback_speed * 2
+                if window.playback_speed < max(self.PLAYBACK_SPEEDS):
+                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
+                    window.playback_speed = self.PLAYBACK_SPEEDS[min(current_index + 1, len(self.PLAYBACK_SPEEDS) - 1)]
             return True
         elif self._point_in_rect(x, y,self.speed_decrease_rect):
             # Decrease speed
             if hasattr(window, 'playback_speed'):
-                window.playback_speed = max(0.1, window.playback_speed / 2)
+                if window.playback_speed > min(self.PLAYBACK_SPEEDS):
+                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
+                    window.playback_speed = self.PLAYBACK_SPEEDS[max(0, current_index - 1)]
             return True
         return False
     

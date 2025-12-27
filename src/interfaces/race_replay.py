@@ -17,6 +17,7 @@ from src.ui_components import (
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Race Replay"
+PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0]
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
@@ -30,7 +31,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.track_statuses = track_statuses
         self.n_frames = len(frames)
         self.drivers = list(drivers)
-        self.playback_speed = playback_speed
+        self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
         self.driver_colors = driver_colors or {}
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
@@ -466,11 +467,20 @@ class F1RaceReplayWindow(arcade.Window):
             self.frame_index = max(self.frame_index - 10.0, 0.0)
             self.race_controls_comp.flash_button('rewind')
         elif symbol == arcade.key.UP:
-            if self.playback_speed < 1024.0:
-                self.playback_speed *= 2.0
-                self.race_controls_comp.flash_button('speed_increase')
+            if self.playback_speed < PLAYBACK_SPEEDS[-1]:
+                # Increase to next higher speed
+                for spd in PLAYBACK_SPEEDS:
+                    if spd > self.playback_speed:
+                        self.playback_speed = spd
+                        break
+            self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.DOWN:
-            self.playback_speed = max(0.1, self.playback_speed / 2.0)
+            if self.playback_speed > PLAYBACK_SPEEDS[0]:
+                # Decrease to next lower speed
+                for spd in reversed(PLAYBACK_SPEEDS):
+                    if spd < self.playback_speed:
+                        self.playback_speed = spd
+                        break
             self.race_controls_comp.flash_button('speed_decrease')
         elif symbol == arcade.key.KEY_1:
             self.playback_speed = 0.5
