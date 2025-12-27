@@ -10,7 +10,8 @@ from src.ui_components import (
     RaceProgressBarComponent,
     RaceControlsComponent,
     extract_race_events,
-    build_track_from_example_lap
+    build_track_from_example_lap,
+    draw_finish_line
 )
 
 
@@ -331,6 +332,7 @@ class F1RaceReplayWindow(arcade.Window):
                 if len(drs_outer_points) > 1:
                     arcade.draw_line_strip(drs_outer_points, drs_color, 6)
 
+        draw_finish_line(self)
         # 3. Draw Cars
         frame = self.frames[idx]
         for code, pos in frame["drivers"].items():
