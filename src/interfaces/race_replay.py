@@ -344,26 +344,9 @@ class F1RaceReplayWindow(arcade.Window):
         # Use the progress metric in metres for each driver and use that to order the leaderboard.
         driver_progress = {}
         for code, pos in frame["drivers"].items():
-            # parse lap defensively
-            lap_raw = pos.get("lap", 1)
-            try:
-                lap = int(lap_raw)
-            except Exception:
-                lap = 1
-
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
-
-            # Fix for start-line wrap-around:
-            # If on Lap 1, and telemetry distance suggests we are near start (e.g. < 50% lap),
-            # but projection suggests we are near end (> 50% lap), it means we are behind the line.
-            # We subtract lap length to make progress negative (e.g. -10m instead of 4990m).
-            telemetry_dist = float(pos.get("dist", 0.0))
-            if lap == 1 and telemetry_dist < self._ref_total_length * 0.5 and projected_m > self._ref_total_length * 0.5:
-                projected_m -= self._ref_total_length
-
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+            # Use the reliable interpolated distance from FastF1 data (calculated in src/f1_data.py)
+            # This handles pit stops and start/finish lines much better than manual projection.
+            progress_m = float(pos.get("dist", 0.0))
 
             driver_progress[code] = progress_m
 
