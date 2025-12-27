@@ -1,5 +1,8 @@
+### Python ###
 
+## venv ##
 venv/
+.venv/
 
 output_animation.mp4
 .fastf1-cache
@@ -10,5 +13,14 @@ __pycache__/
 
 computed_data/
 
+### macOS ###
 .DS_Store
+
+### Electron-React ###
+node_modules
+dist
+out
+.eslintcache
+*.log*
+
 .idea

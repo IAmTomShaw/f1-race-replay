@@ -13,6 +13,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
 - **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **GUI Menu**: Easy to use GUI menu to select races and start replays.
 
 ## Controls
 
@@ -31,14 +32,59 @@ Recently added support for Qualifying session replays with telemetry visualizati
 - [FastF1](https://github.com/theOehrly/Fast-F1)
 - [Arcade](https://api.arcade.academy/en/latest/)
 - numpy
+- [Node.js](https://nodejs.org/en) (GUI only)
 
 Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
+## Usage (GUI)
+
+### Windows
+
+Running the gui is as simple as running the `start-gui.bat` script. This script will create a virtual environment and install the required dependencies. Once the dependencies are installed, the GUI will be started.
+
+### Linux / MacOS
+
+To run the GUI on Linux or MacOS, currently you will need to install the dependencies and start the GUI manually.
+To install the dependencies, run the following command in the terminal:
+
+1. Create a Python virtual environment:
+
+   ```bash
+   python -m venv .venv
+   ```
+
+2. Activate the Python virtual environment:
+
+   ```bash
+   source .venv/bin/activate
+   ```
+
+3. Install the Python dependencies:
+
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Install the Node.js dependencies:
+
+   ```bash
+   cd gui
+   npm install
+   ```
+
+5. Start the GUI:
+
+   ```bash
+   npm run dev
+   ```
+
+## Usage CLI
 ## Environment Setup
 
 To get started with this project locally, you can follow these steps:
@@ -85,6 +131,7 @@ This will prompt you with series of questions and a list of options to make your
 If you would prefer to use the command line arguments directly, you can do so as follows:
 
 Run the main script and specify the year and round:
+
 ```bash
 python main.py --year 2025 --round 12
 ```
@@ -95,11 +142,13 @@ python main.py --year 2025 --round 12 --no-hud
 ```
 
 To run a Sprint session (if the event has one), add `--sprint`:
+
 ```bash
 python main.py --year 2025 --round 12 --sprint
 ```
 
 The application will load a pre-computed telemetry dataset if you have run it before for the same event. To force re-computation of telemetry data, use the `--refresh-data` flag:
+
 ```bash
 python main.py --year 2025 --round 12 --refresh-data
 ```
@@ -107,11 +156,13 @@ python main.py --year 2025 --round 12 --refresh-data
 ### Search Round Numbers (including Sprints)
 
 To find the round number for a specific Grand Prix event, you can use the `--list-rounds` flag along with the year to return a list of events and their corresponding round numbers:
+
 ```bash
 python main.py --year 2025 --list-rounds
 ```
 
 To return a list of events that include Sprint sessions, use the `--list-sprints` flag:
+
 ```bash
 python main.py --year 2025 --list-sprints
 ```
@@ -119,11 +170,13 @@ python main.py --year 2025 --list-sprints
 ### Qualifying Session Replay
 
 To run a Qualifying session replay, use the `--qualifying` flag:
+
 ```bash
 python main.py --year 2025 --round 12 --qualifying
 ```
 
 To run a Sprint Qualifying session (if the event has one), add `--sprint`:
+
 ```bash
 python main.py --year 2025 --round 12 --qualifying --sprint
 ```
@@ -161,12 +214,9 @@ f1-race-replay/
 
 There have been several contributions from the community that have helped enhance this project. I have added a [contributors.md](./contributors.md) file to acknowledge those who have contributed features and improvements.
 
-If you would like to contribute, feel free to:
-
-- Open pull requests for UI improvements or new features.
-- Report issues on GitHub.
-
 Please see [roadmap.md](./roadmap.md) for planned features and project vision.
+
+For contributing to the project, please see [CONTRIBUTING.md](./CONTRIBUTING.md). And look for issues labeled as `good first issue` or `help wanted` to get started.
 
 # Known Issues
 
