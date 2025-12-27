@@ -2,8 +2,7 @@ import arcade
 import threading
 import time
 import numpy as np
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent
+from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent, LegendComponent, QualifyingLapTimeComponent
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
@@ -33,6 +32,7 @@ class QualifyingReplay(arcade.Window):
             center_x= self.width // 2 + 100,
             center_y= 40
         )
+        self.qualifying_lap_time_comp = QualifyingLapTimeComponent()
         self.leaderboard.set_entries(self.data.get("results", []))
         self.drs_zones = []
         self.drs_zones_xy = []
@@ -199,7 +199,8 @@ class QualifyingReplay(arcade.Window):
             if frames:
                 fastest_driver = self.data.get("results", [])[0] if isinstance(self.data.get("results", []), list) and len(self.data.get("results", [])) > 0 else None
                 # Get comparison telemetry if available
-                comparison_telemetry = self.data.get("telemetry", {}).get(fastest_driver.get("code")).get("Q3").get("frames", []) if self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                comparison_data = self.data.get("telemetry", {}).get(fastest_driver.get("code")) if fastest_driver and self.show_comparison_telemetry else None
+                comparison_telemetry = comparison_data.get("Q3").get("frames", []) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
@@ -530,16 +531,15 @@ class QualifyingReplay(arcade.Window):
                 except Exception as e:
                     print("Chart draw error (controls):", e)
                 
-                # Add lap time to the left of the track map
+                # Draw qualifying lap time component at top of map area
+                self.qualifying_lap_time_comp.x = map_left
+                self.qualifying_lap_time_comp.y = map_top
+                self.qualifying_lap_time_comp.fastest_driver = fastest_driver
+                self.qualifying_lap_time_comp.fastest_driver_sector_times = comparison_data.get("Q3").get("sector_times", {}) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                self.qualifying_lap_time_comp.draw(self)
 
-                current_frame = frames[self.frame_index]
-                current_t = current_frame.get("t", 0.0)
-                    
-                formatted_time = format_time(current_t)
-
-                arcade.Text(f"Lap Time: {formatted_time}", map_left + 10, map_top - 30, arcade.color.ANTI_FLASH_WHITE, 16).draw()
-
-                arcade.Text(f"Playback Speed: {self.playback_speed:.1f}x", map_left + 10, map_top - 50, arcade.color.ANTI_FLASH_WHITE, 14).draw()
+                y_offset = map_top - 48
+                arcade.Text(f"Playback Speed: {self.playback_speed:.1f}x", map_left + 10, y_offset - 130, arcade.color.ANTI_FLASH_WHITE, 14).draw()
 
                 # Legends
                 legend_x = chart_right - 100
@@ -853,6 +853,8 @@ class QualifyingReplay(arcade.Window):
         if self.loading_telemetry:
             return
 
+        self.qualifying_lap_time_comp.reset()
+
         # Try to find telemetry already provided in the window's data object
         telemetry_store = self.data.get("telemetry") if isinstance(self.data, dict) else None
         if telemetry_store:
@@ -880,7 +882,6 @@ class QualifyingReplay(arcade.Window):
                     # populate top-level frames/n_frames and min/max speeds for chart scaling
                     self.frames = frames
                     self.drs_zones = drs_zones
-                    print("DRS zones loaded:", self.drs_zones)
                     self.n_frames = len(frames)
                     if self._speeds is not None and self._speeds.size > 0:
                         self.min_speed = float(np.min(self._speeds))
@@ -981,10 +982,12 @@ class QualifyingReplay(arcade.Window):
         # time-based playback synced to telemetry timestamps
         if not self.chart_active or self.loaded_telemetry is None:
             return
-        if self.paused:
-            self.race_controls_comp.on_update(delta_time)
-            return
+
         self.race_controls_comp.on_update(delta_time)
+        self.qualifying_lap_time_comp.on_update(delta_time)
+
+        if self.paused:
+            return
         # advance play_time by delta_time scaled by playback_speed
         self.play_time += delta_time * self.playback_speed
         # compute integer frame index from cached times (fast, robust)
