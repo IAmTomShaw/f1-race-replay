@@ -151,6 +151,16 @@ def get_driver_colors(session):
         rgb_colors[driver] = rgb
     return rgb_colors
 
+def get_driver_full_names(session):
+    """Get a mapping of driver codes to full names."""
+    driver_names = {}
+    for driver_no in session.drivers:
+        driver_info = session.get_driver(driver_no)
+        code = driver_info["Abbreviation"]
+        full_name = driver_info["FullName"]
+        driver_names[code] = full_name
+    return driver_names
+
 def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
@@ -246,7 +256,7 @@ def get_race_telemetry(session, session_type='R'):
         
         resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
         x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
+        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled= resampled
  
         resampled_data[code] = {
             "t": timeline,
@@ -260,7 +270,7 @@ def get_race_telemetry(session, session_type='R'):
             "gear": gear_resampled,
             "drs": drs_resampled,
             "throttle": throttle_resampled,
-            "brake": brake_resampled
+            "brake": brake_resampled,
         }
 
     # 4. Incorporate track status data into the timeline (for safety car, VSC, etc.)
@@ -423,6 +433,7 @@ def get_race_telemetry(session, session_type='R'):
         pickle.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
+            "driver_full_names": get_driver_full_names(session),
             "track_statuses": formatted_track_statuses,
             "total_laps": int(max_lap_number),
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -432,6 +443,7 @@ def get_race_telemetry(session, session_type='R'):
     return {
         "frames": frames,
         "driver_colors": get_driver_colors(session),
+        "driver_full_names": get_driver_full_names(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
     }
