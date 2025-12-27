@@ -443,6 +443,14 @@ def get_qualifying_results(session):
 
     results = session.results
 
+    # Convert pandas Timedelta objects to seconds (or None if NaT)
+    def convert_time_to_seconds(time_val) -> str:
+        if pd.isna(time_val):
+            return None
+        return str(time_val.total_seconds())
+    
+    q1, q2, q3 = session.laps.split_qualifying_sessions()
+
     qualifying_data = []
 
     for _, row in results.iterrows():
@@ -452,12 +460,41 @@ def get_qualifying_results(session):
         q2_time = row["Q2"]
         q3_time = row["Q3"]
 
-        # Convert pandas Timedelta objects to seconds (or None if NaT)
-        def convert_time_to_seconds(time_val) -> str:
-            if pd.isna(time_val):
-                return None
-            return str(time_val.total_seconds())    
+        # Extraction of sector times from fastest qualifying laps
+        if not pd.isna(q3_time) and q3 is not None:
+            driver_q3_laps = q3.pick_drivers(driver_code)
+            if not driver_q3_laps.empty:
+                fastest = driver_q3_laps.pick_fastest()
+                sec1_time = fastest.get("Sector1Time")
+                sec2_time = fastest.get("Sector2Time")
+                sec3_time = fastest.get("Sector3Time")
+        elif not pd.isna(q2_time) and q2 is not None:
+            driver_q2_laps = q2.pick_drivers(driver_code)
+            if not driver_q2_laps.empty:
+                fastest = driver_q2_laps.pick_fastest()
+                sec1_time = fastest.get("Sector1Time")
+                sec2_time = fastest.get("Sector2Time")
+                sec3_time = fastest.get("Sector3Time")
+        elif not pd.isna(q1_time) and q1 is not None:
+            driver_q1_laps = q1.pick_drivers(driver_code)
+            if not driver_q1_laps.empty:
+                fastest = driver_q1_laps.pick_fastest()
+                sec1_time = fastest.get("Sector1Time")
+                sec2_time = fastest.get("Sector2Time")
+                sec3_time = fastest.get("Sector3Time")
+        else:
+            sec1_time = sec2_time = sec3_time = None
 
+        # Determining best time (Q3 > Q2 > Q1 priority)
+        best_time = None
+        if not pd.isna(q3_time):
+            best_time = convert_time_to_seconds(q3_time)
+        elif not pd.isna(q2_time):
+            best_time = convert_time_to_seconds(q2_time)
+        elif not pd.isna(q1_time):
+            best_time = convert_time_to_seconds(q1_time)
+
+        # Append qualifying data in nested form so as to include sector times
         qualifying_data.append({
             "code": driver_code,
             "position": position,
@@ -465,6 +502,10 @@ def get_qualifying_results(session):
             "Q1": convert_time_to_seconds(q1_time),
             "Q2": convert_time_to_seconds(q2_time),
             "Q3": convert_time_to_seconds(q3_time),
+            "time": best_time,
+            "sec1": convert_time_to_seconds(sec1_time),
+            "sec2": convert_time_to_seconds(sec2_time),
+            "sec3": convert_time_to_seconds(sec3_time)
         })
     return qualifying_data
 
@@ -494,6 +535,29 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
 
     # Pick fastest lap
     fastest_lap = driver_laps.pick_fastest()
+
+    # Extract sector times of the fastest lap
+    if fastest_lap is not None:
+        sec1_time = fastest_lap["Sector1Time"]
+        sec2_time = fastest_lap["Sector2Time"]
+        sec3_time = fastest_lap["Sector3Time"]
+
+    else:
+        sec1_time = None
+        sec2_time = None
+        sec3_time = None
+
+    # Convert pandas Timedelta objects to seconds (or None if NaT)
+    def convert_time_to_seconds(time_val) -> str:
+        if pd.isna(time_val):
+            return None
+        return str(time_val.total_seconds())
+    
+    sector_times = {
+        "sector1": float(convert_time_to_seconds(sec1_time)) if convert_time_to_seconds(sec1_time) is not None else None,
+        "sector2": float(convert_time_to_seconds(sec2_time)) if convert_time_to_seconds(sec2_time) is not None else None,
+        "sector3": float(convert_time_to_seconds(sec3_time)) if convert_time_to_seconds(sec3_time) is not None else None
+    }
 
     # Extract telemetry with xyz coordinates
 
@@ -566,6 +630,37 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
     throttle_resampled = np.round(np.interp(timeline, t_sorted_unique, throttle_sorted), 1)
     brake_resampled = np.round(np.interp(timeline, t_sorted_unique, brake_sorted), 1)
     drs_resampled = np.interp(timeline, t_sorted_unique, drs_sorted)
+
+    # Defining sector boundaries
+    sector_boundaries = []
+    if sector_times["sector1"] is not None:
+        idx = np.searchsorted(timeline, sector_times["sector1"])
+        if idx < len(dist_resampled):
+            sector_boundaries.append({
+                "sector": 1,
+                "time": sector_times["sector1"],
+                "distance": float(dist_resampled[idx])
+            })
+
+    if sector_times["sector1"] and sector_times["sector2"]:
+        cumulative_time = sector_times["sector1"] + sector_times["sector2"]
+        idx = np.searchsorted(timeline, cumulative_time)
+        if idx < len(dist_resampled):
+            sector_boundaries.append({
+                "sector": 2,
+                "time": cumulative_time,
+                "distance": float(dist_resampled[idx])
+            })
+
+    if sector_times["sector1"] and sector_times["sector2"] and sector_times["sector3"]:
+        cumulative_time = sector_times["sector1"] + sector_times["sector2"] + sector_times["sector3"]
+        idx=np.searchsorted(timeline, cumulative_time)
+        if idx < len(dist_resampled):
+            sector_boundaries.append({
+                "sector": 3,
+                "time": cumulative_time,
+                "distance": float(dist_resampled[idx])
+            })
 
     # Make sure that braking is between 0 and 100 so that it matches the throttle scale
 
@@ -715,6 +810,8 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
         "drs_zones": lap_drs_zones,
         "max_speed": max_speed,
         "min_speed": min_speed,
+        "sector_times": sector_times,
+        "sector_boundaries": sector_boundaries
     }
 
 
@@ -785,6 +882,26 @@ def get_quali_telemetry(session, session_type='Q'):
 
     qualifying_results = get_qualifying_results(session)
 
+    # Determining session-best sector times
+    session_sector_bests = {
+        "Q1": {"sec1": None, "sec2": None, "sec3": None},
+        "Q2": {"sec1": None, "sec2": None, "sec3": None},
+        "Q3": {"sec1": None, "sec2": None, "sec3": None}
+    }
+
+    for driver in qualifying_results:
+        for segment in ["Q1", "Q2", "Q3"]:
+            for sector in [1, 2, 3]:
+                sector_key = f"sec{sector}"
+                driver_time = driver.get(sector_key)
+
+                if driver_time is not None:
+                    driver_time_float = float(driver_time)
+                    current_best = session_sector_bests[segment][sector_key]
+
+                    if current_best is None or driver_time_float < current_best:
+                        session_sector_bests[segment][sector_key] = driver_time_float
+
     telemetry_data = {}
 
     max_speed = 0.0
@@ -825,6 +942,7 @@ def get_quali_telemetry(session, session_type='Q'):
             "telemetry": telemetry_data,
             "max_speed": max_speed,
             "min_speed": min_speed,
+            "session_sector_bests": session_sector_bests
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     return {
@@ -832,6 +950,7 @@ def get_quali_telemetry(session, session_type='Q'):
         "telemetry": telemetry_data,
         "max_speed": max_speed,
         "min_speed": min_speed,
+        "session_sector_bests": session_sector_bests
     }
 
 
