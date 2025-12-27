@@ -564,6 +564,281 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
                     return True
         return True # Consume all clicks when visible
 
+class GhostDriverSelectorComponent(BaseComponent):
+    """Modal for selecting a ghost driver to compare against the main driver"""
+    def __init__(self, width=550, height=600):
+        self.width = width
+        self.height = height
+        self.selected_ghost_driver = None
+        self.selected_ghost_segment = None
+        self.scroll_offset = 0  # For scrolling through drivers
+        
+    def draw(self, window):
+        # Only show when ghost_mode selector is active
+        if not getattr(window, "show_ghost_selector", False):
+            return
+        
+        results = window.data.get('results', [])
+        
+        # Calculate modal position (centered)
+        center_x = window.width // 2
+        center_y = window.height // 2
+        left = center_x - self.width // 2
+        right = center_x + self.width // 2
+        top = center_y + self.height // 2
+        bottom = center_y - self.height // 2
+        
+        # Draw modal background
+        modal_rect = arcade.XYWH(center_x, center_y, self.width, self.height)
+        arcade.draw_rect_filled(modal_rect, (25, 25, 25, 250))
+        arcade.draw_rect_outline(modal_rect, arcade.color.CYAN, 3)
+        
+        # Draw title
+        main_driver = getattr(window, "loaded_driver_code", None) or "Driver"
+        main_segment = getattr(window, "loaded_driver_segment", None) or ""
+        title = f"Ghost Comparison - Select Driver to Compare with {main_driver}"
+        arcade.Text(title, center_x, top - 25, arcade.color.CYAN, 16, 
+               bold=True, anchor_x="center", anchor_y="center").draw()
+        
+        # Draw close button
+        close_btn_rect = arcade.XYWH(right - 25, top - 25, 30, 30)
+        arcade.draw_rect_filled(close_btn_rect, arcade.color.RED)
+        arcade.Text("×", right - 25, top - 25, arcade.color.WHITE, 18, 
+               bold=True, anchor_x="center", anchor_y="center").draw()
+        
+        # Helper to safely format time (handle string/numeric/None)
+        def safe_format_time(val):
+            if val is None:
+                return None
+            try:
+                return format_time(float(val))
+            except (ValueError, TypeError):
+                return str(val)
+        
+        # Two-column layout: drivers on left, segment selection on right
+        divider_x = left + 280
+        
+        # LEFT SIDE: Driver list
+        arcade.Text("Select Driver:", left + 20, top - 55, arcade.color.WHITE, 14, 
+                   bold=True, anchor_x="left", anchor_y="center").draw()
+        
+        # Draw drivers list
+        row_height = 32
+        start_y = top - 85
+        visible_rows = min(len(results), 15)
+        
+        for i, entry in enumerate(results):
+            if i >= visible_rows:
+                break
+                
+            code = entry.get('code', '')
+            color = entry.get('color', (255, 255, 255))
+            pos = entry.get('position', i + 1)
+            
+            row_top = start_y - (i * row_height)
+            row_center_y = row_top - row_height // 2 + 2
+            
+            row_rect = arcade.XYWH(left + 140, row_center_y, 240, row_height - 4)
+            
+            # Highlight if this driver is selected for ghost
+            if code == self.selected_ghost_driver:
+                arcade.draw_rect_filled(row_rect, (60, 100, 100))
+                arcade.draw_rect_outline(row_rect, arcade.color.CYAN, 2)
+            else:
+                arcade.draw_rect_filled(row_rect, (45, 45, 45))
+            
+            # Driver color bar
+            color_bar_rect = arcade.XYWH(left + 25, row_center_y, 6, row_height - 8)
+            arcade.draw_rect_filled(color_bar_rect, tuple(color) if isinstance(color, (list, tuple)) else color)
+            
+            # Draw driver code and position
+            arcade.Text(f"{pos}. {code}", left + 40, row_center_y, 
+                       arcade.color.WHITE, 13, anchor_x="left", anchor_y="center").draw()
+            
+            # Show best time (Q3 > Q2 > Q1)
+            best_time = entry.get('Q3') or entry.get('Q2') or entry.get('Q1')
+            if best_time:
+                arcade.Text(safe_format_time(best_time), left + 250, row_center_y, 
+                           arcade.color.LIGHT_GRAY, 11, anchor_x="right", anchor_y="center").draw()
+        
+        # Draw divider line
+        arcade.draw_line(divider_x, top - 50, divider_x, bottom + 20, arcade.color.GRAY, 2)
+        
+        # RIGHT SIDE: Segment selection (always visible, but enabled only when driver selected)
+        right_center_x = divider_x + (right - divider_x) // 2
+        
+        arcade.Text("Select Session:", right_center_x, top - 55, arcade.color.WHITE, 14, 
+                   bold=True, anchor_x="center", anchor_y="center").draw()
+        
+        if self.selected_ghost_driver:
+            driver_result = next((r for r in results if r.get('code') == self.selected_ghost_driver), None)
+            if driver_result:
+                # Get driver color for accent
+                drv_color = driver_result.get('color', (255, 255, 255))
+                if isinstance(drv_color, (list, tuple)):
+                    drv_color = tuple(drv_color)
+                
+                arcade.Text(f"Driver: {self.selected_ghost_driver}", right_center_x, top - 85, 
+                           drv_color, 16, bold=True, anchor_x="center", anchor_y="center").draw()
+                
+                # Large segment buttons stacked vertically
+                btn_width = 200
+                btn_height = 60
+                btn_spacing = 15
+                segment_start_y = top - 130
+                
+                segments = []
+                if driver_result.get('Q1') is not None:
+                    segments.append(('Q1', driver_result['Q1']))
+                if driver_result.get('Q2') is not None:
+                    segments.append(('Q2', driver_result['Q2']))
+                if driver_result.get('Q3') is not None:
+                    segments.append(('Q3', driver_result['Q3']))
+                
+                for j, (seg_name, seg_time) in enumerate(segments):
+                    btn_y = segment_start_y - j * (btn_height + btn_spacing)
+                    btn_rect = arcade.XYWH(right_center_x, btn_y, btn_width, btn_height)
+                    
+                    if seg_name == self.selected_ghost_segment:
+                        arcade.draw_rect_filled(btn_rect, arcade.color.CYAN)
+                        text_color = arcade.color.BLACK
+                        time_color = (40, 40, 40)
+                    else:
+                        arcade.draw_rect_filled(btn_rect, (60, 60, 60))
+                        text_color = arcade.color.WHITE
+                        time_color = arcade.color.LIGHT_GRAY
+                    
+                    arcade.draw_rect_outline(btn_rect, arcade.color.WHITE, 2)
+                    arcade.Text(seg_name, right_center_x, btn_y + 12, text_color, 20, 
+                               bold=True, anchor_x="center", anchor_y="center").draw()
+                    # Safely format time
+                    try:
+                        time_str = format_time(float(seg_time))
+                    except (ValueError, TypeError):
+                        time_str = str(seg_time)
+                    arcade.Text(time_str, right_center_x, btn_y - 12, 
+                               time_color, 14, anchor_x="center", anchor_y="center").draw()
+                
+                # Confirm button at bottom right
+                confirm_y = bottom + 45
+                confirm_rect = arcade.XYWH(right_center_x, confirm_y, 180, 40)
+                
+                if self.selected_ghost_segment:
+                    arcade.draw_rect_filled(confirm_rect, arcade.color.GREEN)
+                    text_color = arcade.color.BLACK
+                else:
+                    arcade.draw_rect_filled(confirm_rect, (50, 50, 50))
+                    text_color = arcade.color.GRAY
+                
+                arcade.draw_rect_outline(confirm_rect, arcade.color.WHITE, 2)
+                arcade.Text("Start Comparison", right_center_x, confirm_y, text_color, 14, 
+                           bold=True, anchor_x="center", anchor_y="center").draw()
+        else:
+            # No driver selected - show prompt
+            arcade.Text("← Select a driver first", right_center_x, center_y, 
+                       arcade.color.GRAY, 14, anchor_x="center", anchor_y="center").draw()
+
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
+        if not getattr(window, "show_ghost_selector", False):
+            return False
+        
+        results = window.data.get('results', [])
+        
+        center_x = window.width // 2
+        center_y = window.height // 2
+        left = center_x - self.width // 2
+        right = center_x + self.width // 2
+        top = center_y + self.height // 2
+        bottom = center_y - self.height // 2
+        
+        # Check close button
+        close_btn_left = right - 25 - 15
+        close_btn_right = right - 25 + 15
+        close_btn_bottom = top - 25 - 15
+        close_btn_top = top - 25 + 15
+        
+        if close_btn_left <= x <= close_btn_right and close_btn_bottom <= y <= close_btn_top:
+            window.show_ghost_selector = False
+            self.selected_ghost_driver = None
+            self.selected_ghost_segment = None
+            return True
+        
+        # Divider position for two-column layout
+        divider_x = left + 280
+        right_center_x = divider_x + (right - divider_x) // 2
+        
+        # Check driver row clicks (left column)
+        row_height = 32
+        start_y = top - 85
+        visible_rows = min(len(results), 15)
+        
+        for i, entry in enumerate(results):
+            if i >= visible_rows:
+                break
+            
+            code = entry.get('code', '')
+            row_top = start_y - (i * row_height)
+            row_center_y = row_top - row_height // 2 + 2
+            row_bottom = row_center_y - (row_height - 4) // 2
+            row_top_bound = row_center_y + (row_height - 4) // 2
+            
+            if left + 20 <= x <= divider_x - 10 and row_bottom <= y <= row_top_bound:
+                if self.selected_ghost_driver == code:
+                    self.selected_ghost_driver = None
+                    self.selected_ghost_segment = None
+                else:
+                    self.selected_ghost_driver = code
+                    self.selected_ghost_segment = None
+                return True
+        
+        # Check segment button clicks (right column, if driver selected)
+        if self.selected_ghost_driver:
+            driver_result = next((r for r in results if r.get('code') == self.selected_ghost_driver), None)
+            if driver_result:
+                btn_width = 200
+                btn_height = 60
+                btn_spacing = 15
+                segment_start_y = top - 130
+                
+                segments = []
+                if driver_result.get('Q1') is not None:
+                    segments.append('Q1')
+                if driver_result.get('Q2') is not None:
+                    segments.append('Q2')
+                if driver_result.get('Q3') is not None:
+                    segments.append('Q3')
+                
+                for j, seg_name in enumerate(segments):
+                    btn_y = segment_start_y - j * (btn_height + btn_spacing)
+                    btn_left = right_center_x - btn_width // 2
+                    btn_right = right_center_x + btn_width // 2
+                    btn_bottom = btn_y - btn_height // 2
+                    btn_top = btn_y + btn_height // 2
+                    
+                    if btn_left <= x <= btn_right and btn_bottom <= y <= btn_top:
+                        self.selected_ghost_segment = seg_name
+                        return True
+                
+                # Check confirm button (only when driver selected)
+                confirm_y = bottom + 45
+                confirm_left = right_center_x - 90
+                confirm_right = right_center_x + 90
+                confirm_bottom = confirm_y - 20
+                confirm_top = confirm_y + 20
+                
+                if confirm_left <= x <= confirm_right and confirm_bottom <= y <= confirm_top:
+                    if self.selected_ghost_segment:
+                        if hasattr(window, "load_ghost_driver_telemetry"):
+                            window.load_ghost_driver_telemetry(
+                                self.selected_ghost_driver, 
+                                self.selected_ghost_segment
+                            )
+                        window.show_ghost_selector = False
+                        return True
+        
+        return True  # Consume all clicks when modal is visible
+
+
 class DriverInfoComponent(BaseComponent):
     def __init__(self, left=20, width=220, min_top=220):
         self.left = left

@@ -2,6 +2,7 @@ import arcade
 import threading
 import time
 import numpy as np
+from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent, GhostDriverSelectorComponent
 from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent
 from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent
 from src.f1_data import get_driver_quali_telemetry
@@ -78,8 +79,29 @@ class QualifyingReplay(arcade.Window):
         self.loaded_driver_code = None
         self.loaded_driver_segment = None
 
+        # Ghost driver comparison state
+        self.ghost_mode = False  # Whether ghost comparison mode is active
+        self.ghost_driver_code = None
+        self.ghost_driver_segment = None
+        self.ghost_telemetry = None
+        self.ghost_loading = False
+        self._ghost_times = None
+        self._ghost_xs = None
+        self._ghost_ys = None
+        self._ghost_speeds = None
+        self.ghost_n_frames = 0
+        self.ghost_frames = []
+        self.ghost_visible = True
+        self.show_ghost_selector = False  # Whether the ghost selector modal is visible
+        
+        # Comparison session selection (Q1, Q2, Q3)
+        self.comparison_session = "Q3"  # Default to Q3 for compatibility with PR #67
+
         # Legend component for control icons
         self.legend_comp = LegendComponent()
+
+        # Ghost driver selector modal
+        self.ghost_selector_modal = GhostDriverSelectorComponent()
 
         # Build the track layout from an example lap
 
@@ -198,8 +220,8 @@ class QualifyingReplay(arcade.Window):
             frames = self.loaded_telemetry.get("frames") if isinstance(self.loaded_telemetry, dict) else None
             if frames:
                 fastest_driver = self.data.get("results", [])[0] if isinstance(self.data.get("results", []), list) and len(self.data.get("results", [])) > 0 else None
-                # Get comparison telemetry if available
-                comparison_telemetry = self.data.get("telemetry", {}).get(fastest_driver.get("code")).get("Q3").get("frames", []) if self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                # Get comparison telemetry if available - use configurable session instead of hardcoded Q3
+                comparison_telemetry = self.data.get("telemetry", {}).get(fastest_driver.get("code")).get(self.comparison_session).get("frames", []) if self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != self.comparison_session)) else None
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
@@ -280,9 +302,34 @@ class QualifyingReplay(arcade.Window):
                     anchor_y="center"
                 ).draw()
 
-                # Comparison driver key (yellow line + label)
+                # Ghost driver key (if ghost mode active)
+                ghost_visible = getattr(self, "ghost_visible", True)
+                if self.ghost_mode and self.ghost_driver_code and ghost_visible:
+                    ghost_key_size = 12
+                    ghost_key_padding_right = 350
+                    ghost_key_y = speed_top + 10 + (ghost_key_size * 0.5)
+                    ghost_square_x = chart_right - ghost_key_padding_right - (ghost_key_size / 2)
 
-                if comparison_telemetry:
+                    # Get ghost driver color
+                    ghost_key_color = arcade.color.CYAN
+                    for r in self.data.get("results", []):
+                        if r.get("code") == self.ghost_driver_code and r.get("color"):
+                            ghost_key_color = tuple(r.get("color"))
+                            break
+
+                    ghost_key_rect = arcade.XYWH(ghost_square_x, ghost_key_y, ghost_key_size, 3)
+                    arcade.draw_rect_filled(ghost_key_rect, ghost_key_color)
+                    arcade.Text(
+                        f"Ghost: {self.ghost_driver_code} ({self.ghost_driver_segment})",
+                        ghost_square_x + (ghost_key_size * 0.5) + 6,
+                        ghost_key_y,
+                        ghost_key_color,
+                        12,
+                        anchor_y="center"
+                    ).draw()
+
+                # Comparison driver key (yellow line + label) - only show when not in ghost mode
+                elif comparison_telemetry and not self.ghost_mode:
                     comp_key_size = 12
                     comp_key_padding_right = 350
                     comp_key_y = speed_top + 10 + (comp_key_size * 0.5)
@@ -293,7 +340,7 @@ class QualifyingReplay(arcade.Window):
                     comp_key_rect = arcade.XYWH(comp_square_x, comp_key_y, comp_key_size, 3)
                     arcade.draw_rect_filled(comp_key_rect, arcade.color.YELLOW)
                     arcade.Text(
-                        f"Comparison Driver: {comp_driver_code} - Q3",
+                        f"Comparison Driver: {comp_driver_code} - {self.comparison_session}",
                         comp_square_x + (comp_key_size * 0.5) + 6,
                         comp_key_y,
                         arcade.color.ANTI_FLASH_WHITE,
@@ -332,6 +379,15 @@ class QualifyingReplay(arcade.Window):
                 draw_comparison_throttle = []
                 draw_comparison_brake = []
                 draw_comparison_gears = []
+
+                # Ghost driver telemetry arrays
+                draw_ghost_pos = []
+                draw_ghost_speeds = []
+                draw_ghost_throttle = []
+                draw_ghost_brake = []
+                draw_ghost_gears = []
+                ghost_visible = getattr(self, "ghost_visible", True)
+                
                 # The speed chart background will have sections of it shaded green to indicate where DRS was active
 
                 # find the drs zones for this lap that the driver has already passed.
@@ -428,7 +484,55 @@ class QualifyingReplay(arcade.Window):
                                 draw_comparison_brake.append(float(c_br) if c_br is not None else None)
                             draw_comparison_gears.append(int(c_gr) if c_gr is not None else None)
 
-                if draw_comparison_pos and draw_comparison_speeds:
+                    # Ghost driver telemetry collection (sync by time, not frame index)
+                    if self.ghost_mode and self.ghost_frames and ghost_visible:
+                        # Get ghost frame for the main driver's current time
+                        main_time = frames[f_i].get("t", 0.0) if f_i < len(frames) else 0.0
+                        ghost_idx, ghost_frame = self._get_ghost_frame_for_time(main_time)
+                        if ghost_frame:
+                            ghost_tel = ghost_frame.get("telemetry", {}) if isinstance(ghost_frame.get("telemetry", {}), dict) else {}
+                            g_d = self._pick_telemetry_value(ghost_tel, "rel_dist")
+                            g_s = self._pick_telemetry_value(ghost_tel, "speed")
+                            g_th = self._pick_telemetry_value(ghost_tel, "throttle")
+                            g_br = self._pick_telemetry_value(ghost_tel, "brake")
+                            g_gr = self._pick_telemetry_value(ghost_tel, "gear")
+                            draw_ghost_pos.append(float(g_d) if g_d is not None else None)
+                            draw_ghost_speeds.append(float(g_s) if g_s is not None else None)
+                            draw_ghost_throttle.append(float(g_th) if g_th is not None else None)
+                            if isinstance(g_br, (bool, int)):
+                                draw_ghost_brake.append(1.0 if g_br else 0.0)
+                            else:
+                                draw_ghost_brake.append(float(g_br) if g_br is not None else None)
+                            draw_ghost_gears.append(int(g_gr) if g_gr is not None else None)
+
+                # Draw ghost driver speed telemetry (if active)
+                ghost_color = arcade.color.CYAN  # Default ghost color
+                if self.ghost_mode and self.ghost_driver_code:
+                    for r in self.data.get("results", []):
+                        if r.get("code") == self.ghost_driver_code and r.get("color"):
+                            ghost_color = tuple(r.get("color"))
+                            break
+
+                if draw_ghost_pos and draw_ghost_speeds and ghost_visible:
+                    pts = []
+                    for d, s in zip(draw_ghost_pos, draw_ghost_speeds):
+                        if s is None or d is None:
+                            continue
+                        nx = (d - full_d_min) / (full_d_max - full_d_min)
+                        ny = (s - full_s_min) / (full_s_max - full_s_min)
+                        xpix = chart_left + nx * chart_w
+                        ypix = speed_bottom + VP + ny * (speed_h - 2 * VP)
+                        pts.append((xpix, ypix))
+                    try:
+                        if len(pts) > 1:
+                            arcade.draw_line_strip(pts, ghost_color, 2)
+                            current_speed = draw_ghost_speeds[-1] if draw_ghost_speeds else 0
+                            if pts:
+                                arcade.Text(f"{current_speed:.0f} km/h", pts[-1][0] + 10, pts[-1][1] - 15, ghost_color, 12).draw()
+                    except Exception as e:
+                        print("Chart draw error (ghost speed):", e)
+
+                if draw_comparison_pos and draw_comparison_speeds and not self.ghost_mode:
                     pts = []
                     for d, s in zip(draw_comparison_pos, draw_comparison_speeds):
                         if s is None:
@@ -466,6 +570,8 @@ class QualifyingReplay(arcade.Window):
                 # Draw gears in the middle sub-area
                 gear_pts = []
                 comparison_gear_pts = []
+                ghost_gear_pts = []
+                
                 for d, g in zip(draw_pos, draw_gears):
                     if g is None:
                         continue
@@ -478,7 +584,7 @@ class QualifyingReplay(arcade.Window):
 
                 # Add comparison driver's gears
                 for d, g in zip(draw_comparison_pos, draw_comparison_gears):
-                    if g is None:
+                    if g is None or d is None:
                         continue
                     nx = (d - full_d_min) / (full_d_max - full_d_min)
                     xpix = chart_left + nx * chart_w
@@ -486,8 +592,22 @@ class QualifyingReplay(arcade.Window):
                     ypix = gear_bottom + VP + gy * (gear_h - 2 * VP)
                     comparison_gear_pts.append((xpix, ypix))
 
+                # Add ghost driver's gears
+                for d, g in zip(draw_ghost_pos, draw_ghost_gears):
+                    if g is None or d is None:
+                        continue
+                    nx = (d - full_d_min) / (full_d_max - full_d_min)
+                    xpix = chart_left + nx * chart_w
+                    gy = (g - self.g_min) / (self.g_max - self.g_min)
+                    ypix = gear_bottom + VP + gy * (gear_h - 2 * VP)
+                    ghost_gear_pts.append((xpix, ypix))
+
                 try:
-                    if comparison_gear_pts:
+                    # Draw ghost gears first (behind main)
+                    if ghost_gear_pts and ghost_visible:
+                        arcade.draw_line_strip(ghost_gear_pts, ghost_color, 2)
+                    
+                    if comparison_gear_pts and not self.ghost_mode:
                         arcade.draw_line_strip(comparison_gear_pts, arcade.color.YELLOW, 2)
                         
                     if gear_pts:
@@ -510,6 +630,9 @@ class QualifyingReplay(arcade.Window):
 
                 throttle_pts = []
                 brake_pts = []
+                ghost_throttle_pts = []
+                ghost_brake_pts = []
+                
                 for d, th, br in zip(draw_pos, draw_throttle, draw_brake):
                     nx = (d - full_d_min) / (full_d_max - full_d_min)
                     xpix = chart_left + nx * chart_w
@@ -522,7 +645,30 @@ class QualifyingReplay(arcade.Window):
                         ypix = ctrl_bottom + VP + ny * (ctrl_h - 2 * VP)
                         brake_pts.append((xpix, ypix))
 
+                # Collect ghost throttle/brake points
+                for d, th, br in zip(draw_ghost_pos, draw_ghost_throttle, draw_ghost_brake):
+                    if d is None:
+                        continue
+                    nx = (d - full_d_min) / (full_d_max - full_d_min)
+                    xpix = chart_left + nx * chart_w
+                    if th is not None:
+                        ny = (th - th_min) / (th_max - th_min)
+                        ypix = ctrl_bottom + VP + ny * (ctrl_h - 2 * VP)
+                        ghost_throttle_pts.append((xpix, ypix))
+                    if br is not None:
+                        ny = (br - br_min) / (br_max - br_min)
+                        ypix = ctrl_bottom + VP + ny * (ctrl_h - 2 * VP)
+                        ghost_brake_pts.append((xpix, ypix))
+
                 try:
+                    # Draw ghost throttle/brake first (behind main)
+                    if ghost_throttle_pts and ghost_visible:
+                        # Use cyan for ghost throttle (distinct from main green)
+                        arcade.draw_line_strip(ghost_throttle_pts, (0, 200, 200), 2)
+                    if ghost_brake_pts and ghost_visible:
+                        # Use orange for ghost brake (distinct from main red)
+                        arcade.draw_line_strip(ghost_brake_pts, (255, 140, 0), 2)
+                    
                     if throttle_pts:
                         arcade.draw_line_strip(throttle_pts, arcade.color.GREEN, 2)
                     if brake_pts:
@@ -592,15 +738,87 @@ class QualifyingReplay(arcade.Window):
                     except Exception as e:
                         print("Circuit draw error:", e)
 
-                    # Draw the comparison driver's position (if available - doing this first so that the current driver is on top visually)
+                    # Draw the ghost driver's position (if ghost mode active)
+                    ghost_visible = getattr(self, "ghost_visible", True)
+                    if self.ghost_mode and self.ghost_telemetry and ghost_visible:
+                        ghost_idx, ghost_frame = self._get_ghost_frame_for_time(self.play_time)
+                        if ghost_frame:
+                            ghost_tel = ghost_frame.get("telemetry", {}) if isinstance(ghost_frame.get("telemetry", {}), dict) else {}
+                            g_px = ghost_tel.get("x")
+                            g_py = ghost_tel.get("y")
+                            if g_px is not None and g_py is not None:
+                                g_sx, g_sy = world_to_map(g_px, g_py)
 
-                    if comparison_telemetry and self.frame_index < len(comparison_telemetry):
+                                # Get ghost driver color
+                                ghost_color = arcade.color.CYAN
+                                for r in self.data.get("results", []):
+                                    if r.get("code") == self.ghost_driver_code and r.get("color"):
+                                        ghost_color = tuple(r.get("color"))
+                                        break
+
+                                arcade.draw_circle_filled(g_sx, g_sy, 8, (*ghost_color[:3], 180))
+                                arcade.draw_circle_outline(g_sx, g_sy, 8, arcade.color.WHITE, 2)
+
+                                arcade.Text(
+                                    f"{self.ghost_driver_code}",
+                                    g_sx + 12,
+                                    g_sy + 4,
+                                    ghost_color,
+                                    11
+                                ).draw()
+
+                                ghost_gear = ghost_tel.get("gear") or ghost_tel.get("nGear")
+                                if ghost_gear is not None:
+                                    arcade.Text(
+                                        f"G:{int(ghost_gear)}",
+                                        g_sx + 12,
+                                        g_sy - 10,
+                                        arcade.color.LIGHT_GRAY,
+                                        10
+                                    ).draw()
+
+                    # Draw comparison driver (when not in ghost mode)
+                    if comparison_telemetry and self.frame_index < len(comparison_telemetry) and not self.ghost_mode:
                         comp_frame = comparison_telemetry[self.frame_index]
                         comp_tel = comp_frame.get("telemetry", {}) if isinstance(comp_frame.get("telemetry", {}), dict) else {}
                         c_px = comp_tel.get("x")
                         c_py = comp_tel.get("y")
-                        c_sx, c_sy = world_to_map(c_px, c_py)
-                        arcade.draw_circle_filled(c_sx, c_sy, 6, arcade.color.YELLOW)
+                        if c_px is not None and c_py is not None:
+                            c_sx, c_sy = world_to_map(c_px, c_py)
+                            arcade.draw_circle_filled(c_sx, c_sy, 6, arcade.color.YELLOW)
+
+                    # Draw DRS zones on track map as green highlights
+                    if self.drs_zones_xy and self.toggle_drs_zones:
+                        drs_color = (0, 255, 0)
+                        original_length = len(self.x_inner)
+                        interpolated_length = len(inner_world)
+
+                        for dz in self.drs_zones_xy:
+                            orig_start_idx = dz["start"]["index"]
+                            orig_end_idx = dz["end"]["index"]
+
+                            if orig_start_idx is None or orig_end_idx is None:
+                                continue
+
+                            try:
+                                interp_start_idx = int((orig_start_idx / original_length) * interpolated_length)
+                                interp_end_idx = int((orig_end_idx / original_length) * interpolated_length)
+
+                                interp_start_idx = max(0, min(interp_start_idx, interpolated_length - 1))
+                                interp_end_idx = max(0, min(interp_end_idx, interpolated_length - 1))
+
+                                if interp_start_idx < interp_end_idx:
+                                    outer_zone = [
+                                        world_to_map(x, y)
+                                        for x, y in outer_world[interp_start_idx:interp_end_idx + 1]
+                                        if x is not None and y is not None
+                                    ]
+                                    if len(outer_zone) > 1:
+                                        arcade.draw_line_strip(outer_zone, drs_color, 3)
+
+                            except Exception as e:
+                                print(f"DRS zone draw error: {e}")
+
 
                     # Draw DRS zones on track map as green highlights
                     if self.drs_zones_xy and self.toggle_drs_zones:
@@ -657,9 +875,30 @@ class QualifyingReplay(arcade.Window):
                     if cur_gear is not None:
                         arcade.Text(f"G:{int(cur_gear)}", sx + 10, sy - 10, arcade.color.LIGHT_GRAY, 12).draw()
 
+                    # Draw ghost comparison info box (if ghost mode active)
+                    if self.ghost_mode and self.ghost_telemetry and ghost_visible:
+                        ghost_idx, ghost_frame = self._get_ghost_frame_for_time(self.play_time)
+                        if ghost_frame:
+                            ghost_tel = ghost_frame.get("telemetry", {})
+                            main_speed = tel.get("speed", 0) or 0
+                            ghost_speed = ghost_tel.get("speed", 0) or 0
+                            speed_diff = main_speed - ghost_speed
+                            
+                            # Info box position
+                            info_x = map_right - 180
+                            info_y = map_top - 30
+                            
+                            # Draw comparison info
+                            arcade.Text(f"Ghost: {self.ghost_driver_code} ({self.ghost_driver_segment})", 
+                                       info_x, info_y, arcade.color.CYAN, 12, bold=True).draw()
+                            diff_color = arcade.color.GREEN if speed_diff >= 0 else arcade.color.RED
+                            diff_sign = "+" if speed_diff >= 0 else ""
+                            arcade.Text(f"Speed Δ: {diff_sign}{speed_diff:.1f} km/h", 
+                                       info_x, info_y - 18, diff_color, 11).draw()
+
             # Controls Legend - Bottom Left (keeps small offset from left UI edge)
             legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-            legend_y = 180 # Height of legend block
+            legend_y = 220 # Height of legend block (increased for more controls)
             legend_icons = self.legend_comp._control_icons_textures # icons
             legend_lines = [
                 ("Controls:"),
@@ -668,8 +907,14 @@ class QualifyingReplay(arcade.Window):
                 ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
                 ("[R]       Restart"),
                 ("[D]       Toggle DRS zones on track map"),
+                ("[C]       Toggle comparison driver telemetry"),
+                ("[V]       Cycle comparison session (Q1/Q2/Q3)"),
+                ("[G]       Ghost comparison mode"),
+                ("[H]       Toggle ghost visibility"),
+                ("[X]       Clear ghost driver"),
                 ("[C]       Toggle comparison driver telemetry")
             ]
+
             for i, lines in enumerate(legend_lines):
                 line = lines[0] if isinstance(lines, tuple) else lines
                 brackets = lines[1] if isinstance(lines, tuple) and len(lines) > 2 else None # brackets only if icons exist
@@ -724,6 +969,8 @@ class QualifyingReplay(arcade.Window):
         self.leaderboard.draw(self)
         self.qualifying_segment_selector_modal.draw(self)
         
+        # Draw ghost driver selector modal (on top of everything)
+        self.ghost_selector_modal.draw(self)
         # Show race controls only when telemetry is loaded (driver + session selected)
         if self.chart_active and self.loaded_telemetry and self.frame_index < self.n_frames:
             self.race_controls_comp.draw(self)
@@ -772,6 +1019,15 @@ class QualifyingReplay(arcade.Window):
         return None
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+        # If the ghost selector modal is visible, give it first chance to handle the click
+        if getattr(self, "show_ghost_selector", False):
+            try:
+                handled = self.ghost_selector_modal.on_mouse_press(self, x, y, button, modifiers)
+                if handled:
+                    return
+            except Exception as e:
+                print("Ghost selector click error:", e)
+
         # If the segment-selector modal is visible (a driver selected), give it first chance
         # to handle the click (so its close button can work). If it handled the click,
         # stop further processing so the leaderboard doesn't re-select the driver.
@@ -795,6 +1051,11 @@ class QualifyingReplay(arcade.Window):
         return self.chart_active and self.n_frames > 0 and self.frame_index >= self.n_frames - 1
 
     def on_key_press(self, symbol: int, modifiers: int):
+        # Close ghost selector if open and Escape pressed
+        if symbol == arcade.key.ESCAPE:
+            if getattr(self, "show_ghost_selector", False):
+                self.show_ghost_selector = False
+                return
         # Allow restart (R), comparison toggle (C), and DRS toggle (D) even when lap is complete
         if symbol == arcade.key.R:
             self.frame_index = 0
@@ -845,6 +1106,39 @@ class QualifyingReplay(arcade.Window):
             self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
+        elif symbol == arcade.key.D:
+            self.toggle_drs_zones = not self.toggle_drs_zones
+        elif symbol == arcade.key.R:
+            self.frame_index = 0
+            self.play_time = self.play_start_t
+            self.playback_speed = 1.0
+            self.paused = True
+        elif symbol == arcade.key.C:
+            # Toggle the ability to see the comparison driver's telemetry
+            self.show_comparison_telemetry = not self.show_comparison_telemetry
+        elif symbol == arcade.key.V:
+            # Cycle through comparison sessions (Q1 -> Q2 -> Q3 -> Q1...)
+            if self.comparison_session == "Q1":
+                self.comparison_session = "Q2"
+            elif self.comparison_session == "Q2":
+                self.comparison_session = "Q3"
+            else:
+                self.comparison_session = "Q1"
+        elif symbol == arcade.key.G:
+            # Toggle ghost driver selector (only when a main driver is loaded)
+            if self.chart_active and self.loaded_driver_code:
+                self.show_ghost_selector = not getattr(self, "show_ghost_selector", False)
+                if not self.show_ghost_selector:
+                    # Reset ghost selector state
+                    self.ghost_selector_modal.selected_ghost_driver = None
+                    self.ghost_selector_modal.selected_ghost_segment = None
+        elif symbol == arcade.key.H:
+            # Toggle ghost visibility (hide/show ghost without removing it)
+            if self.ghost_mode and self.ghost_telemetry:
+                self.ghost_visible = not getattr(self, "ghost_visible", True)
+        elif symbol == arcade.key.X:
+            # Clear/remove ghost driver
+            self._clear_ghost_driver()
             self.race_controls_comp.flash_button('speed_increase')
 
     def load_driver_telemetry(self, driver_code: str, segment_name: str):
@@ -976,6 +1270,105 @@ class QualifyingReplay(arcade.Window):
         finally:
             self.loading_telemetry = False
             self.loading_message = ""
+
+    def _clear_ghost_driver(self):
+        """Clear/remove the ghost driver from comparison."""
+        self.ghost_mode = False
+        self.ghost_driver_code = None
+        self.ghost_driver_segment = None
+        self.ghost_telemetry = None
+        self._ghost_times = None
+        self._ghost_xs = None
+        self._ghost_ys = None
+        self._ghost_speeds = None
+        self.ghost_n_frames = 0
+        self.ghost_frames = []
+        self.ghost_visible = True
+
+    def load_ghost_driver_telemetry(self, driver_code: str, segment_name: str):
+        """Load telemetry for the ghost driver to compare against the main driver."""
+        if self.ghost_loading:
+            return
+        
+        # Try to find telemetry already in data
+        telemetry_store = self.data.get("telemetry") if isinstance(self.data, dict) else None
+        if telemetry_store:
+            driver_block = telemetry_store.get(driver_code) if isinstance(telemetry_store, dict) else None
+            if driver_block:
+                seg = driver_block.get(segment_name)
+                if seg and isinstance(seg, dict) and seg.get("frames"):
+                    self._apply_ghost_telemetry(seg, driver_code, segment_name)
+                    return
+        
+        # Background load if not found locally
+        self.ghost_loading = True
+        threading.Thread(
+            target=self._bg_load_ghost_telemetry,
+            args=(driver_code, segment_name),
+            daemon=True
+        ).start()
+
+    def _apply_ghost_telemetry(self, telemetry: dict, driver_code: str, segment_name: str):
+        """Apply loaded ghost telemetry data."""
+        self.ghost_telemetry = telemetry
+        self.ghost_driver_code = driver_code
+        self.ghost_driver_segment = segment_name
+        self.ghost_mode = True
+        self.ghost_visible = True
+        
+        frames = telemetry.get("frames", [])
+        times = [float(f.get("t")) for f in frames if f.get("t") is not None]
+        xs = [(f.get("telemetry") or {}).get("x") for f in frames]
+        ys = [(f.get("telemetry") or {}).get("y") for f in frames]
+        speeds = [(f.get("telemetry") or {}).get("speed") for f in frames]
+        
+        self._ghost_times = np.array(times) if times else None
+        self._ghost_xs = np.array(xs) if xs else None
+        self._ghost_ys = np.array(ys) if ys else None
+        self._ghost_speeds = np.array([float(s) for s in speeds if s is not None]) if speeds else None
+        self.ghost_frames = frames
+        self.ghost_n_frames = len(frames)
+        self.ghost_loading = False
+
+    def _bg_load_ghost_telemetry(self, driver_code: str, segment_name: str):
+        """Background loader for ghost driver telemetry."""
+        try:
+            telemetry = None
+            telemetry_store = self.data.get("telemetry") if isinstance(self.data, dict) else None
+            if telemetry_store:
+                driver_block = telemetry_store.get(driver_code)
+                if driver_block:
+                    seg = driver_block.get(segment_name)
+                    if seg and isinstance(seg, dict) and seg.get("frames"):
+                        telemetry = seg
+            
+            if telemetry is None and getattr(self, "session", None) is not None:
+                telemetry = get_driver_quali_telemetry(self.session, driver_code, segment_name)
+            
+            if telemetry:
+                self._apply_ghost_telemetry(telemetry, driver_code, segment_name)
+            else:
+                self.ghost_loading = False
+        except Exception as e:
+            print("Ghost telemetry load failed:", e)
+            self.ghost_loading = False
+
+    def _get_ghost_frame_for_time(self, play_time: float):
+        """Get the ghost driver's frame index and telemetry for the current play time."""
+        if not self.ghost_mode or not self.ghost_telemetry or self._ghost_times is None:
+            return None, None
+        
+        if len(self._ghost_times) == 0:
+            return None, None
+        
+        # Clamp to ghost timeline
+        clamped = min(max(play_time, float(self._ghost_times[0])), float(self._ghost_times[-1]))
+        idx = int(np.searchsorted(self._ghost_times, clamped, side="right") - 1)
+        idx = max(0, min(idx, len(self._ghost_times) - 1))
+        
+        if idx < len(self.ghost_frames):
+            return idx, self.ghost_frames[idx]
+        return None, None
 
     def on_update(self, delta_time: float):
         # time-based playback synced to telemetry timestamps
