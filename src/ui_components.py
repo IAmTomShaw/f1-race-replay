@@ -35,16 +35,10 @@ class LegendComponent(BaseComponent):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(icons_folder, filename)
                     self._control_icons_textures[texture_name] = arcade.load_texture(texture_path)
-        self.lines = [
-            ("Controls:"),
-            ("[SPACE]  Pause/Resume"),
-            ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
-            ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
-            ("[R]       Restart"),
-            ("[D]       Toggle DRS Zones"),
-            ("[B]       Toggle Progress Bar"),
-        ]
-        self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
+        self.lines = ["Help"]
+        
+        self.controls_text_offset = 180
+        self._text = arcade.Text("", 0, 0, arcade.color.CYAN, 14)
     
     @property
     def visible(self) -> bool:
@@ -66,9 +60,38 @@ class LegendComponent(BaseComponent):
         Set visibility of legend to True
         """
         self._visible = True
+
+
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
+
+        line_x = self.x
+        line_y = self.y - getattr(self, "controls_text_offset", 0)
+        left = line_x
+        text_width = self._text.content_width or 120
+        right = line_x + text_width + 8
+        top = line_y + 8
+        bottom = line_y - 18
+
+        if left <= x <= right and bottom <= y <= top:
+            popup = getattr(window, "controls_popup_comp", None)
+            if popup:
+                # popup anchored to bottom left, small margin (20px)
+                margin_x = 20
+                margin_y = 20
+                left_pos = float(margin_x)
+                top_pos = float(margin_y + popup.height)
+                desired_cx = left_pos + popup.width / 2
+                desired_cy = top_pos - popup.height / 2
+                if popup.visible and popup.cx == desired_cx and popup.cy == desired_cy:
+                    popup.hide()
+                else:
+                    popup.show_over(left_pos, top_pos)
+            return True
+        return False
     
     def draw(self, window):
         # Skip rendering entirely if hidden
+        
         if not self._visible:
             return
         for i, lines in enumerate(self.lines):
@@ -78,6 +101,7 @@ class LegendComponent(BaseComponent):
         
             icon_size = 14
             # Draw icons if any
+            
             if icon_keys:
                 control_icon_x = self.x + 12
                 for key in icon_keys:
@@ -91,8 +115,8 @@ class LegendComponent(BaseComponent):
                             angle = 0,
                             alpha = 255
                         )
-                        control_icon_x += icon_size + 6  # spacing between icons  
-            # Draw brackets if any              
+                        control_icon_x += icon_size + 6 # spacing between icons
+                        
             if brackets:
                 for j in range(len(brackets)):
                     self._text.font_size = 14
@@ -102,10 +126,15 @@ class LegendComponent(BaseComponent):
                     self._text.x = self.x + (j * (icon_size + 5))
                     self._text.y = self.y - (i * 25)
                     self._text.draw()
+            
             # Draw the text line
             self._text.text = line
             self._text.x = self.x + (60 if icon_keys else 0)
-            self._text.y = self.y - (i * 25)
+            base_y = self.y - (i * 25)
+            
+            if i == 0:
+                base_y -= getattr(self, "controls_text_offset", 0)
+            self._text.y = base_y
             self._text.draw()
 
 class WeatherComponent(BaseComponent):
@@ -699,6 +728,124 @@ class DriverInfoComponent(BaseComponent):
 
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
+
+
+
+class ControlsPopupComponent(BaseComponent):
+    def __init__(self, width: int = 420, height: int = 260, header_font_size: int = 18, body_font_size: int = 16):
+        
+        self.width = width
+        self.height = height
+        self.visible = False
+        
+        self.cx: Optional[float] = None
+        self.cy: Optional[float] = None
+        
+        self.header_font_size = header_font_size
+        self.body_font_size = body_font_size
+        
+        self._header_text = arcade.Text("", 0, 0, arcade.color.BLACK, self.header_font_size, anchor_x="left", anchor_y="center")
+        self._body_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, self.body_font_size, anchor_x="left", anchor_y="center")
+
+    def set_size(self, width: int, height: int):
+        
+        self.width = width
+        self.height = height
+
+    def set_font_sizes(self, header_font_size: int = None, body_font_size: int = None):
+        
+        if header_font_size is not None:
+            self.header_font_size = header_font_size
+            self._header_text.font_size = header_font_size
+        if body_font_size is not None:
+            self.body_font_size = body_font_size
+            self._body_text.font_size = body_font_size
+
+    def show_center(self):
+        """Show popup centered in the window."""
+        self.cx = None
+        self.cy = None
+        self.visible = True
+
+    def show_over(self, left: float, top: float):
+        
+        self.cx = float(left + self.width / 2)
+        self.cy = float(top - self.height / 2)
+        self.visible = True
+
+    def hide(self):
+        self.visible = False
+        self.cx = None
+        self.cy = None
+
+    def draw(self, window):
+        if not self.visible:
+            return
+        cx = self.cx if self.cx is not None else window.width / 2
+        cy = self.cy if self.cy is not None else window.height / 2
+        rect = arcade.XYWH(cx, cy, self.width, self.height)
+        arcade.draw_rect_filled(rect, (0, 0, 0, 255))
+        arcade.draw_rect_outline(rect, arcade.color.WHITE, 2)
+
+        
+        header_height = max(28, int(self.header_font_size * 2))
+        header_cy = cy + self.height / 2 - header_height / 2
+        arcade.draw_rect_filled(arcade.XYWH(cx, header_cy, self.width, header_height), arcade.color.GRAY)
+        
+        self._header_text.font_size = self.header_font_size
+        self._header_text.bold = True
+        self._header_text.color = arcade.color.BLACK
+        self._header_text.text = "Controls"
+        self._header_text.x = cx - self.width / 2 + 12
+        self._header_text.y = header_cy
+        self._header_text.draw()
+
+
+        lines = [
+            " ",
+            "[SPACE] Pause/Resume",
+            "← / →  Jump back/forward",
+            "↑ / ↓  Speed +/-",
+            "[1-4]  Set speed: 0.5x / 1x / 2x / 4x",
+            "[R]    Restart",
+            "[D]    Toggle DRS Zones",
+            "[B]    Toggle Progress Bar",
+            "[L]    Toggle Legend"
+        ]
+        
+        line_spacing = max(18, int(self.body_font_size + 8))
+        y = header_cy - 20
+        for l in lines:
+            self._body_text.font_size = self.body_font_size
+            self._body_text.bold = False
+            self._body_text.color = arcade.color.LIGHT_GRAY
+            self._body_text.text = l
+            self._body_text.x = cx - self.width / 2 + 16
+            self._body_text.y = y
+            self._body_text.draw()
+            y -= line_spacing
+
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
+        
+        if not self.visible:
+            return False
+        cx = self.cx if self.cx is not None else window.width / 2
+        cy = self.cy if self.cy is not None else window.height / 2
+        left = cx - self.width / 2
+        right = cx + self.width / 2
+        bottom = cy - self.height / 2
+        top = cy + self.height / 2
+
+        # If click inside the box, do nothing
+        if left <= x <= right and bottom <= y <= top:
+            return True
+
+        # Click outside closes popup
+        self.hide()
+        return True
+
+
+
 
 # Feature: race progress bar with event markers
 class RaceProgressBarComponent(BaseComponent):
