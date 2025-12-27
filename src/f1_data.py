@@ -458,6 +458,19 @@ def get_qualifying_results(session):
                 return None
             return str(time_val.total_seconds())    
 
+        # Fetch fastest lap sectors
+        s1, s2, s3 = None, None, None
+        try:
+            driver_laps = session.laps.pick_drivers(driver_code)
+            if not driver_laps.empty:
+                fastest = driver_laps.pick_fastest()
+                if fastest is not None:
+                     s1 = convert_time_to_seconds(fastest["Sector1Time"])
+                     s2 = convert_time_to_seconds(fastest["Sector2Time"])
+                     s3 = convert_time_to_seconds(fastest["Sector3Time"])
+        except Exception:
+            pass
+
         qualifying_data.append({
             "code": driver_code,
             "position": position,
@@ -465,6 +478,9 @@ def get_qualifying_results(session):
             "Q1": convert_time_to_seconds(q1_time),
             "Q2": convert_time_to_seconds(q2_time),
             "Q3": convert_time_to_seconds(q3_time),
+            "S1": s1,
+            "S2": s2,
+            "S3": s3,
         })
     return qualifying_data
 
