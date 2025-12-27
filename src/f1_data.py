@@ -43,6 +43,7 @@ def _process_single_driver(args):
     rel_dist_all = []
     lap_numbers = []
     tyre_compounds = []
+    tyre_life_all = []
     speed_all = []
     gear_all = []
     drs_all = []
@@ -57,6 +58,7 @@ def _process_single_driver(args):
         lap_tel = lap.get_telemetry()
         lap_number = lap.LapNumber
         tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
+        tyre_life = lap.TyreLife if hasattr(lap, 'TyreLife') and not pd.isna(lap.TyreLife) else 0.0
 
         if lap_tel.empty:
             continue
@@ -82,6 +84,7 @@ def _process_single_driver(args):
         rel_dist_all.append(rd_lap)
         lap_numbers.append(np.full_like(t_lap, lap_number))
         tyre_compounds.append(np.full_like(t_lap, tyre_compund_as_int))
+        tyre_life_all.append(np.full_like(t_lap, tyre_life))
         speed_all.append(speed_kph_lap)
         gear_all.append(gear_lap)
         drs_all.append(drs_lap)
@@ -92,19 +95,21 @@ def _process_single_driver(args):
         return None
 
     # Concatenate all arrays at once for better performance
+    # Concatenate all arrays at once for better performance
     all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                  lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
 
+    # Sort all arrays by time in one operation
     # Sort all arrays by time in one operation
     order = np.argsort(t_all)
     all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
+                lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
+    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
 
     throttle_all = np.concatenate(throttle_all)[order]
     brake_all = np.concatenate(brake_all)[order]
@@ -121,6 +126,7 @@ def _process_single_driver(args):
             "rel_dist": rel_dist_all,                   
             "lap": lap_numbers,
             "tyre": tyre_compounds,
+            "tyre_life": tyre_life_all,
             "speed": speed_all,
             "gear": gear_all,
             "drs": drs_all,
