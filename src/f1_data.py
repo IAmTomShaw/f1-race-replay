@@ -56,7 +56,7 @@ def _process_single_driver(args):
         # get telemetry for THIS lap only
         lap_tel = lap.get_telemetry()
         lap_number = lap.LapNumber
-        tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
+        tyre_compund_as_int = get_tyre_compound_int(lap.Compound, session.event['EventDate'].year)
 
         if lap_tel.empty:
             continue
