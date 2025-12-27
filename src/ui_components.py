@@ -277,6 +277,22 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
+            # Time Gap (Dynamic)
+            # Leader progress is the first entry's progress
+            leader_progress = self.entries[0][3] if self.entries else 0.0
+            gap_str = "Leader"
+            if i > 0:
+                diff_m = leader_progress - progress_m
+                # Use current speed for dynamic gap, clamp to 10m/s to avoid div/0 or massive gaps when stopped
+                speed_kph = float(pos.get("speed", 60.0))
+                speed_ms = max(5.0, speed_kph / 3.6)
+                gap_s = diff_m / speed_ms
+                gap_str = f"+{gap_s:.1f}s"
+
+            # Draw gap to the right of driver name (offset by tyre icon space)
+            gap_x = right_x - 40 
+            arcade.Text(gap_str, gap_x, top_y, text_color, 14, anchor_x="right", anchor_y="top").draw()
+
              # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
