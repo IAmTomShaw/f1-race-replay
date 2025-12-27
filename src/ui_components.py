@@ -277,23 +277,27 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
-            tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
-            if tyre_texture:
-                # position tyre icon inside the leaderboard area so it doesn't collide with track
-                tyre_icon_x = left_x + self.width - 10
-                tyre_icon_y = top_y - 12
-                icon_size = 16
-                rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
-                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
-
-                # Draw the textured rect
-                arcade.draw_texture_rect(
-                    rect=rect,
-                    texture=tyre_texture,
-                    angle=0,
-                    alpha=255
-                )
+             # Tyre Info (Compound Color + Life)
+            tyre_compound_int = int(pos.get("tyre", -1))
+            tyre_life = int(pos.get("tyre_life", 0))
+            
+            # Map int to color
+            # 0:SOFT(Red), 1:MED(Yellow), 2:HARD(White), 3:INTER(Green), 4:WET(Blue)
+            compound_color = arcade.color.GRAY
+            if tyre_compound_int == 0: compound_color = (255, 51, 51)   # Red
+            elif tyre_compound_int == 1: compound_color = (255, 242, 0) # Yellow
+            elif tyre_compound_int == 2: compound_color = (255, 255, 255)# White
+            elif tyre_compound_int == 3: compound_color = (57, 181, 74) # Green
+            elif tyre_compound_int == 4: compound_color = (0, 174, 239) # Blue
+            
+            # Position for Tyre Icon (Right side of row)
+            tyre_x = right_x - 30
+            tyre_y = top_y - 10
+            
+            if tyre_compound_int != -1:
+                arcade.draw_circle_filled(tyre_x, tyre_y, 8, compound_color)
+                # Tyre Life Text
+                arcade.draw_text(f"L{tyre_life}", tyre_x + 12, tyre_y, arcade.color.WHITE, 12, anchor_x="left", anchor_y="center")
 
                 # DRS Indicator
                 drs_val = pos.get("drs", 0)
