@@ -109,6 +109,29 @@ def _process_single_driver(args):
     throttle_all = np.concatenate(throttle_all)[order]
     brake_all = np.concatenate(brake_all)[order]
 
+    # De-duplicate timestamps, keeping the last occurrence (latest update/highest lap)
+    # This prevents "lag" where a specific timestamp has both Lap N and Lap N+1 samples.
+    # np.unique returns the FIRST occurrence index, so we reverse, unique, then adjust indices.
+    if len(t_all) > 0:
+        t_rev = t_all[::-1]
+        _, uniq_idx_rev = np.unique(t_rev, return_index=True)
+        # Convert reverse indices back to forward indices
+        keep_idxs = len(t_all) - 1 - uniq_idx_rev
+        keep_idxs.sort()
+        
+        t_all = t_all[keep_idxs]
+        x_all = x_all[keep_idxs]
+        y_all = y_all[keep_idxs]
+        race_dist_all = race_dist_all[keep_idxs]
+        rel_dist_all = rel_dist_all[keep_idxs]
+        lap_numbers = lap_numbers[keep_idxs]
+        tyre_compounds = tyre_compounds[keep_idxs]
+        speed_all = speed_all[keep_idxs]
+        gear_all = gear_all[keep_idxs]
+        drs_all = drs_all[keep_idxs]
+        throttle_all = throttle_all[keep_idxs]
+        brake_all = brake_all[keep_idxs]
+
     print(f"Completed telemetry for driver: {driver_code}")
     
     return {
