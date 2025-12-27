@@ -88,6 +88,13 @@ def _process_single_driver(args):
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
 
+        # Advance the cumulative race distance so subsequent laps are offset
+        try:
+            total_dist_so_far += float(d_lap[-1])
+        except Exception:
+            # fallback: use max distance in this lap
+            total_dist_so_far += float(np.max(d_lap))
+
     if not t_all:
         return None
 
@@ -331,6 +338,16 @@ def get_race_telemetry(session, session_type='R'):
     driver_codes = list(resampled_data.keys())
     driver_arrays = {code: resampled_data[code] for code in driver_codes}
 
+    # Precompute monotonic distance traces for reliable interpolation (avoid backward steps)
+    driver_monotonic_dist = {
+        code: np.maximum.accumulate(driver_arrays[code]["dist"]) for code in driver_codes
+    }
+
+    # Gap smoothing state (EWMA)
+    gap_smoothed = {code: 0.0 for code in driver_codes}
+    # Smoothing factor: higher => faster updates, lower => more stable
+    GAP_ALPHA = 0.18
+
     for i in range(num_frames):
         t = timeline[i]
         snapshot = []
@@ -364,12 +381,43 @@ def get_race_telemetry(session, session_type='R'):
 
         # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
 
-        # 5c. Compute gap to car in front in SECONDS
+        # 5c. Compute time gaps (seconds) to leader and to the car in front
         frame_data = {}
+
+        # leader code and monotonic distance trace for interpolation (race distance -> time)
+        leader_code = snapshot[0]["code"]
+        leader_dist_arr = driver_monotonic_dist[leader_code]
 
         for idx, car in enumerate(snapshot):
             code = car["code"]
             position = idx + 1
+
+            # compute gap to leader: find time when leader was at this car's distance
+            car_dist = float(car["dist"])
+            # use monotonic distances to avoid mapping to earlier times when leader was stopped
+            leader_time_at_car_dist = np.interp(car_dist, leader_dist_arr, timeline)
+            raw_gap_to_leader = t - leader_time_at_car_dist
+
+            # compute gap to the car in front (None for leader)
+            if idx > 0:
+                front_code = snapshot[idx - 1]["code"]
+                front_dist_arr = driver_monotonic_dist[front_code]
+                front_time_at_car_dist = np.interp(car_dist, front_dist_arr, timeline)
+                raw_gap_to_front = t - front_time_at_car_dist
+            else:
+                raw_gap_to_front = None
+
+            # Exponential smoothing to stabilise displayed gaps
+            prev = gap_smoothed.get(code, 0.0)
+            if raw_gap_to_front is None:
+                smoothed_gap = 0.0
+            else:
+                smoothed_gap = prev * (1.0 - GAP_ALPHA) + (GAP_ALPHA * float(raw_gap_to_front))
+            gap_smoothed[code] = smoothed_gap
+
+            # format numeric outputs
+            gap_to_leader = round(raw_gap_to_leader, 3)
+            gap_to_front = round(smoothed_gap, 3) if raw_gap_to_front is not None else None
 
             # include speed, gear, drs_active in frame driver dict
             frame_data[code] = {
@@ -385,6 +433,8 @@ def get_race_telemetry(session, session_type='R'):
                 "drs": car['drs'],
                 "throttle": car['throttle'],
                 "brake": car['brake'],
+                "gap": gap_to_leader,
+                "gap_to_front": gap_to_front,
             }
 
         weather_snapshot = {}
