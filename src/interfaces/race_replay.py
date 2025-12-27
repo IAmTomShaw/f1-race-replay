@@ -21,7 +21,7 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True, circuit_info=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -37,6 +37,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+        self.circuit_info = circuit_info # FastF1 circuit info object (corners, marshal sectors, etc)
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -330,6 +331,31 @@ class F1RaceReplayWindow(arcade.Window):
                 # Draw the DRS zone segment
                 if len(drs_outer_points) > 1:
                     arcade.draw_line_strip(drs_outer_points, drs_color, 6)
+
+        # 3. Draw Cars
+        
+        # 2.6 Draw Track Map Enhancements (Corners & Sectors)
+        if self.circuit_info:
+            # Draw Marshal Sectors/Zones
+            # FastF1 marshal_sectors is a DataFrame with 'X', 'Y', 'Distance'
+            if hasattr(self.circuit_info, 'marshal_sectors') and not self.circuit_info.marshal_sectors.empty:
+                sector_color = (255, 255, 255, 100) # Transparent white
+                for _, row in self.circuit_info.marshal_sectors.iterrows():
+                     # Only if X and Y are available
+                     if 'X' in row and 'Y' in row and not np.isnan(row['X']):
+                        sx, sy = self.world_to_screen(row['X'], row['Y'])
+                        # Draw a small perpendicular line or circle marker
+                        arcade.draw_circle_filled(sx, sy, 3, sector_color)
+            
+            # Draw Corner Numbers
+            # FastF1 corners is a DataFrame with 'X', 'Y', 'Number', 'Letter', 'Distance'
+            if hasattr(self.circuit_info, 'corners') and not self.circuit_info.corners.empty:
+                corner_color = (200, 200, 200, 200)
+                for _, row in self.circuit_info.corners.iterrows():
+                    if 'X' in row and 'Y' in row and not np.isnan(row['X']):
+                        sx, sy = self.world_to_screen(row['X'], row['Y'])
+                        label = str(row['Number']) + (row['Letter'] if row['Letter'] else "")
+                        arcade.draw_text(label, sx, sy, corner_color, font_size=10, anchor_x="center", anchor_y="center")
 
         # 3. Draw Cars
         frame = self.frames[idx]
