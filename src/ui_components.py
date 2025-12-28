@@ -1546,3 +1546,41 @@ def plotDRSzones(example_lap):
        drs_zones.append(zone)
    
    return drs_zones
+
+class FlagComponent(BaseComponent):
+    """A visual component to display the national flag for a race."""
+    def __init__(self, title):
+        self.title = title
+        self.flag_texture = self.get_flag_texture()
+    
+    def get_flag_texture(self):
+        """Obtain the correct flag texture for a given race."""
+        # Parse flag filepaths
+        flag_dir = os.path.join("images", "flags")
+        flag_map = {}
+        for path in os.listdir(flag_dir):
+            path = os.path.join(flag_dir, path)
+            race_name = os.path.basename(path).replace(".png", "").replace("_", " ").title()
+            flag_map[race_name] = os.path.abspath(path)
+        aliases = {
+            "Las Vegas": "United States",
+            "Miami": "United States",
+            "Emilia Romagna": "Italian"
+        }
+        for alias in aliases:
+            flag_map[alias] = flag_map[aliases[alias]]
+
+        # Load flag texture if available
+        gp_name = self.title.split("Grand Prix")[0].strip()
+        if gp_name in flag_map.keys():
+            return arcade.load_texture(flag_map[gp_name])
+        else:
+            return None
+    
+    def draw(self, x, y, x_size, y_size):
+        """Draw the flag on to the window."""
+        rect = arcade.XYWH(x, y, x_size, y_size)
+        arcade.draw_texture_rect(
+            rect = rect,
+            texture = self.flag_texture
+        )

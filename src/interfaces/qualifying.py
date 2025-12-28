@@ -1,9 +1,16 @@
 import arcade
 import threading
 import time
+import os
 import numpy as np
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent
+from src.ui_components import (
+    build_track_from_example_lap,
+    LapTimeLeaderboardComponent,
+    QualifyingSegmentSelectorComponent,
+    RaceControlsComponent,
+    LegendComponent,
+    FlagComponent
+)
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
@@ -33,6 +40,7 @@ class QualifyingReplay(arcade.Window):
             center_x= self.width // 2 + 100,
             center_y= 40
         )
+        self.flag_comp = FlagComponent(title)
         self.leaderboard.set_entries(self.data.get("results", []))
         self.drs_zones = []
         self.drs_zones_xy = []
@@ -723,6 +731,15 @@ class QualifyingReplay(arcade.Window):
 
         self.leaderboard.draw(self)
         self.qualifying_segment_selector_modal.draw(self)
+
+        # conditionally draw flag
+        if self.flag_comp.flag_texture is not None:
+            self.flag_comp.draw(
+                x=170,
+                y=self.height-54,
+                x_size=self.flag_comp.flag_texture.width*0.6,
+                y_size=self.flag_comp.flag_texture.height*0.6
+            )
         
         # Show race controls only when telemetry is loaded (driver + session selected)
         if self.chart_active and self.loaded_telemetry and self.frame_index < self.n_frames:

@@ -9,6 +9,7 @@ from src.ui_components import (
     DriverInfoComponent, 
     RaceProgressBarComponent,
     RaceControlsComponent,
+    FlagComponent,
     extract_race_events,
     build_track_from_example_lap
 )
@@ -25,6 +26,8 @@ class F1RaceReplayWindow(arcade.Window):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
+
+        self.flag_comp = FlagComponent(title)
 
         self.frames = frames
         self.track_statuses = track_statuses
@@ -386,7 +389,7 @@ class F1RaceReplayWindow(arcade.Window):
         lap_str = f"Lap: {leader_lap}"
         if self.total_laps is not None:
             lap_str += f"/{self.total_laps}"
-
+        
         # Draw HUD - Top Left
         if self.visible_hud:
             self.lap_text.text = lap_str
@@ -411,6 +414,17 @@ class F1RaceReplayWindow(arcade.Window):
             self.time_text.draw()
             if self.status_text.text:
                 self.status_text.draw()
+            
+            if self.flag_comp.flag_texture is not None:
+                text_right = self.lap_text.x + self.lap_text.content_width
+                flag_x = text_right + (self.flag_comp.flag_texture.width*0.8) / 2 + 6
+                flag_y = self.lap_text.y - self.lap_text.content_height / 2
+                self.flag_comp.draw(
+                    x=flag_x,
+                    y=flag_y,
+                    x_size=self.flag_comp.flag_texture.width*0.8,
+                    y_size=self.flag_comp.flag_texture.height*0.8
+                )
 
         # Weather component (set info then draw)
         weather_info = frame.get("weather") if frame else None
