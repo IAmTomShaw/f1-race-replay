@@ -8,8 +8,8 @@ from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
 
-SCREEN_WIDTH = 1920
-SCREEN_HEIGHT = 1080
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Qualifying Telemetry"
 
 H_ROW = 38
@@ -22,6 +22,8 @@ BOTTOM_MARGIN = 40
 class QualifyingReplay(arcade.Window):
     def __init__(self, session, data, circuit_rotation=0, left_ui_margin=340, right_ui_margin=0, title="Qualifying Results"):
         super().__init__(width=SCREEN_WIDTH, height=SCREEN_HEIGHT, title=title, resizable=True)
+        self.maximize()
+        
         self.session = session
         self.data = data
         self.leaderboard = LapTimeLeaderboardComponent(
@@ -887,8 +889,9 @@ class QualifyingReplay(arcade.Window):
             self.frame_index = int(max(self.frame_index - 10, 0))
             self.race_controls_comp.flash_button('rewind')
         elif symbol == arcade.key.UP:
-            self.playback_speed *= 2.0
-            self.race_controls_comp.flash_button('speed_increase')
+            if self.playback_speed < 1024.0:
+                self.playback_speed *= 2.0
+                self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.DOWN:
             self.playback_speed = max(0.1, self.playback_speed / 2.0)
             self.race_controls_comp.flash_button('speed_decrease')
@@ -1063,6 +1066,13 @@ class QualifyingReplay(arcade.Window):
             if self.frame_index >= self.n_frames - 1:
                 self.paused = True
 
-def run_qualifying_replay(session, data, title="Qualifying Results"):
+def run_qualifying_replay(session, data, title="Qualifying Results", ready_file=None):
     window = QualifyingReplay(session=session, data=data, title=title)
+    # Signal readiness to parent process (if requested) after window created
+    if ready_file:
+        try:
+            with open(ready_file, 'w') as f:
+                f.write('ready')
+        except Exception:
+            pass
     arcade.run()

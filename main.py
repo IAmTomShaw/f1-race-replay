@@ -3,8 +3,11 @@ from src.arcade_replay import run_arcade_replay
 
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
+from src.cli.race_selection import cli_load
+from src.gui.race_selection import RaceSelectionWindow
+from PySide6.QtWidgets import QApplication
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True):
+def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
@@ -27,6 +30,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       session=session,
       data=qualifying_session_data,
       title=title,
+      ready_file=ready_file,
     )
 
   else:
@@ -71,20 +75,30 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     # Run the arcade replay
 
     run_arcade_replay(
-        frames=race_telemetry['frames'],
-        track_statuses=race_telemetry['track_statuses'],
-        example_lap=example_lap,
-        drivers=drivers,
-        playback_speed=playback_speed,
-        driver_colors=race_telemetry['driver_colors'],
-        title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
-        total_laps=race_telemetry['total_laps'],
-        circuit_rotation=circuit_rotation,
-        visible_hud=visible_hud
+      frames=race_telemetry['frames'],
+      track_statuses=race_telemetry['track_statuses'],
+      example_lap=example_lap,
+      drivers=drivers,
+      playback_speed=playback_speed,
+      driver_colors=race_telemetry['driver_colors'],
+      title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
+      total_laps=race_telemetry['total_laps'],
+      circuit_rotation=circuit_rotation,
+      visible_hud=visible_hud
+      ,ready_file=ready_file
     )
 
 if __name__ == "__main__":
 
+  if "--gui" in sys.argv:
+    app = QApplication(sys.argv)
+    win = RaceSelectionWindow()
+    win.show()
+    sys.exit(app.exec())
+  
+  if "--cli" in sys.argv:
+    cli_load()
+    sys.exit(0)
   # Get the year and round number from user input
 
   if "--year" in sys.argv:
@@ -112,5 +126,12 @@ if __name__ == "__main__":
 
   # Session type selection
   session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-  
-  main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud)
+
+  # Optional ready-file path used when spawned from the GUI to signal ready state
+  ready_file = None
+  if "--ready-file" in sys.argv:
+    idx = sys.argv.index("--ready-file") + 1
+    if idx < len(sys.argv):
+      ready_file = sys.argv[idx]
+
+  main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)

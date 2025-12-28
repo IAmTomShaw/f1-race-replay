@@ -848,6 +848,23 @@ def get_quali_telemetry(session, session_type='Q'):
     }
 
 
+def get_race_weekends_by_year(year):
+    """Returns a list of race weekends for a given year."""
+    enable_cache()
+    schedule = fastf1.get_event_schedule(year)
+    weekends = []
+    for _, event in schedule.iterrows():
+        if event.is_testing():
+            continue
+        weekends.append({
+            "round_number": event['RoundNumber'],
+            "event_name": event['EventName'],
+            "date": str(event['EventDate'].date()),
+            "country": event['Country'],
+            "type": event['EventFormat'],
+        })
+    return weekends
+
 def list_rounds(year):
     """Lists all rounds for a given year."""
     enable_cache()

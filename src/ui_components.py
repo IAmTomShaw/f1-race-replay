@@ -1320,8 +1320,8 @@ class RaceControlsComponent(BaseComponent):
             
             # Draw speed text in center
             if not self._hide_speed_text:
-                arcade.Text(f"{speed:.1f}x", x, y - 5,
-                            arcade.color.WHITE, 14,
+                arcade.Text(f"{speed}x", x, y - 5,
+                            arcade.color.WHITE, 11,
                             anchor_x="center",
                             bold=True).draw()
             
@@ -1373,7 +1373,8 @@ class RaceControlsComponent(BaseComponent):
         elif self._point_in_rect(x, y,self.speed_increase_rect):
             # Increase speed
             if hasattr(window, 'playback_speed'):
-                window.playback_speed = window.playback_speed * 2
+                if window.playback_speed < 1024:
+                    window.playback_speed = window.playback_speed * 2
             return True
         elif self._point_in_rect(x, y,self.speed_decrease_rect):
             # Decrease speed
