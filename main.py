@@ -80,7 +80,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
         total_laps=race_telemetry['total_laps'],
         circuit_rotation=circuit_rotation,
-        visible_hud=visible_hud
+        visible_hud=visible_hud,
+        official_results=race_telemetry.get('official_results', {})
     )
 
 if __name__ == "__main__":

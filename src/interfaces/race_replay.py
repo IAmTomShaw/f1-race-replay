@@ -21,7 +21,8 @@ SCREEN_TITLE = "F1 Race Replay"
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
+                 official_results=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
 
@@ -36,6 +37,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+        self.official_results = official_results or {}  # Official race results: driver_code -> position
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -397,11 +399,28 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Draw leaderboard via component
         driver_list = []
+        
+        # Check if we're on the final lap - if so, use official results for sorting
+        use_official_results = (
+            self.total_laps is not None 
+            and leader_lap >= self.total_laps 
+            and self.official_results
+        )
+        
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            # Use telemetry distance for sorting (more robust than visual projection)
-            dist_m = float(pos.get("dist", 0.0))
-            driver_list.append((code, color, pos, dist_m))
+            
+            if use_official_results:
+                # Use official race position (lower is better, so negate for reverse sort)
+                # Drivers not in results get a high position (e.g., 99)
+                official_pos = self.official_results.get(code, 99)
+                sort_key = -official_pos  # Negate so lower position = higher value
+            else:
+                # Use telemetry distance for sorting during the race
+                sort_key = float(pos.get("dist", 0.0))
+            
+            driver_list.append((code, color, pos, sort_key))
+        
         driver_list.sort(key=lambda x: x[3], reverse=True)
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)

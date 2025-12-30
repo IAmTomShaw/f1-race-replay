@@ -160,9 +160,30 @@ def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
 
+def get_official_race_results(session):
+    """Extract official race classification from session results.
+    
+    Returns a dict mapping driver code -> final position (1-indexed).
+    """
+    results = session.results
+    official_positions = {}
+    
+    for _, row in results.iterrows():
+        try:
+            driver_code = row["Abbreviation"]
+            position = row["Position"]
+            # Handle NaN positions (e.g., DNS)
+            if pd.notna(position):
+                official_positions[driver_code] = int(position)
+        except Exception:
+            continue
+    
+    return official_positions
+
 def get_race_telemetry(session, session_type='R'):
 
-    event_name = str(session).replace(' ', '_')
+    # Sanitize event name for use in filenames (remove/replace illegal characters)
+    event_name = str(session).replace(' ', '_').replace(':', '').replace('/', '_').replace('\\', '_')
     cache_suffix = 'sprint' if session_type == 'S' else 'race'
 
     # Check if this data has already been computed
@@ -423,6 +444,10 @@ def get_race_telemetry(session, session_type='R'):
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
 
+    # Get official race results for final standings
+    official_results = get_official_race_results(session)
+    print(f"Official race results: {official_results}")
+
     # Save using pickle (10-100x faster than JSON)
     with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
         pickle.dump({
@@ -430,6 +455,7 @@ def get_race_telemetry(session, session_type='R'):
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
             "total_laps": int(max_lap_number),
+            "official_results": official_results,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Saved Successfully!")
@@ -439,6 +465,7 @@ def get_race_telemetry(session, session_type='R'):
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
+        "official_results": official_results,
     }
 
 
