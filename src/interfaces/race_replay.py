@@ -432,7 +432,59 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_rects = self.leaderboard_comp.rects
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
-        self.legend_comp.draw(self)
+        legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
+        legend_y = 180 # Height of legend block
+        legend_icons = self.legend_comp._control_icons_textures # icons
+        legend_lines = [
+            ("Controls:"),
+            ("[SPACE]  Pause/Resume"),
+            ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
+            ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
+            ("[R]       Restart"),
+            ("[D]       Toggle DRS Zones"),
+            ("[B]       Toggle Progress Bar")
+        ]
+        
+        for i, lines in enumerate(legend_lines):
+            line = lines[0] if isinstance(lines, tuple) else lines # main text
+            brackets = lines[1] if isinstance(lines, tuple) and len(lines) > 2 else None # brackets only if icons exist
+            icon_keys = lines[2] if isinstance(lines, tuple) and len(lines) > 2 else None # icon keys
+        
+            icon_size = 14
+            # Draw icons if any
+            if icon_keys:
+                control_icon_x = legend_x + 12
+                for key in icon_keys:
+                    icon_texture = legend_icons.get(key)
+                    if icon_texture:
+                        control_icon_y = legend_y - (i * 25) + 5 # slight vertical offset
+                        rect = arcade.XYWH(control_icon_x, control_icon_y, icon_size, icon_size)
+                        arcade.draw_texture_rect(
+                            rect = rect,
+                            texture = icon_texture,
+                            angle = 0,
+                            alpha = 255
+                        )
+                        control_icon_x += icon_size + 6  # spacing between icons  
+            # Draw brackets if any              
+            if brackets:
+                for j in range(len(brackets)):
+                    arcade.Text(
+                        brackets[j],
+                        legend_x + (j * (icon_size + 5)),
+                        legend_y - (i * 25),
+                        arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
+                        14,
+                    ).draw()
+            # Draw the text line
+            arcade.Text(
+                line,
+                legend_x + (60 if icon_keys else 0),
+                legend_y - (i * 25),
+                arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
+                14,
+                bold=(i == 0)
+            ).draw()
         
         # Selected driver info component
         self.driver_info_comp.draw(self)
