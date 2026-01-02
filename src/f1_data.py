@@ -74,6 +74,10 @@ def _process_single_driver(args):
 
         # race distance = distance before this lap + distance within this lap
         race_d_lap = total_dist_so_far + d_lap
+        
+        # Increment total distance for the next lap
+        if d_lap.size > 0:
+            total_dist_so_far += d_lap.max()
 
         t_all.append(t_lap)
         x_all.append(x_lap)
@@ -366,31 +370,6 @@ def get_race_telemetry(session, session_type='R', refresh_data=False):
         leader = snapshot[0]
         leader_lap = leader["lap"]
 
-        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
-
-        # 5c. Compute gap to car in front in SECONDS
-        frame_data = {}
-
-        for idx, car in enumerate(snapshot):
-            code = car["code"]
-            position = idx + 1
-
-            # include speed, gear, drs_active in frame driver dict
-            frame_data[code] = {
-                "x": car["x"],
-                "y": car["y"],
-                "dist": car["dist"],    
-                "lap": car["lap"],
-                "rel_dist": round(car["rel_dist"], 4),
-                "tyre": car["tyre"],
-                "position": position,
-                "speed": car['speed'],
-                "gear": car['gear'],
-                "drs": car['drs'],
-                "throttle": car['throttle'],
-                "brake": car['brake'],
-            }
-
         weather_snapshot = {}
         if weather_resampled:
             try:
@@ -407,15 +386,15 @@ def get_race_telemetry(session, session_type='R', refresh_data=False):
             except Exception as e:
                 print(f"Failed to attach weather data to frame {i}: {e}")
 
-        frame_payload = {
-            "t": round(t, 3),
-            "lap": leader_lap,   # leader's lap at this time
-            "drivers": frame_data,
-        }
-        if weather_snapshot:
-            frame_payload["weather"] = weather_snapshot
+        # Re-map snapshot list back to dict for the frame, indexed by driver code
+        frame_drivers = {d['code']: d for d in snapshot}
 
-        frames.append(frame_payload)
+        frames.append({
+            "t": round(t, 3),
+            "lap": leader_lap,
+            "drivers": frame_drivers,
+            "weather": weather_snapshot
+        })
     print("completed telemetry extraction...")
     print("Saving to cache file...")
     # If computed_data/ directory doesn't exist, create it
