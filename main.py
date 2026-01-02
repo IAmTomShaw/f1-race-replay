@@ -136,12 +136,19 @@ if __name__ == "__main__":
   elif args.qualifying:
       session_type = 'Q'
 
-  main(
-      year=args.year,
-      round_number=args.round,
-      playback_speed=1, 
-      session_type=session_type,
-      visible_hud=not args.no_hud,
-      ready_file=args.ready_file,
-      refresh_data=args.refresh_data
-  )
+  try:
+      main(
+          year=args.year,
+          round_number=args.round,
+          playback_speed=1, 
+          session_type=session_type,
+          visible_hud=not args.no_hud,
+          ready_file=args.ready_file,
+          refresh_data=args.refresh_data
+      )
+  except KeyboardInterrupt:
+      print("\nInterrupted by user. Exiting...")
+      sys.exit(0)
+  except Exception as e:
+      print(f"\nAn unexpected error occurred: {e}")
+      sys.exit(1)
