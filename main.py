@@ -7,9 +7,15 @@ from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None):
+import argparse
+
+def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, refresh_data=False):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
-  session = load_session(year, round_number, session_type)
+  try:
+      session = load_session(year, round_number, session_type)
+  except Exception as e:
+      print(f"Error loading session: {e}")
+      return
 
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
 
@@ -20,7 +26,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
 
     # Get the drivers who participated and their lap times
 
-    qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+    qualifying_session_data = get_quali_telemetry(session, session_type=session_type, refresh_data=refresh_data)
 
     # Run the arcade screen showing qualifying results
 
@@ -37,7 +43,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
 
     # Get the drivers who participated in the race
 
-    race_telemetry = get_race_telemetry(session, session_type=session_type)
+    race_telemetry = get_race_telemetry(session, session_type=session_type, refresh_data=refresh_data)
 
     # Get example lap for track layout
     # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
@@ -89,49 +95,53 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     )
 
 if __name__ == "__main__":
+  parser = argparse.ArgumentParser(description="F1 Race Replay")
+  parser.add_argument("--year", type=int, default=2025, help="Year of the season")
+  parser.add_argument("--round", type=int, default=12, help="Round number")
+  parser.add_argument("--gui", action="store_true", help="Launch GUI selection window")
+  parser.add_argument("--cli", action="store_true", help="Launch CLI selection menu")
+  parser.add_argument("--list-rounds", action="store_true", help="List rounds for the specified year")
+  parser.add_argument("--list-sprints", action="store_true", help="List sprints for the specified year")
+  parser.add_argument("--no-hud", action="store_true", help="Hide HUD")
+  parser.add_argument("--qualifying", action="store_true", help="Replay Qualifying session")
+  parser.add_argument("--sprint", action="store_true", help="Replay Sprint session")
+  parser.add_argument("--sprint-qualifying", action="store_true", help="Replay Sprint Qualifying session")
+  parser.add_argument("--ready-file", type=str, help="Path to ready signal file")
+  parser.add_argument("--refresh-data", action="store_true", help="Force refresh of cached data")
+  
+  args = parser.parse_args()
 
-  if "--gui" in sys.argv:
+  if args.gui:
     app = QApplication(sys.argv)
     win = RaceSelectionWindow()
     win.show()
     sys.exit(app.exec())
   
-  if "--cli" in sys.argv:
+  if args.cli:
     cli_load()
     sys.exit(0)
-  # Get the year and round number from user input
 
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
-
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
-
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
-  else:
-    playback_speed = 1
+  if args.list_rounds:
+    list_rounds(args.year)
+    sys.exit(0)
+  elif args.list_sprints:
+    list_sprints(args.year)
+    sys.exit(0)
   
-  visible_hud = True
-  if "--no-hud" in sys.argv:
-    visible_hud = False
+  session_type = 'R'
+  if args.sprint_qualifying:
+      session_type = 'SQ'
+  elif args.sprint:
+      session_type = 'S'
+  elif args.qualifying:
+      session_type = 'Q'
 
-  # Session type selection
-  session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-
-  # Optional ready-file path used when spawned from the GUI to signal ready state
-  ready_file = None
-  if "--ready-file" in sys.argv:
-    idx = sys.argv.index("--ready-file") + 1
-    if idx < len(sys.argv):
-      ready_file = sys.argv[idx]
-
-  main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+  main(
+      year=args.year,
+      round_number=args.round,
+      playback_speed=1, 
+      session_type=session_type,
+      visible_hud=not args.no_hud,
+      ready_file=args.ready_file,
+      refresh_data=args.refresh_data
+  )
