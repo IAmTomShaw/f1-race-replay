@@ -155,7 +155,7 @@ def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
 
-def get_race_telemetry(session, session_type='R'):
+def get_race_telemetry(session, session_type='R', refresh_data=False):
 
     event_name = str(session).replace(' ', '_')
     cache_suffix = 'sprint' if session_type == 'S' else 'race'
@@ -163,7 +163,7 @@ def get_race_telemetry(session, session_type='R'):
     # Check if this data has already been computed
 
     try:
-        if "--refresh-data" not in sys.argv:
+        if not refresh_data:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
                 frames = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
@@ -769,7 +769,7 @@ def _process_quali_driver(args):
     }
 
 
-def get_quali_telemetry(session, session_type='Q'):
+def get_quali_telemetry(session, session_type='Q', refresh_data=False):
     # This function is going to get the results from qualifying and the telemetry for each drivers' fastest laps in each qualifying segment
 
     # The structure of the returned data will be:
@@ -790,7 +790,7 @@ def get_quali_telemetry(session, session_type='Q'):
 
     # Check if this data has already been computed
     try:
-        if "--refresh-data" not in sys.argv:
+        if not refresh_data:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
                 data = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
