@@ -134,4 +134,11 @@ if __name__ == "__main__":
     if idx < len(sys.argv):
       ready_file = sys.argv[idx]
 
-  main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+  try:
+      main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+  except KeyboardInterrupt:
+      print("\nInterrupted by user. Exiting...")
+      sys.exit(0)
+  except Exception as e:
+      print(f"\nAn unexpected error occurred: {e}")
+      sys.exit(1)
