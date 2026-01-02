@@ -132,6 +132,44 @@ def _process_single_driver(args):
         "max_lap": driver_max_lap
     }
 
+def _process_weather_data(session, timeline, global_t_min):
+    weather_resampled = None
+    weather_df = getattr(session, "weather_data", None)
+    if weather_df is not None and not weather_df.empty:
+        try:
+            weather_times = weather_df["Time"].dt.total_seconds().to_numpy() - global_t_min
+            if len(weather_times) > 0:
+                order = np.argsort(weather_times)
+                weather_times = weather_times[order]
+
+                def _maybe_get(name):
+                    return weather_df[name].to_numpy()[order] if name in weather_df else None
+
+                def _resample(series):
+                    if series is None:
+                        return None
+                    return np.interp(timeline, weather_times, series)
+
+                track_temp = _resample(_maybe_get("TrackTemp"))
+                air_temp = _resample(_maybe_get("AirTemp"))
+                humidity = _resample(_maybe_get("Humidity"))
+                wind_speed = _resample(_maybe_get("WindSpeed"))
+                wind_direction = _resample(_maybe_get("WindDirection"))
+                rainfall_raw = _maybe_get("Rainfall")
+                rainfall = _resample(rainfall_raw.astype(float)) if rainfall_raw is not None else None
+
+                weather_resampled = {
+                    "track_temp": track_temp,
+                    "air_temp": air_temp,
+                    "humidity": humidity,
+                    "wind_speed": wind_speed,
+                    "wind_direction": wind_direction,
+                    "rainfall": rainfall,
+                }
+        except Exception as e:
+            print(f"Weather data could not be processed: {e}")
+    return weather_resampled
+
 def load_session(year, round_number, session_type='R'):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
     session = fastf1.get_session(year, round_number, session_type)
@@ -287,41 +325,7 @@ def get_race_telemetry(session, session_type='R', refresh_data=False):
         })
 
     # 4.1. Resample weather data onto the same timeline for playback
-    weather_resampled = None
-    weather_df = getattr(session, "weather_data", None)
-    if weather_df is not None and not weather_df.empty:
-        try:
-            weather_times = weather_df["Time"].dt.total_seconds().to_numpy() - global_t_min
-            if len(weather_times) > 0:
-                order = np.argsort(weather_times)
-                weather_times = weather_times[order]
-
-                def _maybe_get(name):
-                    return weather_df[name].to_numpy()[order] if name in weather_df else None
-
-                def _resample(series):
-                    if series is None:
-                        return None
-                    return np.interp(timeline, weather_times, series)
-
-                track_temp = _resample(_maybe_get("TrackTemp"))
-                air_temp = _resample(_maybe_get("AirTemp"))
-                humidity = _resample(_maybe_get("Humidity"))
-                wind_speed = _resample(_maybe_get("WindSpeed"))
-                wind_direction = _resample(_maybe_get("WindDirection"))
-                rainfall_raw = _maybe_get("Rainfall")
-                rainfall = _resample(rainfall_raw.astype(float)) if rainfall_raw is not None else None
-
-                weather_resampled = {
-                    "track_temp": track_temp,
-                    "air_temp": air_temp,
-                    "humidity": humidity,
-                    "wind_speed": wind_speed,
-                    "wind_direction": wind_direction,
-                    "rainfall": rainfall,
-                }
-        except Exception as e:
-            print(f"Weather data could not be processed: {e}")
+    weather_resampled = _process_weather_data(session, timeline, global_t_min)
 
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
@@ -626,41 +630,7 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
         })
 
     # 4.1. Resample weather data onto the same timeline for playback
-    weather_resampled = None
-    weather_df = getattr(session, "weather_data", None)
-    if weather_df is not None and not weather_df.empty:
-        try:
-            weather_times = weather_df["Time"].dt.total_seconds().to_numpy() - global_t_min
-            if len(weather_times) > 0:
-                order_w = np.argsort(weather_times)
-                weather_times = weather_times[order_w]
-
-                def _maybe_get(name):
-                    return weather_df[name].to_numpy()[order_w] if name in weather_df else None
-
-                def _resample(series):
-                    if series is None:
-                        return None
-                    return np.interp(timeline, weather_times, series)
-
-                track_temp = _resample(_maybe_get("TrackTemp"))
-                air_temp = _resample(_maybe_get("AirTemp"))
-                humidity = _resample(_maybe_get("Humidity"))
-                wind_speed = _resample(_maybe_get("WindSpeed"))
-                wind_direction = _resample(_maybe_get("WindDirection"))
-                rainfall_raw = _maybe_get("Rainfall")
-                rainfall = _resample(rainfall_raw.astype(float)) if rainfall_raw is not None else None
-
-                weather_resampled = {
-                    "track_temp": track_temp,
-                    "air_temp": air_temp,
-                    "humidity": humidity,
-                    "wind_speed": wind_speed,
-                    "wind_direction": wind_direction,
-                    "rainfall": rainfall,
-                }
-        except Exception as e:
-            print(f"Weather data could not be processed: {e}")
+    weather_resampled = _process_weather_data(session, timeline, global_t_min)
 
     # Build the frames
     frames = []
