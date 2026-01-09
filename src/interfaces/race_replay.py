@@ -345,6 +345,9 @@ class F1RaceReplayWindow(arcade.Window):
         # Use the progress metric in metres for each driver and use that to order the leaderboard.
         driver_progress = {}
         for code, pos in frame["drivers"].items():
+            # Use the reliable interpolated distance from FastF1 data (calculated in src/f1_data.py)
+            # This handles pit stops and start/finish lines much better than manual projection.
+            progress_m = float(pos.get("dist", 0.0))
             # parse lap defensively
             lap_raw = pos.get("lap", 1)
             try:
