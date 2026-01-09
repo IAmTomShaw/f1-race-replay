@@ -365,6 +365,13 @@ class F1RaceReplayWindow(arcade.Window):
             # progress in metres since race start: (lap-1) * lap_length + projected_m
             progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
 
+            # Apply grid offset correction
+            grid_position = pos.get("grid_position", 0.0)
+            if grid_position > 0:
+                 # Assume 8 meters per grid slot
+                 grid_offset = (grid_position - 1) * 8.0
+                 progress_m -= grid_offset
+
             driver_progress[code] = progress_m
 
         # Leader is the one with greatest progress_m

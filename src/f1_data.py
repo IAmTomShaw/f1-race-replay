@@ -133,8 +133,10 @@ def _process_single_driver(args):
         },
         "t_min": t_all.min(),
         "t_max": t_all.max(),
-        "max_lap": driver_max_lap
+        "max_lap": driver_max_lap,
+        "grid_position": float(session.results.loc[session.results["Abbreviation"] == driver_code, "GridPosition"].iloc[0])
     }
+
 
 def _process_weather_data(session, timeline, global_t_min):
     weather_resampled = None
@@ -252,7 +254,11 @@ def get_race_telemetry(session, session_type='R', refresh_data=False):
         max_lap_number = max(max_lap_number, result["max_lap"])
         
         global_t_min = t_min if global_t_min is None else min(global_t_min, t_min)
+        global_t_min = t_min if global_t_min is None else min(global_t_min, t_min)
         global_t_max = t_max if global_t_max is None else max(global_t_max, t_max)
+    
+    # Extract grid positions for easy lookup
+    driver_grid_positions = {code: data["grid_position"] for code, data in driver_data.items()}
 
     # Ensure we have valid time bounds
     if global_t_min is None or global_t_max is None:
@@ -357,6 +363,7 @@ def get_race_telemetry(session, session_type='R', refresh_data=False):
                 "drs": int(d['drs'][i]),
                 "throttle": float(d['throttle'][i]),
                 "brake": float(d['brake'][i]),
+                "grid_position": float(driver_grid_positions.get(code, 0.0))
             })
 
         # If for some reason we have no drivers at this instant
