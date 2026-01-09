@@ -361,7 +361,7 @@ def get_race_telemetry(session, session_type='R'):
 
         # 5b. Sort by race distance to get POSITIONS (1–20)
         # Leader = largest race distance covered
-        snapshot.sort(key=lambda r: r["dist"], reverse=True)
+        snapshot.sort(key=lambda r: (r.get("lap", 0), r["dist"]), reverse=True)
 
         leader = snapshot[0]
         leader_lap = leader["lap"]

@@ -27,7 +27,7 @@ Recently added support for Qualifying session replays with telemetry visualizati
 
 ## Requirements
 
-- Python 3.8+
+- Python 3.11+
 - [FastF1](https://github.com/theOehrly/Fast-F1)
 - [Arcade](https://api.arcade.academy/en/latest/)
 - numpy

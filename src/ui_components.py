@@ -43,6 +43,7 @@ class LegendComponent(BaseComponent):
             ("[R]       Restart"),
             ("[D]       Toggle DRS Zones"),
             ("[B]       Toggle Progress Bar"),
+            ("[ESC]    Close Window"),
         ]
         self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
     
@@ -260,7 +261,22 @@ class LeaderboardComponent(BaseComponent):
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
-        for i, (code, color, pos, progress_m) in enumerate(self.entries):
+
+        # Sort entries by lap number an distance progressed
+        # If any of the entries have lap > 1, then sort
+
+        if any(e[2].get("lap", 0) > 1 for e in self.entries):
+            new_entries = sorted(
+                self.entries,
+                key=lambda e: (
+                    -e[2].get("lap", 0),  # Descending lap number
+                    -e[2].get("dist")                 # Descending distance progressed
+                )
+            )
+        else:
+            new_entries = self.entries
+
+        for i, (code, color, pos, progress_m) in enumerate(new_entries):
             current_pos = i + 1
             top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
@@ -308,6 +324,11 @@ class LeaderboardComponent(BaseComponent):
 
                 arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
 
+        # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
+        if new_entries[0][2].get("lap", 0) == 1:
+            arcade.Text("May be inaccurate during Lap 1",
+                        self.x, leaderboard_y - 30 - (len(new_entries) * self.row_height) - 20,
+                        arcade.color.YELLOW, 12, anchor_x="left", anchor_y="top").draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
@@ -1121,6 +1142,9 @@ class RaceControlsComponent(BaseComponent):
     - Play/Pause button (center)
     - Forward button (right)
     """
+    
+    PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
+
     def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = 40, visible=True):
         self.center_x = center_x
         self.center_y = center_y
@@ -1371,13 +1395,16 @@ class RaceControlsComponent(BaseComponent):
         elif self._point_in_rect(x, y,self.speed_increase_rect):
             # Increase speed
             if hasattr(window, 'playback_speed'):
-                if window.playback_speed < 1024:
-                    window.playback_speed = window.playback_speed * 2
+                if window.playback_speed < max(self.PLAYBACK_SPEEDS):
+                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
+                    window.playback_speed = self.PLAYBACK_SPEEDS[min(current_index + 1, len(self.PLAYBACK_SPEEDS) - 1)]
             return True
         elif self._point_in_rect(x, y,self.speed_decrease_rect):
             # Decrease speed
             if hasattr(window, 'playback_speed'):
-                window.playback_speed = max(0.1, window.playback_speed / 2)
+                if window.playback_speed > min(self.PLAYBACK_SPEEDS):
+                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
+                    window.playback_speed = self.PLAYBACK_SPEEDS[max(0, current_index - 1)]
             return True
         return False
     

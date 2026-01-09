@@ -17,6 +17,7 @@ from src.ui_components import (
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Race Replay"
+PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
@@ -30,7 +31,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.track_statuses = track_statuses
         self.n_frames = len(frames)
         self.drivers = list(drivers)
-        self.playback_speed = playback_speed
+        self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
         self.driver_colors = driver_colors or {}
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
@@ -347,6 +348,18 @@ class F1RaceReplayWindow(arcade.Window):
             # Use the reliable interpolated distance from FastF1 data (calculated in src/f1_data.py)
             # This handles pit stops and start/finish lines much better than manual projection.
             progress_m = float(pos.get("dist", 0.0))
+            # parse lap defensively
+            lap_raw = pos.get("lap", 1)
+            try:
+                lap = int(lap_raw)
+            except Exception:
+                lap = 1
+
+            # Project (x,y) to reference and combine with lap count
+            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+
+            # progress in metres since race start: (lap-1) * lap_length + projected_m
+            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
 
             driver_progress[code] = progress_m
 
@@ -439,6 +452,10 @@ class F1RaceReplayWindow(arcade.Window):
             self.frame_index = float(self.n_frames - 1)
 
     def on_key_press(self, symbol: int, modifiers: int):
+        # Allow ESC to close window at any time
+        if symbol == arcade.key.ESCAPE:
+            arcade.close_window()
+            return
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
@@ -449,11 +466,20 @@ class F1RaceReplayWindow(arcade.Window):
             self.frame_index = max(self.frame_index - 10.0, 0.0)
             self.race_controls_comp.flash_button('rewind')
         elif symbol == arcade.key.UP:
-            if self.playback_speed < 1024.0:
-                self.playback_speed *= 2.0
-                self.race_controls_comp.flash_button('speed_increase')
+            if self.playback_speed < PLAYBACK_SPEEDS[-1]:
+                # Increase to next higher speed
+                for spd in PLAYBACK_SPEEDS:
+                    if spd > self.playback_speed:
+                        self.playback_speed = spd
+                        break
+            self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.DOWN:
-            self.playback_speed = max(0.1, self.playback_speed / 2.0)
+            if self.playback_speed > PLAYBACK_SPEEDS[0]:
+                # Decrease to next lower speed
+                for spd in reversed(PLAYBACK_SPEEDS):
+                    if spd < self.playback_speed:
+                        self.playback_speed = spd
+                        break
             self.race_controls_comp.flash_button('speed_decrease')
         elif symbol == arcade.key.KEY_1:
             self.playback_speed = 0.5
