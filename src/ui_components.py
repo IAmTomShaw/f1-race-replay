@@ -296,15 +296,33 @@ class LeaderboardComponent(BaseComponent):
                     alpha=255
                 )
 
+                # Tire age display
+                tire_age = pos.get("tire_age", -1)
+                if tire_age >= 0:
+                    tire_age_text = f"L{tire_age}"
+                    # Position tire age text to the left of the tire icon
+                    tire_age_x = tyre_icon_x - icon_size - 32
+                    tire_age_y = top_y - 4
+                    # Use white color for better visibility
+                    arcade.Text(
+                        tire_age_text,
+                        tire_age_x,
+                        tire_age_y,
+                        arcade.color.WHITE,
+                        13,
+                        anchor_x="right",
+                        anchor_y="top",
+                        bold=True
+                    ).draw()
+
                 # DRS Indicator
                 drs_val = pos.get("drs", 0)
                 # DRS is active if value >= 10
                 is_drs_on = drs_val and int(drs_val) >= 10
                 drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
-                
-                # Position dot to the left of the tyre icon
-                # tyre_icon_x is the center of the tyre icon
-                drs_dot_x = tyre_icon_x - icon_size - 4 
+
+                # Position dot to the left of the tire age text with proper spacing
+                drs_dot_x = tyre_icon_x - icon_size - 12
                 drs_dot_y = tyre_icon_y
 
                 arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
