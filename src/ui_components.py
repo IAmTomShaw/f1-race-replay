@@ -334,13 +334,13 @@ class LeaderboardComponent(BaseComponent):
         return False
 
 class LapTimeLeaderboardComponent(BaseComponent):
-    def __init__(self, x: int, right_margin: int = 260, width: int = 400):
+    def __init__(self, x: int, right_margin: int = 260, width: int = 240):
         self.x = x
         self.width = width
-        self.entries = []  # list of dicts: {'pos', 'code', 'color', 'time', 'S1', 'S2', 'S3'}
+        self.entries = []  # list of dicts: {'pos', 'code', 'color', 'time'}
         self.rects = []    # clickable rects per entry
         self.selected = []  # Changed to list
-        self.row_height = 30
+        self.row_height = 25
         self._visible = True
 
     def set_entries(self, entries: List[dict]):
@@ -374,10 +374,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
         header_y = leaderboard_y - 30
         arcade.Text("Pos", self.x + 5, header_y, arcade.color.GRAY, 12, anchor_x="left", anchor_y="top").draw()
         arcade.Text("Driver", self.x + 40, header_y, arcade.color.GRAY, 12, anchor_x="left", anchor_y="top").draw()
-        arcade.Text("S1", self.x + 120, header_y, arcade.color.GRAY, 12, anchor_x="center", anchor_y="top").draw()
-        arcade.Text("S2", self.x + 180, header_y, arcade.color.GRAY, 12, anchor_x="center", anchor_y="top").draw()
-        arcade.Text("S3", self.x + 240, header_y, arcade.color.GRAY, 12, anchor_x="center", anchor_y="top").draw()
-        arcade.Text("Time", self.x + 300, header_y, arcade.color.GRAY, 12, anchor_x="left", anchor_y="top").draw()
+        arcade.Text("Time", self.x + 120, header_y, arcade.color.GRAY, 12, anchor_x="left", anchor_y="top").draw()
 
         self.rects = []
         for i, entry in enumerate(self.entries):
@@ -387,9 +384,6 @@ class LapTimeLeaderboardComponent(BaseComponent):
             
             # Times
             time_str = format_time(float(entry.get('time', '0'))) if entry.get('time') else ""
-            s1 = format_time(float(entry.get('S1', '0'))) if entry.get('S1') else "-"
-            s2 = format_time(float(entry.get('S2', '0'))) if entry.get('S2') else "-"
-            s3 = format_time(float(entry.get('S3', '0'))) if entry.get('S3') else "-"
 
             current_pos = i + 1
             # Adjust y for header
@@ -416,12 +410,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
             arcade.Text(f"{pos}", left_x + 5, top_y - 5, text_color, 14, anchor_x="left", anchor_y="top").draw()
             arcade.Text(f"{code}", left_x + 40, top_y - 5, text_color, 14, anchor_x="left", anchor_y="top").draw()
             
-            # Sectors (Centered) with color logic? For now just white/text_color
-            arcade.Text(s1, left_x + 120, top_y - 5, text_color, 12, anchor_x="center", anchor_y="top").draw()
-            arcade.Text(s2, left_x + 180, top_y - 5, text_color, 12, anchor_x="center", anchor_y="top").draw()
-            arcade.Text(s3, left_x + 240, top_y - 5, text_color, 12, anchor_x="center", anchor_y="top").draw()
-            
-            arcade.Text(time_str, left_x + 300, top_y - 5, text_color, 14, anchor_x="left", anchor_y="top").draw()
+            arcade.Text(time_str, left_x + 120, top_y - 5, text_color, 14, anchor_x="left", anchor_y="top").draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
