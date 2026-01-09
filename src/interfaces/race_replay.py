@@ -348,6 +348,13 @@ class F1RaceReplayWindow(arcade.Window):
             # This handles pit stops and start/finish lines much better than manual projection.
             progress_m = float(pos.get("dist", 0.0))
 
+            # Apply grid offset correction
+            grid_position = pos.get("grid_position", 0.0)
+            if grid_position > 0:
+                 # Assume 8 meters per grid slot
+                 grid_offset = (grid_position - 1) * 8.0
+                 progress_m -= grid_offset
+
             driver_progress[code] = progress_m
 
         # Leader is the one with greatest progress_m

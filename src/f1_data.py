@@ -74,6 +74,10 @@ def _process_single_driver(args):
 
         # race distance = distance before this lap + distance within this lap
         race_d_lap = total_dist_so_far + d_lap
+        
+        # Increment total distance for the next lap
+        if d_lap.size > 0:
+            total_dist_so_far += d_lap.max()
 
         t_all.append(t_lap)
         x_all.append(x_lap)
@@ -133,8 +137,48 @@ def _process_single_driver(args):
         },
         "t_min": t_all.min(),
         "t_max": t_all.max(),
-        "max_lap": driver_max_lap
+        "max_lap": driver_max_lap,
+        "grid_position": float(session.results.loc[session.results["Abbreviation"] == driver_code, "GridPosition"].iloc[0])
     }
+
+
+def _process_weather_data(session, timeline, global_t_min):
+    weather_resampled = None
+    weather_df = getattr(session, "weather_data", None)
+    if weather_df is not None and not weather_df.empty:
+        try:
+            weather_times = weather_df["Time"].dt.total_seconds().to_numpy() - global_t_min
+            if len(weather_times) > 0:
+                order = np.argsort(weather_times)
+                weather_times = weather_times[order]
+
+                def _maybe_get(name):
+                    return weather_df[name].to_numpy()[order] if name in weather_df else None
+
+                def _resample(series):
+                    if series is None:
+                        return None
+                    return np.interp(timeline, weather_times, series)
+
+                track_temp = _resample(_maybe_get("TrackTemp"))
+                air_temp = _resample(_maybe_get("AirTemp"))
+                humidity = _resample(_maybe_get("Humidity"))
+                wind_speed = _resample(_maybe_get("WindSpeed"))
+                wind_direction = _resample(_maybe_get("WindDirection"))
+                rainfall_raw = _maybe_get("Rainfall")
+                rainfall = _resample(rainfall_raw.astype(float)) if rainfall_raw is not None else None
+
+                weather_resampled = {
+                    "track_temp": track_temp,
+                    "air_temp": air_temp,
+                    "humidity": humidity,
+                    "wind_speed": wind_speed,
+                    "wind_direction": wind_direction,
+                    "rainfall": rainfall,
+                }
+        except Exception as e:
+            print(f"Weather data could not be processed: {e}")
+    return weather_resampled
 
 def load_session(year, round_number, session_type='R'):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
@@ -159,7 +203,7 @@ def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
 
-def get_race_telemetry(session, session_type='R'):
+def get_race_telemetry(session, session_type='R', refresh_data=False):
 
     event_name = str(session).replace(' ', '_')
     cache_suffix = 'sprint' if session_type == 'S' else 'race'
@@ -167,7 +211,7 @@ def get_race_telemetry(session, session_type='R'):
     # Check if this data has already been computed
 
     try:
-        if "--refresh-data" not in sys.argv:
+        if not refresh_data:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
                 frames = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
@@ -214,7 +258,11 @@ def get_race_telemetry(session, session_type='R'):
         max_lap_number = max(max_lap_number, result["max_lap"])
         
         global_t_min = t_min if global_t_min is None else min(global_t_min, t_min)
+        global_t_min = t_min if global_t_min is None else min(global_t_min, t_min)
         global_t_max = t_max if global_t_max is None else max(global_t_max, t_max)
+    
+    # Extract grid positions for easy lookup
+    driver_grid_positions = {code: data["grid_position"] for code, data in driver_data.items()}
 
     # Ensure we have valid time bounds
     if global_t_min is None or global_t_max is None:
@@ -291,41 +339,7 @@ def get_race_telemetry(session, session_type='R'):
         })
 
     # 4.1. Resample weather data onto the same timeline for playback
-    weather_resampled = None
-    weather_df = getattr(session, "weather_data", None)
-    if weather_df is not None and not weather_df.empty:
-        try:
-            weather_times = weather_df["Time"].dt.total_seconds().to_numpy() - global_t_min
-            if len(weather_times) > 0:
-                order = np.argsort(weather_times)
-                weather_times = weather_times[order]
-
-                def _maybe_get(name):
-                    return weather_df[name].to_numpy()[order] if name in weather_df else None
-
-                def _resample(series):
-                    if series is None:
-                        return None
-                    return np.interp(timeline, weather_times, series)
-
-                track_temp = _resample(_maybe_get("TrackTemp"))
-                air_temp = _resample(_maybe_get("AirTemp"))
-                humidity = _resample(_maybe_get("Humidity"))
-                wind_speed = _resample(_maybe_get("WindSpeed"))
-                wind_direction = _resample(_maybe_get("WindDirection"))
-                rainfall_raw = _maybe_get("Rainfall")
-                rainfall = _resample(rainfall_raw.astype(float)) if rainfall_raw is not None else None
-
-                weather_resampled = {
-                    "track_temp": track_temp,
-                    "air_temp": air_temp,
-                    "humidity": humidity,
-                    "wind_speed": wind_speed,
-                    "wind_direction": wind_direction,
-                    "rainfall": rainfall,
-                }
-        except Exception as e:
-            print(f"Weather data could not be processed: {e}")
+    weather_resampled = _process_weather_data(session, timeline, global_t_min)
 
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
@@ -353,6 +367,7 @@ def get_race_telemetry(session, session_type='R'):
                 "drs": int(d['drs'][i]),
                 "throttle": float(d['throttle'][i]),
                 "brake": float(d['brake'][i]),
+                "grid_position": float(driver_grid_positions.get(code, 0.0))
             })
 
         # If for some reason we have no drivers at this instant
@@ -365,31 +380,6 @@ def get_race_telemetry(session, session_type='R'):
 
         leader = snapshot[0]
         leader_lap = leader["lap"]
-
-        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
-
-        # 5c. Compute gap to car in front in SECONDS
-        frame_data = {}
-
-        for idx, car in enumerate(snapshot):
-            code = car["code"]
-            position = idx + 1
-
-            # include speed, gear, drs_active in frame driver dict
-            frame_data[code] = {
-                "x": car["x"],
-                "y": car["y"],
-                "dist": car["dist"],    
-                "lap": car["lap"],
-                "rel_dist": round(car["rel_dist"], 4),
-                "tyre": car["tyre"],
-                "position": position,
-                "speed": car['speed'],
-                "gear": car['gear'],
-                "drs": car['drs'],
-                "throttle": car['throttle'],
-                "brake": car['brake'],
-            }
 
         weather_snapshot = {}
         if weather_resampled:
@@ -407,15 +397,15 @@ def get_race_telemetry(session, session_type='R'):
             except Exception as e:
                 print(f"Failed to attach weather data to frame {i}: {e}")
 
-        frame_payload = {
-            "t": round(t, 3),
-            "lap": leader_lap,   # leader's lap at this time
-            "drivers": frame_data,
-        }
-        if weather_snapshot:
-            frame_payload["weather"] = weather_snapshot
+        # Re-map snapshot list back to dict for the frame, indexed by driver code
+        frame_drivers = {d['code']: d for d in snapshot}
 
-        frames.append(frame_payload)
+        frames.append({
+            "t": round(t, 3),
+            "lap": leader_lap,
+            "drivers": frame_drivers,
+            "weather": weather_snapshot
+        })
     print("completed telemetry extraction...")
     print("Saving to cache file...")
     # If computed_data/ directory doesn't exist, create it
@@ -462,6 +452,19 @@ def get_qualifying_results(session):
                 return None
             return str(time_val.total_seconds())    
 
+        # Fetch fastest lap sectors
+        s1, s2, s3 = None, None, None
+        try:
+            driver_laps = session.laps.pick_drivers(driver_code)
+            if not driver_laps.empty:
+                fastest = driver_laps.pick_fastest()
+                if fastest is not None:
+                     s1 = convert_time_to_seconds(fastest["Sector1Time"])
+                     s2 = convert_time_to_seconds(fastest["Sector2Time"])
+                     s3 = convert_time_to_seconds(fastest["Sector3Time"])
+        except Exception as e:
+            print(f"Error fetching sectors for {driver_code}: {e}")
+
         qualifying_data.append({
             "code": driver_code,
             "position": position,
@@ -469,6 +472,9 @@ def get_qualifying_results(session):
             "Q1": convert_time_to_seconds(q1_time),
             "Q2": convert_time_to_seconds(q2_time),
             "Q3": convert_time_to_seconds(q3_time),
+            "S1": s1,
+            "S2": s2,
+            "S3": s3,
         })
     return qualifying_data
 
@@ -614,41 +620,7 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
         })
 
     # 4.1. Resample weather data onto the same timeline for playback
-    weather_resampled = None
-    weather_df = getattr(session, "weather_data", None)
-    if weather_df is not None and not weather_df.empty:
-        try:
-            weather_times = weather_df["Time"].dt.total_seconds().to_numpy() - global_t_min
-            if len(weather_times) > 0:
-                order_w = np.argsort(weather_times)
-                weather_times = weather_times[order_w]
-
-                def _maybe_get(name):
-                    return weather_df[name].to_numpy()[order_w] if name in weather_df else None
-
-                def _resample(series):
-                    if series is None:
-                        return None
-                    return np.interp(timeline, weather_times, series)
-
-                track_temp = _resample(_maybe_get("TrackTemp"))
-                air_temp = _resample(_maybe_get("AirTemp"))
-                humidity = _resample(_maybe_get("Humidity"))
-                wind_speed = _resample(_maybe_get("WindSpeed"))
-                wind_direction = _resample(_maybe_get("WindDirection"))
-                rainfall_raw = _maybe_get("Rainfall")
-                rainfall = _resample(rainfall_raw.astype(float)) if rainfall_raw is not None else None
-
-                weather_resampled = {
-                    "track_temp": track_temp,
-                    "air_temp": air_temp,
-                    "humidity": humidity,
-                    "wind_speed": wind_speed,
-                    "wind_direction": wind_direction,
-                    "rainfall": rainfall,
-                }
-        except Exception as e:
-            print(f"Weather data could not be processed: {e}")
+    weather_resampled = _process_weather_data(session, timeline, global_t_min)
 
     # Build the frames
     frames = []
@@ -757,7 +729,7 @@ def _process_quali_driver(args):
     }
 
 
-def get_quali_telemetry(session, session_type='Q'):
+def get_quali_telemetry(session, session_type='Q', refresh_data=False):
     # This function is going to get the results from qualifying and the telemetry for each drivers' fastest laps in each qualifying segment
 
     # The structure of the returned data will be:
@@ -778,7 +750,7 @@ def get_quali_telemetry(session, session_type='Q'):
 
     # Check if this data has already been computed
     try:
-        if "--refresh-data" not in sys.argv:
+        if not refresh_data:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
                 data = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")

@@ -27,8 +27,8 @@ class FetchScheduleWorker(QThread):
             try:
                 from src.f1_data import enable_cache
                 enable_cache()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Warning: Could not enable cache: {e}")
             events = get_race_weekends_by_year(self.year)
             self.result.emit(events)
         except Exception as e:
@@ -252,8 +252,8 @@ class RaceSelectionWindow(QMainWindow):
                     try:
                         from src.f1_data import enable_cache
                         enable_cache()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Warning: Could not enable cache in worker: {e}")
                     sess = load_session(self.year, self.round_no, self.session_type)
                     self.result.emit(sess)
                 except Exception as e:
