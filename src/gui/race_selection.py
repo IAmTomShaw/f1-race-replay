@@ -27,8 +27,8 @@ class FetchScheduleWorker(QThread):
             try:
                 from src.f1_data import enable_cache
                 enable_cache()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error enabling cache: {e}")
             events = get_race_weekends_by_year(self.year)
             self.result.emit(events)
         except Exception as e:
@@ -129,8 +129,8 @@ class RaceSelectionWindow(QMainWindow):
         # hide sessions panel while loading / when nothing selected
         try:
             self.session_panel.hide()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error hiding session panel: {e}")
         self.worker = FetchScheduleWorker(int(year))
         self.worker.result.connect(self.populate_schedule)
         self.worker.error.connect(self.show_error)
@@ -151,8 +151,8 @@ class RaceSelectionWindow(QMainWindow):
         try:
             self.schedule_tree.resizeColumnToContents(0)
             self.schedule_tree.resizeColumnToContents(1)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error resizing columns: {e}")
 
         self.loading_session = False
 
@@ -161,8 +161,8 @@ class RaceSelectionWindow(QMainWindow):
         # ensure the sessions panel is visible when a race is selected
         try:
             self.session_panel.show()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error showing session panel: {e}")
         # determine sessions to show
         ev_type = (ev.get('type') or '').lower()
         sessions = ["Qualifying", "Race"]
@@ -192,12 +192,14 @@ class RaceSelectionWindow(QMainWindow):
         """
         try:
             year = int(self.year_combo.currentText())
-        except Exception:
+        except Exception as e:
+            print(f"Error parsing year: {e}")
             year = None
 
         try:
             round_no = int(ev.get("round_number"))
-        except Exception:
+        except Exception as e:
+            print(f"Error parsing round number: {e}")
             round_no = None
 
         # map button labels to CLI flags
@@ -252,8 +254,8 @@ class RaceSelectionWindow(QMainWindow):
                     try:
                         from src.f1_data import enable_cache
                         enable_cache()
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        print(f"Error enabling cache in worker: {e}")
                     sess = load_session(self.year, self.round_no, self.session_type)
                     self.result.emit(sess)
                 except Exception as e:
@@ -269,8 +271,8 @@ class RaceSelectionWindow(QMainWindow):
             except Exception as exc:
                 try:
                     dlg.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"Error closing dialog: {e}")
                 QMessageBox.critical(self, "Playback error", f"Failed to start playback:\n{exc}")
                 return
 
@@ -282,20 +284,20 @@ class RaceSelectionWindow(QMainWindow):
                     if os.path.exists(ready_path):
                         try:
                             dlg.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"Error closing dialog (timer): {e}")
                         timer.stop()
                         try:
                             os.remove(ready_path)
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"Error removing ready file: {e}")
                         return
                     # if process exited early, show error
                     if proc.poll() is not None:
                         try:
                             dlg.close()
-                        except Exception:
-                            pass
+                        except Exception as e:
+                            print(f"Error closing dialog (poll): {e}")
                         timer.stop()
                         QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
                 except Exception:
@@ -311,8 +313,8 @@ class RaceSelectionWindow(QMainWindow):
         def _on_error(msg):
             try:
                 dlg.close()
-            except Exception:
-                pass
+            except Exception as e:
+                print(f"Error closing dialog (on_error): {e}")
             QMessageBox.critical(self, "Load error", f"Failed to load session data:\n{msg}")
 
         worker = FetchSessionWorker(year, round_no, session_code)
