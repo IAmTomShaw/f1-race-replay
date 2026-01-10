@@ -247,6 +247,7 @@ class LeaderboardComponent(BaseComponent):
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
         self._tyre_textures = {}
+        self._fast_lap_icon = None
         self._visible: bool = visible
         self._fast_lap_icon = None
         self._visible: bool = visible
