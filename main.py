@@ -90,48 +90,74 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
 
 if __name__ == "__main__":
 
-  if "--gui" in sys.argv:
-    app = QApplication(sys.argv)
-    win = RaceSelectionWindow()
-    win.show()
-    sys.exit(app.exec())
-  
-  if "--cli" in sys.argv:
-    cli_load()
-    sys.exit(0)
-  # Get the year and round number from user input
+    args = sys.argv
 
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
+    # GUI mode
+    if "--gui" in args:
+        app = QApplication(args)
+        win = RaceSelectionWindow()
+        win.show()
+        sys.exit(app.exec())
 
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
+    # CLI loader
+    if "--cli" in args:
+        cli_load()
+        sys.exit(0)
 
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
-  else:
+    # Defaults
+    year = 2025
+    round_number = 12
     playback_speed = 1
-  
-  visible_hud = True
-  if "--no-hud" in sys.argv:
-    visible_hud = False
+    visible_hud = True
+    ready_file = None
 
-  # Session type selection
-  session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+    # Argument parsing
+    if "--year" in args:
+        idx = args.index("--year") + 1
+        if idx < len(args):
+            year = int(args[idx])
 
-  # Optional ready-file path used when spawned from the GUI to signal ready state
-  ready_file = None
-  if "--ready-file" in sys.argv:
-    idx = sys.argv.index("--ready-file") + 1
-    if idx < len(sys.argv):
-      ready_file = sys.argv[idx]
+    if "--round" in args:
+        idx = args.index("--round") + 1
+        if idx < len(args):
+            round_number = int(args[idx])
 
-  main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+    # Listing modes
+    if "--list-rounds" in args:
+        list_rounds(year)
+        sys.exit(0)
+
+    if "--list-sprints" in args:
+        list_sprints(year)
+        sys.exit(0)
+
+    # HUD
+    if "--no-hud" in args:
+        visible_hud = False
+
+    # Session type selection
+    if "--sprint-qualifying" in args:
+        session_type = "SQ"
+    elif "--sprint" in args:
+        session_type = "S"
+    elif "--qualifying" in args:
+        session_type = "Q"
+    else:
+        session_type = "R"
+
+    # Optional read-only path used when spawned from the GUI
+    # to signal ready state
+    if "--ready-file" in args:
+        idx = args.index("--ready-file") + 1
+        if idx < len(args):
+            ready_file = args[idx]
+
+    # Run main
+    main(
+        year,
+        round_number,
+        playback_speed,
+        session_type=session_type,
+        visible_hud=visible_hud,
+        ready_file=ready_file,
+    )
