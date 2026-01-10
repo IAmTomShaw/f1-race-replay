@@ -672,7 +672,8 @@ class QualifyingReplay(arcade.Window):
                 ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
                 ("[R]       Restart"),
                 ("[D]       Toggle DRS zones on track map"),
-                ("[C]       Toggle comparison driver telemetry")
+                ("[C]       Toggle comparison driver telemetry"),
+                ("[ESC]    Close Window")
             ]
             for i, lines in enumerate(legend_lines):
                 line = lines[0] if isinstance(lines, tuple) else lines
@@ -799,6 +800,10 @@ class QualifyingReplay(arcade.Window):
         return self.chart_active and self.n_frames > 0 and self.frame_index >= self.n_frames - 1
 
     def on_key_press(self, symbol: int, modifiers: int):
+        # Allow ESC to close window at any time
+        if symbol == arcade.key.ESCAPE:
+            arcade.close_window()
+            return
         # Allow restart (R), comparison toggle (C), and DRS toggle (D) even when lap is complete
         if symbol == arcade.key.R:
             self.frame_index = 0
