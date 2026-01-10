@@ -418,14 +418,25 @@ class LapTimeLeaderboardComponent(BaseComponent):
         self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
         arcade.Text("Lap Times", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        
+        # Header Row
+        header_y = leaderboard_y - 30
+        arcade.Text("Pos", self.x + 5, header_y, arcade.color.GRAY, 12, anchor_x="left", anchor_y="top").draw()
+        arcade.Text("Driver", self.x + 40, header_y, arcade.color.GRAY, 12, anchor_x="left", anchor_y="top").draw()
+        arcade.Text("Time", self.x + 120, header_y, arcade.color.GRAY, 12, anchor_x="left", anchor_y="top").draw()
+
         self.rects = []
         for i, entry in enumerate(self.entries):
             pos = entry.get('pos', i + 1)
             code = entry.get('code', '')
             color = entry.get('color', arcade.color.WHITE)
-            time_str = entry.get('time', '')
+            
+            # Times
+            time_str = format_time(float(entry.get('time', '0'))) if entry.get('time') else ""
+
             current_pos = i + 1
-            top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
+            # Adjust y for header
+            top_y = header_y - 20 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
             left_x = self.x
             right_x = self.x + self.width
@@ -433,17 +444,22 @@ class LapTimeLeaderboardComponent(BaseComponent):
             self.rects.append((code, left_x, bottom_y, right_x, top_y))
 
             # selection highlight
+            bg_color = None
             if code in self.selected:
-                rect = arcade.XYWH((left_x + right_x) / 2, (top_y + bottom_y) / 2, right_x - left_x, top_y - bottom_y)
-                arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
+                bg_color = arcade.color.LIGHT_GRAY
                 text_color = arcade.color.BLACK
             else:
-                # accept tuple rgb or fallback to white
                 text_color = tuple(color) if isinstance(color, (list, tuple)) else arcade.color.WHITE
+            
+            if bg_color:
+                rect = arcade.XYWH((left_x + right_x) / 2, (top_y + bottom_y) / 2, right_x - left_x, top_y - bottom_y)
+                arcade.draw_rect_filled(rect, bg_color)
 
             # Draw code on left, time right-aligned
-            arcade.Text(f"{pos}. {code}", left_x + 8, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
-            arcade.Text(time_str, right_x - 8, top_y, text_color, 14, anchor_x="right", anchor_y="top").draw()
+            arcade.Text(f"{pos}", left_x + 5, top_y - 5, text_color, 14, anchor_x="left", anchor_y="top").draw()
+            arcade.Text(f"{code}", left_x + 40, top_y - 5, text_color, 14, anchor_x="left", anchor_y="top").draw()
+            
+            arcade.Text(time_str, left_x + 120, top_y - 5, text_color, 14, anchor_x="left", anchor_y="top").draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
