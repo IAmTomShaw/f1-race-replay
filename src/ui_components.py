@@ -443,6 +443,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
 
             # Draw code on left, time right-aligned
             arcade.Text(f"{pos}. {code}", left_x + 8, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+            time_str = str(entry.get("q1") or entry.get("q2") or entry.get("q3") or "No Time")
             arcade.Text(time_str, right_x - 8, top_y, text_color, 14, anchor_x="right", anchor_y="top").draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):

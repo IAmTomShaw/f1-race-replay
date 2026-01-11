@@ -78,6 +78,12 @@ class QualifyingReplay(arcade.Window):
         self.loaded_driver_code = None
         self.loaded_driver_segment = None
 
+        # Sector timing state
+        self.sector_times = [None, None, None]  # S1, S2, S3 actual times
+        self.sector_colors = [arcade.color.DARK_GRAY, arcade.color.DARK_GRAY, arcade.color.DARK_GRAY]
+        self.current_sector = 0  # 0=S1, 1=S2, 2=S3
+        self.completed_sectors = set()  # Track which sectors have been completed
+
         # Legend component for control icons
         self.legend_comp = LegendComponent()
 
@@ -661,6 +667,70 @@ class QualifyingReplay(arcade.Window):
                     if cur_gear is not None:
                         arcade.Text(f"G:{int(cur_gear)}", sx + 10, sy - 10, arcade.color.LIGHT_GRAY, 12).draw()
 
+            # Sector Timing Display - Left side of track map
+            sector_box_width = 140
+            sector_box_height = 35
+            sector_spacing = 8
+            sector_x = map_left + 10
+            sector_y = map_top - 80
+
+            for i in range(3):
+                box_y = sector_y - (i * (sector_box_height + sector_spacing))
+                sector_label = f"S{i+1}"
+                
+                # Highlight current sector with white border
+                if i == self.current_sector:
+                    border_rect = arcade.XYWH(
+                        sector_x + sector_box_width / 2,
+                        box_y,
+                        sector_box_width + 4,
+                        sector_box_height + 4
+                    )
+                    arcade.draw_rect_filled(border_rect, arcade.color.WHITE)
+                
+                # Draw sector box with color
+                box_rect = arcade.XYWH(
+                    sector_x + sector_box_width / 2,
+                    box_y,
+                    sector_box_width,
+                    sector_box_height
+                )
+                arcade.draw_rect_filled(box_rect, self.sector_colors[i])
+                
+                # Sector label
+                arcade.Text(
+                    sector_label,
+                    sector_x + 10,
+                    box_y,
+                    arcade.color.WHITE,
+                    14,
+                    bold=True,
+                    anchor_y="center"
+                ).draw()
+                
+                # Sector time
+                if self.sector_times[i] is not None:
+                    time_str = format_time(self.sector_times[i])
+                    arcade.Text(
+                        time_str,
+                        sector_x + sector_box_width - 10,
+                        box_y,
+                        arcade.color.WHITE,
+                        13,
+                        anchor_x="right",
+                        anchor_y="center"
+                    ).draw()
+                else:
+                    arcade.Text(
+                        "--:--.---",
+                        sector_x + sector_box_width - 10,
+                        box_y,
+                        arcade.color.DARK_GRAY,
+                        13,
+                        anchor_x="right",
+                        anchor_y="center"
+                    ).draw()
+
             # Controls Legend - Bottom Left (keeps small offset from left UI edge)
             legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
             legend_y = 180 # Height of legend block
@@ -906,9 +976,14 @@ class QualifyingReplay(arcade.Window):
                         self.frame_index = 0
                         self.paused = False
                         self.playback_speed = 1.0
-                    self.loading_telemetry = False
-                    self.loading_message = ""
-                    return
+            # Reset sector timing display
+            self.sector_times = [None, None, None]
+            self.sector_colors = [arcade.color.DARK_GRAY, arcade.color.DARK_GRAY, arcade.color.DARK_GRAY]
+            self.current_sector = 0
+            self.completed_sectors.clear()
+            self.loading_telemetry = False
+            self.loading_message = ""
+            return
 
         # Otherwise proceed with background loading as before
         self.loading_telemetry = True
@@ -978,6 +1053,11 @@ class QualifyingReplay(arcade.Window):
                     self.frame_index = 0
                     self.paused = False
                     self.playback_speed = 1.0
+                    # Reset sector timing display
+                    self.sector_times = [None, None, None]
+                    self.sector_colors = [arcade.color.DARK_GRAY, arcade.color.DARK_GRAY, arcade.color.DARK_GRAY]
+                    self.current_sector = 0
+                    self.completed_sectors.clear()
         except Exception as e:
             print("Telemetry load failed:", e)
             self.loaded_telemetry = None
@@ -1017,13 +1097,133 @@ class QualifyingReplay(arcade.Window):
             # Auto-pause when lap completes to prevent errors
             if self.frame_index >= self.n_frames - 1:
                 self.paused = True
+            
+            # Track sector completion based on current time
+            if self.loaded_driver_code and self.loaded_driver_segment and self.loaded_telemetry:
+                current_time = self.play_time
+                
+                # Get sector times from the loaded telemetry (this specific lap)
+                telemetry_sector_times = self.loaded_telemetry.get('sector_times', {})
+                sector_boundaries = self.loaded_telemetry.get('sector_boundaries', [])
+                
+                # Use boundaries if available, otherwise fall back to cumulative timing
+                if sector_boundaries:
+                    # Check each sector boundary
+                    for boundary in sector_boundaries:
+                        sector_num = boundary.get('sector')
+                        boundary_time = boundary.get('time')
+                        
+                        if sector_num and boundary_time and sector_num not in self.completed_sectors:
+                            if current_time >= boundary_time:
+                                self.completed_sectors.add(sector_num)
+                                # Get the actual sector time from telemetry
+                                sector_key = f'sector{sector_num}'
+                                lap_sector_time = telemetry_sector_times.get(sector_key)
+                                
+                                if lap_sector_time is not None:
+                                    self.sector_times[sector_num - 1] = lap_sector_time
+                                    self.sector_colors[sector_num - 1] = self._get_sector_color(sector_num, lap_sector_time)
+                                    self.current_sector = min(sector_num, 2)
+                else:
+                    # Fallback: use sector times directly without boundaries
+                    sec1_time = telemetry_sector_times.get('sector1')
+                    sec2_time = telemetry_sector_times.get('sector2')
+                    sec3_time = telemetry_sector_times.get('sector3')
+                    
+                    # Convert string times to float for calculations
+                    try:
+                        sec1_float = float(sec1_time) if sec1_time else None
+                        sec2_float = float(sec2_time) if sec2_time else None
+                        sec3_float = float(sec3_time) if sec3_time else None
+                    except (ValueError, TypeError):
+                        sec1_float = sec2_float = sec3_float = None
+                    
+                    # Check sector 1 completion
+                    if sec1_float and current_time >= sec1_float and 1 not in self.completed_sectors:
+                        self.completed_sectors.add(1)
+                        self.sector_times[0] = sec1_float
+                        self.sector_colors[0] = self._get_sector_color(1, sec1_float)
+                        self.current_sector = 1
+                    
+                    # Check sector 2 completion (cumulative time)
+                    if sec1_float and sec2_float:
+                        cumulative_s2 = sec1_float + sec2_float
+                        if current_time >= cumulative_s2 and 2 not in self.completed_sectors:
+                            self.completed_sectors.add(2)
+                            self.sector_times[1] = sec2_float
+                            self.sector_colors[1] = self._get_sector_color(2, sec2_float)
+                            self.current_sector = 2
+                    
+                    # Check sector 3 completion (when near lap end)
+                    if sec1_float and sec2_float and sec3_float:
+                        cumulative_s3 = sec1_float + sec2_float + sec3_float
+                        # Trigger when we're at least 95% through the lap or very close to end
+                        lap_progress_ratio = current_time / cumulative_s3 if cumulative_s3 > 0 else 0
+                        # More aggressive triggering for sector 3 - start checking at 93% progress
+                        if (lap_progress_ratio >= 0.93 or self.frame_index >= self.n_frames - 15) and 3 not in self.completed_sectors:
+                            self.completed_sectors.add(3)
+                            self.sector_times[2] = sec3_float
+                            self.sector_colors[2] = self._get_sector_color(3, sec3_float)
+                            self.current_sector = 2  # Keep at sector 2 display since lap is complete
         else:
             # fallback: step frame index at FPS if no timestamps available
             self.frame_index = int(min(self.n_frames - 1, self.frame_index + int(round(delta_time * FPS * self.playback_speed))))
 
-            # Auto-pause when lap completes to prevent errors
-            if self.frame_index >= self.n_frames - 1:
-                self.paused = True
+    def _get_sector_color(self, sector_num: int, sector_time: float) -> tuple:
+        """
+        Determine the color for a sector based on session and personal bests.
+        - Purple: session fastest (matches session best)
+        - Green: personal best (equal to driver's overall best)
+        - Yellow: slower than personal best
+        """
+        if not self.loaded_driver_segment or not self.loaded_driver_code:
+            return arcade.color.GREEN
+        
+        # Convert to float if it's a string
+        if isinstance(sector_time, str):
+            try:
+                sector_time = float(sector_time)
+            except (ValueError, TypeError):
+                return arcade.color.GREEN
+        
+        sector_key = f"sec{sector_num}"
+        
+        # Get session-wide sector bests from backend data
+        session_sector_bests = self.data.get('session_sector_bests', {})
+        segment_bests = session_sector_bests.get(self.loaded_driver_segment, {})
+        session_best = segment_bests.get(sector_key)
+        
+        # Check if this is the session best (purple)
+        if session_best is not None and abs(sector_time - session_best) < 0.001:
+            return (128, 0, 128)  # Purple
+        
+        # Get driver's personal best for this sector (from overall results)
+        driver_result = None
+        for r in self.data.get('results', []):
+            if r.get('code') == self.loaded_driver_code:
+                driver_result = r
+                break
+        
+        if driver_result:
+            driver_best_str = driver_result.get(sector_key)
+            if driver_best_str:
+                try:
+                    driver_best = float(driver_best_str)
+                    
+                    # Check if this lap matches driver's personal best (green)
+                    if abs(sector_time - driver_best) < 0.001:
+                        return arcade.color.LIME_GREEN
+                    # Check if slower than personal best (yellow)
+                    elif sector_time > driver_best:
+                        return (220, 180, 0)
+                    # Faster than recorded best (shouldn't happen, but show green)
+                    else:
+                        return arcade.color.LIME_GREEN
+                except (ValueError, TypeError):
+                    pass
+        
+        # Default: personal best (green) if no comparison available
+        return arcade.color.LIME_GREEN
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
