@@ -1,0 +1,116 @@
+@import 'tailwindcss';
+
+body {
+  height: 100vh;
+  background-color: rgb(21, 21, 30);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background-image: url('./wavy-lines.svg');
+  background-size: cover;
+  user-select: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  margin: 2rem;
+  color: white;
+  height: 100%;
+  width: 100%;
+}
+
+main {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  flex: 1;
+  width: 100%;
+}
+
+h1 {
+  font-size: 2.25rem;
+  line-height: 1.2;
+  font-weight: 700;
+  margin: 0 0 0.75em;
+}
+
+h2 {
+  font-size: 1.75rem;
+  line-height: 1.25;
+  font-weight: 600;
+  margin: 1.5em 0 0.75em;
+}
+
+h3 {
+  font-size: 1.375rem;
+  line-height: 1.3;
+  font-weight: 600;
+  margin: 1.25em 0 0.5em;
+}
+
+h4 {
+  font-size: 1.125rem;
+  line-height: 1.4;
+  font-weight: 600;
+  margin: 1em 0 0.5em;
+}
+
+h5,
+h6 {
+  font-size: 1rem;
+  line-height: 1.5;
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+}
+
+footer {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-bottom: 5px;
+}
+
+.card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 0.5rem;
+  border-radius: 0.5rem;
+  background-color: black;
+  padding: 1rem;
+  margin-top: 1.25rem;
+  transition: background-color 0.3s;
+}
+
+.card:hover {
+  background-color: #1f2937;
+  cursor: pointer;
+}
+
+.card.year {
+  width: 96px;
+  height: 96px;
+}
+
+.card.race {
+  width: 350px;
+  height: 150px;
+}
+
+.event {
+  text-align: left;
+}
+
+.event.official-name,
+.event.round-number {
+  color: gray;
+  font-size: 0.8rem;
+}

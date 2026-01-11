@@ -10,3 +10,4 @@ Thanks to the people who have helped build this project:
 - [@bastuckn](https://github.com/bastuckn) - Added the playback speed indicator.
 - [@nitai-satapathy](https://github.com/nitai-satapathy) - Added the sprint session support for the race replay window.
 - [@AyushmanMalla](https://github.com/AyushmanMalla) - Added the resizeable window feature.
+- [@xhemals](https://github.com/xhemals) - Creted baseline for the GUI.
