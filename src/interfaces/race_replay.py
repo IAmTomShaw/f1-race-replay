@@ -10,6 +10,7 @@ from src.ui_components import (
     RaceProgressBarComponent,
     RaceControlsComponent,
     ControlsPopupComponent,
+    FastestLapBannerComponent,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
@@ -61,7 +62,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.controls_popup_comp.set_size(340, 230) # width/height of the popup box
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
 
-
+        self.fastest_lap_banner_comp = FastestLapBannerComponent(left=self.width, top=self.height, width=200, height=50)
         # Progress bar component with race event markers
         self.progress_bar_comp = RaceProgressBarComponent(
             left_margin=left_ui_margin,
@@ -424,17 +425,31 @@ class F1RaceReplayWindow(arcade.Window):
         # optionally expose weather_bottom for driver info layout
         self.weather_bottom = self.height - 170 - 130 if (weather_info or self.has_weather) else None
 
+        fastest_driver = None
+        if frame.get("fastest_lap").get("driver") and frame.get("fastest_lap").get("time"):
+            fastest_driver = frame["fastest_lap"]["driver"]
+            color = self.driver_colors.get(fastest_driver, arcade.color.WHITE)
+            self.fastest_lap_banner_comp.driver_color = color
+            fastest_time = frame["fastest_lap"]["time"]
+            self.fastest_lap_banner_comp.driver_code = fastest_driver
+            minutes, seconds = divmod(fastest_time, 60)
+            self.fastest_lap_banner_comp.lap_time = f"{int(minutes)}:{seconds:06.3f}"
+
         # Draw leaderboard via component
         driver_list = []
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
-            driver_list.append((code, color, pos, progress_m))
+            is_fastest = (code == fastest_driver)
+            driver_list.append((code, color, pos, progress_m , is_fastest))
         driver_list.sort(key=lambda x: x[3], reverse=True)
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)
         # expose rects for existing hit test compatibility if needed
         self.leaderboard_rects = self.leaderboard_comp.rects
+
+
+        self.fastest_lap_banner_comp.draw(self)
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         self.legend_comp.draw(self)

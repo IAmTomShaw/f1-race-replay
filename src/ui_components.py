@@ -247,7 +247,16 @@ class LeaderboardComponent(BaseComponent):
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
         self._tyre_textures = {}
+        self._fast_lap_icon = None
         self._visible: bool = visible
+        self._fast_lap_icon = None
+        self._visible: bool = visible
+
+        # Load fast-lap texture from images/assets folder
+        fast_lap_path = os.path.join("images", "assets", "fast-lap.png")
+        if os.path.exists(fast_lap_path):
+            self._fast_lap_icon = arcade.load_texture(fast_lap_path)
+
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
@@ -278,7 +287,7 @@ class LeaderboardComponent(BaseComponent):
         """
         self._visible = True
 
-    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
+    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float, bool]]):
         # entries sorted as expected
         self.entries = entries
     def draw(self, window):
@@ -304,7 +313,7 @@ class LeaderboardComponent(BaseComponent):
         else:
             new_entries = self.entries
 
-        for i, (code, color, pos, progress_m) in enumerate(new_entries):
+        for i, (code, color, pos, progress_m,is_fastest) in enumerate(new_entries):
             current_pos = i + 1
             top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
@@ -321,13 +330,29 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            #Postion variables
+            y_start = top_y - 12
+            icon_size = 16        
+
+            #Fastest Lap Check
+            if is_fastest:
+                if self._fast_lap_icon:
+                    fast_lap_x = left_x - 10
+                    fast_lap_y = y_start
+                    rect = arcade.XYWH(fast_lap_x, fast_lap_y, icon_size, icon_size)
+
+                    arcade.draw_texture_rect(
+                        rect=rect,
+                        texture=self._fast_lap_icon,
+                        angle=0,
+                        alpha=255
+                    )
+
+            # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
-                # position tyre icon inside the leaderboard area so it doesn't collide with track
                 tyre_icon_x = left_x + self.width - 10
-                tyre_icon_y = top_y - 12
-                icon_size = 16
+                tyre_icon_y = y_start
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
                 arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
 
@@ -1570,6 +1595,89 @@ class RaceControlsComponent(BaseComponent):
             return False
         left, bottom, right, top = rect
         return left <= x <= right and bottom <= y <= top
+
+
+# Feature: fastest lap banner
+class FastestLapBannerComponent(BaseComponent):
+    def __init__(self, left: float, top: float, width: float, height: float):
+        self.left = (left - width) / 2
+        self.top = top
+        self.width = width
+        self.height = height
+        self.driver_code = None
+        self.driver_color = arcade.color.WHITE
+        self.lap_time = None
+        self.frames_left = None
+        self.prev_lap_time = None
+
+    def draw(self, window):
+        if self.driver_code is None or self.lap_time is None:
+            return
+
+         # Only draw if there's a new fastest lap or timer hasn't expired
+        if self.prev_lap_time == self.lap_time:
+            if self.frames_left is not None:
+                if self.frames_left > 0:
+                    self.frames_left -= 1
+                else:
+                    return  # Do not draw if no new fastest lap and timer expired
+        else:
+            self.frames_left = 5   # Show for 5 frames, if driver updates, reset to 5 frames again
+
+        self.prev_lap_time = self.lap_time
+        y = self.top - 40
+       
+         # Draw filled rectangle behind "FASTEST\nLAP"
+        fastest_rect_width = 70
+        fastest_rect_height = 40
+        fastest_rect_x = self.left - 25 
+        fastest_rect = arcade.XYWH(fastest_rect_x, y, fastest_rect_width, fastest_rect_height)
+        arcade.draw_rect_filled(fastest_rect, arcade.color.PURPLE)
+
+        # Draw "FASTEST\nLAP" text
+        arcade.Text(
+            "FASTEST\nLAP",
+            self.left - 50,
+            y,
+            arcade.color.WHITE,
+            9,
+            bold=True,
+            anchor_x="left",
+            anchor_y="center",
+            multiline=True,
+            width=40
+        ).draw()
+
+        rect_height = 40
+        rect_width = 220
+        rect_x = self.left + 50
+
+        rect = arcade.XYWH(rect_x, y, rect_width, rect_height)
+        arcade.draw_rect_outline(rect, arcade.color.PURPLE, 2)
+
+        # Draw driver code
+        arcade.Text(
+            self.driver_code,
+            self.left + 15,
+            y,
+            self.driver_color,
+            16,
+            bold=True,
+            anchor_x="left",
+            anchor_y="center"
+        ).draw()
+
+        # Draw lap time
+        arcade.Text(
+            self.lap_time,
+            self.left + 65,
+            y,
+            arcade.color.WHITE,
+            16,
+            anchor_x="left",
+            anchor_y="center"
+        ).draw()
+
 
 def extract_race_events(frames: List[dict], track_statuses: List[dict], total_laps: int) -> List[dict]:
     """
