@@ -349,9 +349,36 @@ class F1RaceReplayWindow(arcade.Window):
         for code, pos in frame["drivers"].items():
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            arcade.draw_circle_filled(sx, sy, 6, color)
+            bg_color = (
+                min(255, color[0] + 100), 
+                min(255, color[1] + 100), 
+                min(255, color[2] + 100), 
+                120                  
+                )
+            if code == self.selected_driver:
+                # Highlight selected driver with a larger circle
+                arcade.draw_circle_filled(sx, sy, 10, color)
+                text = arcade.Text(code, sx + 4, sy + 15, color, 22)
+                text.draw()
+                text_width = text.right - text.left
+                text_height = text.top - text.bottom
+                arcade.draw_rect_filled(
+                    arcade.Rect(
+                        x=text.x + text_width / 2,
+                        y=text.y + text_height / 2 - 11,
+                        left=text.left,
+                        bottom=text.bottom,
+                        right=text.right,
+                        top=text.top,
+                        width=text_width + 4,
+                        height=text_height - 8
+                        ),
+                    color=bg_color
+                    )
+            else:
+                arcade.draw_circle_filled(sx, sy, 6, color)
         
-        # --- UI ELEMENTS (Dynamic Positioning) ---
+        # --- UI ELEMENTS (Dynamic Posit ioning) ---
         
         # Determine Leader info using projected along-track distance (more robust than dist)
         # Use the progress metric in metres for each driver and use that to order the leaderboard.
@@ -563,8 +590,20 @@ class F1RaceReplayWindow(arcade.Window):
         if self.legend_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         # default: clear selection if clicked elsewhere
-        self.selected_driver = None
+        idx = min(int(self.frame_index), self.n_frames - 1)
+        frame = self.frames[idx]
+
+        #calculate distances to all drivers
+        positions = [(code, (self.world_to_screen(pos["x"], pos["y"]))) for code, pos in frame["drivers"].items()]
+        click_distance = [np.sqrt(np.abs(position[1][0] - x)**2 + np.abs(position[1][1] - y)**2) for position in positions]
+        min_index = np.argmin(click_distance)
         
+        #select driver if within 20 pixels
+        if click_distance[min_index] < 20:
+            self.selected_driver = positions[min_index][0]
+        else:
+            self.selected_driver = None
+
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar and controls."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
