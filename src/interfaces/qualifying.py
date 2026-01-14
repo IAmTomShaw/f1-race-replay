@@ -2,6 +2,7 @@ import arcade
 import threading
 import time
 import numpy as np
+import pandas as pd
 from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent, draw_finish_line
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
@@ -135,6 +136,27 @@ class QualifyingReplay(arcade.Window):
         self.is_forwarding = False
         self.was_paused_before_hold = False
 
+        # Delta cache (updates every N frames)
+        self._delta_cache_frame = -1
+        self._delta_cache_text = ""
+
+        # Sector delta state
+        self.sector_bounds_rel = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
+        self.sector_delta = {1: None, 2: None, 3: None}  # seconds vs reference
+        self.current_sector = 1
+
+        # Sector split times (cumulative, for table)
+        self.sector_split_time_sel = {1: None, 2: None, 3: None}
+        self.sector_split_time_ref = {1: None, 2: None, 3: None}
+
+        # track previous frame index to detect rewinds/jumps
+        self._prev_frame_index = 0
+
+        # Global and per-driver sector bests (for coloring)
+        self._global_sector_best = {1: None, 2: None, 3: None}
+        self._driver_sector_best = {}  # code -> {sector: best_time_sec}
+        self._build_sector_best_cache()
+
     def update_scaling(self, screen_w, screen_h):
         """
         Recalculates the scale and translation to fit the track 
@@ -202,8 +224,18 @@ class QualifyingReplay(arcade.Window):
             frames = self.loaded_telemetry.get("frames") if isinstance(self.loaded_telemetry, dict) else None
             if frames:
                 fastest_driver = self.data.get("results", [])[0] if isinstance(self.data.get("results", []), list) and len(self.data.get("results", [])) > 0 else None
-                # Get comparison telemetry if available
-                comparison_telemetry = self.data.get("telemetry", {}).get(fastest_driver.get("code")).get("Q3").get("frames", []) if self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                # Get comparison telemetry if available (same session part as selected driver)
+                comparison_telemetry = None
+                if self.show_comparison_telemetry and fastest_driver:
+                    ref_code = fastest_driver.get("code")
+                    ref_segment = self.loaded_driver_segment or "Q3"
+                    telemetry_store = self.data.get("telemetry", {})
+                    driver_block = telemetry_store.get(ref_code) if isinstance(telemetry_store, dict) else None
+                    seg = driver_block.get(ref_segment) if driver_block and isinstance(driver_block, dict) else None
+                    if seg and isinstance(seg, dict):
+                        # Don't compare driver with themselves in the same segment
+                        if not (ref_code == self.loaded_driver_code and ref_segment == self.loaded_driver_segment):
+                            comparison_telemetry = seg.get("frames", [])
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
@@ -285,7 +317,6 @@ class QualifyingReplay(arcade.Window):
                 ).draw()
 
                 # Comparison driver key (yellow line + label)
-
                 if comparison_telemetry:
                     comp_key_size = 12
                     comp_key_padding_right = 350
@@ -293,11 +324,12 @@ class QualifyingReplay(arcade.Window):
                     comp_square_x = chart_right - comp_key_padding_right - (comp_key_size / 2)
 
                     comp_driver_code = fastest_driver.get("code") if fastest_driver else "N/A"
+                    comp_segment = self.loaded_driver_segment or "Q3"
 
                     comp_key_rect = arcade.XYWH(comp_square_x, comp_key_y, comp_key_size, 3)
                     arcade.draw_rect_filled(comp_key_rect, arcade.color.YELLOW)
                     arcade.Text(
-                        f"Comparison Driver: {comp_driver_code} - Q3",
+                        f"Comparison driver: {comp_driver_code} ({comp_segment})",
                         comp_square_x + (comp_key_size * 0.5) + 6,
                         comp_key_y,
                         arcade.color.ANTI_FLASH_WHITE,
@@ -538,12 +570,333 @@ class QualifyingReplay(arcade.Window):
 
                 current_frame = frames[self.frame_index]
                 current_t = current_frame.get("t", 0.0)
-                    
                 formatted_time = format_time(current_t)
 
-                arcade.Text(f"Lap Time: {formatted_time}", map_left + 10, map_top - 30, arcade.color.ANTI_FLASH_WHITE, 16).draw()
+                arcade.Text(
+                    f"Lap Time: {formatted_time}",
+                    map_left + 10,
+                    map_top - 30,
+                    arcade.color.ANTI_FLASH_WHITE,
+                    16
+                ).draw()
 
-                arcade.Text(f"Playback Speed: {self.playback_speed:.1f}x", map_left + 10, map_top - 50, arcade.color.ANTI_FLASH_WHITE, 14).draw()
+                arcade.Text(
+                    f"Playback Speed: {self.playback_speed:.1f}x",
+                    map_left + 10,
+                    map_top - 50,
+                    arcade.color.ANTI_FLASH_WHITE,
+                    14
+                ).draw()
+
+                # Delta Display (cached, updates every 5 frames)
+                delta_y = map_top - 70
+                if comparison_telemetry and fastest_driver:
+                    # recompute text only every 5 frames
+                    need_recalc = (
+                        (self.frame_index - self._delta_cache_frame) >= 5
+                        or not self._delta_cache_text
+                    )
+
+                    if need_recalc:
+                        cur_tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
+                        cur_dist = self._pick_telemetry_value(cur_tel, "rel_dist", "dist")
+                        ref_t = None
+                        prev_d = None
+                        prev_t = None
+
+                        if cur_dist is not None:
+                            cur_dist = float(cur_dist)
+                            # walk reference frames and find time at same distance (linear interp)
+                            for rf in comparison_telemetry:
+                                rt = rf.get("t")
+                                rtel = rf.get("telemetry", {}) if isinstance(rf.get("telemetry", {}), dict) else {}
+                                rd = self._pick_telemetry_value(rtel, "rel_dist", "dist")
+                                if rd is None or rt is None:
+                                    continue
+                                rd = float(rd)
+                                rt = float(rt)
+                                if rd >= cur_dist:
+                                    if prev_d is not None and rd != prev_d:
+                                        ratio = (cur_dist - prev_d) / (rd - prev_d)
+                                        ref_t = prev_t + ratio * (rt - prev_t)
+                                    else:
+                                        ref_t = rt
+                                    break
+                                prev_d, prev_t = rd, rt
+                            # if we're past the last ref point, use last time
+                            if ref_t is None and prev_t is not None:
+                                ref_t = prev_t
+
+                        if ref_t is not None:
+                            delta = (current_t or 0.0) - ref_t  # >0 = slower, <0 = faster
+                            sign = "+" if delta >= 0 else "-"
+                            self._delta_cache_text = f"Delta: {sign}{abs(delta):.3f}s"
+                            self._delta_cache_frame = self.frame_index
+
+                    if self._delta_cache_text:
+                        arcade.Text(
+                            self._delta_cache_text,
+                            map_left + 10,
+                            delta_y,
+                            arcade.color.ANTI_FLASH_WHITE,
+                            14
+                        ).draw()
+
+                    # Comparison driver qualifying time (current segment)
+                    ref_time_label_y = map_top - 90
+                    ref_time_text = ""
+                    if fastest_driver:
+                        comp_driver_code = fastest_driver.get("code", "N/A")
+                        comp_segment = self.loaded_driver_segment or "Q3"
+                        ref_raw = fastest_driver.get(comp_segment)
+                        if ref_raw is not None:
+                            try:
+                                ref_secs = float(ref_raw)
+                                ref_time_text = f"Comparison {comp_driver_code} ({comp_segment}): {format_time(ref_secs)}"
+                            except (TypeError, ValueError):
+                                pass
+                    if ref_time_text:
+                        arcade.Text(
+                            ref_time_text,
+                            map_left + 10,
+                            ref_time_label_y,
+                            arcade.color.ANTI_FLASH_WHITE,
+                            14
+                        ).draw()
+
+                    # Sector times table (fastest vs selected vs delta)
+                    ref_code = fastest_driver.get("code") if fastest_driver else None
+                    sel_code = self.loaded_driver_code
+                    sel_segment = self.loaded_driver_segment or "Q3"
+                    ref_segment = sel_segment  # use same session part for both drivers
+
+                    ref_splits = self._get_sector_splits_for(ref_code, ref_segment) if ref_code else None
+                    sel_splits = self._get_sector_splits_for(sel_code, sel_segment) if sel_code else None
+
+                    if ref_splits and sel_splits:
+                        ref_sector_times = ref_splits["sector_times"]  # per-sector durations (for coloring)
+                        sel_sector_times = sel_splits["sector_times"]
+                        
+                        # Limit to sectors we have data for
+                        n_sectors = min(len(ref_sector_times), len(sel_sector_times), 3)
+                        if n_sectors >= 1:
+                            # Update sector deltas & freeze split times when passing boundaries
+                            self._update_sector_deltas(comparison_telemetry)
+                            # Current relative distance and live reference time at this point
+                            cur_rel = self._pick_telemetry_value(current_tel, "rel_dist")
+                            cur_rel = float(cur_rel) if cur_rel is not None else 0.0
+                            bounds = self.sector_bounds_rel if (self.sector_bounds_rel and len(self.sector_bounds_rel) == 4) else [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
+                            # Determine current performing sector: first boundary not yet reached and without split stored
+                            current_sector_idx = None
+                            for s in (1, 2, 3):
+                                boundary = float(bounds[s])
+                                if cur_rel < boundary and self.sector_split_time_sel.get(s) is None:
+                                    current_sector_idx = s
+                                    break
+
+                            t_ref_live = None
+                            if comparison_telemetry is not None:
+                                t_ref_live = self._time_at_rel_dist(comparison_telemetry, cur_rel)
+
+                            # Table geometry
+                            table_w = 420
+                            header_h = 26
+                            row_h = 26
+                            rows = 3  # fastest, selected, delta
+                            table_h = header_h + rows * row_h + 8
+                            table_left = map_left + 10
+                            table_top = map_top - 140
+                            table_bottom = table_top - table_h
+                            table_center_x = table_left + table_w / 2
+                            table_center_y = table_bottom + table_h / 2
+
+                            # Background
+                            table_rect = arcade.XYWH(table_center_x, table_center_y, table_w, table_h)
+                            arcade.draw_rect_filled(table_rect, (20, 20, 20, 230))
+
+                            # Column widths: label + 3 sectors
+                            label_w = 130
+                            sec_col_w = (table_w - label_w) / 3.0
+
+                            def _cell_center(col_idx: int, row_y: float):
+                                if col_idx == 0:
+                                    cx = table_left + label_w / 2
+                                else:
+                                    cx = table_left + label_w + (col_idx - 0.5) * sec_col_w
+                                return cx, row_y
+
+                            # Header row
+                            header_y = table_top - header_h / 2
+                            header_rect = arcade.XYWH(table_center_x, header_y, table_w, header_h)
+                            arcade.draw_rect_filled(header_rect, (40, 40, 40, 240))
+
+                            headers = ["", "S1", "S2", "S3"]
+                            for ci, text in enumerate(headers):
+                                cx, cy = _cell_center(ci, header_y)
+                                arcade.Text(
+                                    text,
+                                    cx,
+                                    cy,
+                                    arcade.color.ANTI_FLASH_WHITE,
+                                    12,
+                                    anchor_x="center",
+                                    anchor_y="center",
+                                ).draw()
+
+                            def _sector_color(driver_code: str, sector_idx: int, sec_time: float):
+                                """Purple: overall best, Green: personal best, else Yellow."""
+                                if sec_time is None:
+                                    return arcade.color.DIM_GRAY
+                                gb = self._global_sector_best.get(sector_idx)
+                                pb = (self._driver_sector_best.get(driver_code, {}) or {}).get(sector_idx)
+                                tol = 1e-3
+                                if gb is not None and abs(sec_time - gb) <= tol:
+                                    # Purple: #9B4DFF
+                                    return (155, 77, 255)
+                                if pb is not None and abs(sec_time - pb) <= tol:
+                                    # Green: #1AFF6B
+                                    return (26, 255, 107)
+                                # Yellow: #FFDD33
+                                return (255, 221, 51)
+
+                            # Row 0: fastest driver (reference)
+                            row0_y = header_y - header_h / 2 - 0.5 * row_h
+                            row0_rect = arcade.XYWH(table_center_x, row0_y, table_w, row_h)
+                            arcade.draw_rect_filled(row0_rect, (30, 30, 30, 220))
+                            ref_label = ref_code or "<ref>"
+                            cx, cy = _cell_center(0, row0_y)
+                            arcade.Text(
+                                ref_label,
+                                cx,
+                                cy,
+                                arcade.color.ANTI_FLASH_WHITE,
+                                11,
+                                anchor_x="center",
+                                anchor_y="center",
+                            ).draw()
+                            for s in range(1, n_sectors + 1):
+                                cx, cy = _cell_center(s, row0_y)
+                                # decide displayed cumulative time
+                                t_val = None
+                                if self.sector_split_time_ref.get(s) is not None:
+                                    t_val = self.sector_split_time_ref[s]
+                                elif current_sector_idx is not None and s == current_sector_idx and t_ref_live is not None:
+                                    t_val = t_ref_live
+                                txt = format_time(t_val) if t_val is not None else "--"
+                                sec_time_val = ref_sector_times[s - 1] if s <= len(ref_sector_times) else None
+                                color = _sector_color(ref_code, s, sec_time_val)
+                                # draw colored underline (only if we have a time)
+                                if t_val is not None:
+                                    cell_w = sec_col_w - 4
+                                    cell_h = row_h - 4
+                                    x1 = cx - cell_w / 2
+                                    x2 = cx + cell_w / 2
+                                    line_y = cy - cell_h / 2 + 2
+                                    arcade.draw_line(x1, line_y, x2, line_y, color, 3)
+                                arcade.Text(
+                                    txt,
+                                    cx,
+                                    cy,
+                                    arcade.color.WHITE,
+                                    11,
+                                    anchor_x="center",
+                                    anchor_y="center",
+                                ).draw()
+
+                            # Row 1: selected driver
+                            row1_y = header_y - header_h / 2 - 1.5 * row_h
+                            row1_rect = arcade.XYWH(table_center_x, row1_y, table_w, row_h)
+                            arcade.draw_rect_filled(row1_rect, (30, 30, 30, 220))
+                            sel_label = sel_code or "<selected>"
+                            cx, cy = _cell_center(0, row1_y)
+                            arcade.Text(
+                                sel_label,
+                                cx,
+                                cy,
+                                arcade.color.ANTI_FLASH_WHITE,
+                                11,
+                                anchor_x="center",
+                                anchor_y="center",
+                            ).draw()
+                            for s in range(1, n_sectors + 1):
+                                cx, cy = _cell_center(s, row1_y)
+                                t_val = None
+                                if self.sector_split_time_sel.get(s) is not None:
+                                    t_val = self.sector_split_time_sel[s]
+                                elif current_sector_idx is not None and s == current_sector_idx:
+                                    t_val = current_t
+                                txt = format_time(t_val) if t_val is not None else "--"
+                                sec_time_val = sel_sector_times[s - 1] if s <= len(sel_sector_times) else None
+                                color = _sector_color(sel_code, s, sec_time_val)
+                                # colored underline only when we have a time
+                                if t_val is not None:
+                                    cell_w = sec_col_w - 4
+                                    cell_h = row_h - 4
+                                    x1 = cx - cell_w / 2
+                                    x2 = cx + cell_w / 2
+                                    line_y = cy - cell_h / 2 + 2
+                                    arcade.draw_line(x1, line_y, x2, line_y, color, 3)
+                                arcade.Text(
+                                    txt,
+                                    cx,
+                                    cy,
+                                    arcade.color.WHITE,
+                                    11,
+                                    anchor_x="center",
+                                    anchor_y="center",
+                                ).draw()
+
+                            # Row 2: delta (selected - ref)
+                            row2_y = header_y - header_h / 2 - 2.5 * row_h
+                            row2_rect = arcade.XYWH(table_center_x, row2_y, table_w, row_h)
+                            arcade.draw_rect_filled(row2_rect, (30, 30, 30, 220))
+                            cx, cy = _cell_center(0, row2_y)
+                            arcade.Text(
+                                "Delta",
+                                cx,
+                                cy,
+                                arcade.color.ANTI_FLASH_WHITE,
+                                11,
+                                anchor_x="center",
+                                anchor_y="center",
+                            ).draw()
+                            for s in range(1, n_sectors + 1):
+                                cx, cy = _cell_center(s, row2_y)
+                                d_val = None
+                                if self.sector_delta.get(s) is not None:
+                                    d_val = self.sector_delta[s]
+                                elif (
+                                    current_sector_idx is not None
+                                    and s == current_sector_idx
+                                    and t_ref_live is not None
+                                ):
+                                    d_val = (current_t or 0.0) - t_ref_live
+                                if d_val is None:
+                                    txt = "--"
+                                else:
+                                    sign = "+" if d_val >= 0 else "-"
+                                    txt = f"{sign}{abs(d_val):.3f}s"
+                                cell_rect = arcade.XYWH(cx, cy, sec_col_w - 4, row_h - 4)
+                                arcade.draw_rect_filled(cell_rect, (50, 50, 50, 220))
+                                arcade.Text(
+                                    txt,
+                                    cx,
+                                    cy,
+                                    arcade.color.ANTI_FLASH_WHITE,
+                                    11,
+                                    anchor_x="center",
+                                    anchor_y="center",
+                                ).draw()
+
+                            # Border
+                            arcade.draw_lrbt_rectangle_outline(
+                                table_left,
+                                table_left + table_w,
+                                table_bottom,
+                                table_bottom + table_h,
+                                arcade.color.ANTI_FLASH_WHITE,
+                                1,
+                            )
 
                 # Legends
                 legend_x = chart_right - 100
@@ -775,6 +1128,139 @@ class QualifyingReplay(arcade.Window):
             if k in tel and tel[k] is not None:
                 return tel[k]
         return None
+    
+    def _time_at_rel_dist(self, frames, target_rel_dist: float):
+        """Find (interpolated) time t at which rel_dist reaches target_rel_dist."""
+        prev_rel = None
+        prev_t = None
+        for f in frames:
+            t = f.get("t")
+            tel = f.get("telemetry", {}) if isinstance(f.get("telemetry", {}), dict) else {}
+            rel = self._pick_telemetry_value(tel, "rel_dist")
+            if rel is None or t is None:
+                continue
+            rel = float(rel)
+            t = float(t)
+            if prev_rel is not None and rel >= target_rel_dist:
+                if rel != prev_rel:
+                    ratio = (target_rel_dist - prev_rel) / (rel - prev_rel)
+                    return prev_t + ratio * (t - prev_t)
+                else:
+                    return t
+            prev_rel, prev_t = rel, t
+        return prev_t  # may be None if no valid samples
+
+    def _update_sector_deltas(self, comparison_telemetry):
+        """Compute sector deltas once, when the driver crosses each sector boundary."""
+        if not (self.loaded_telemetry and comparison_telemetry):
+            return
+        if not self.sector_bounds_rel or len(self.sector_bounds_rel) != 4:
+            return
+        frames = self.loaded_telemetry.get("frames", [])
+        if not frames or self.frame_index >= len(frames):
+            return
+        current_frame = frames[self.frame_index]
+        cur_tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
+        cur_rel = self._pick_telemetry_value(cur_tel, "rel_dist")
+        if cur_rel is None:
+            return
+        cur_rel = float(cur_rel)
+        # For any unfinished sector whose boundary we've now passed, compute delta once.
+        for sector_idx in (1, 2, 3):
+            if self.sector_delta.get(sector_idx) is not None:
+                continue
+            boundary = float(self.sector_bounds_rel[sector_idx])
+            if cur_rel >= boundary:
+                t_driver = self._time_at_rel_dist(frames, boundary)
+                t_ref = self._time_at_rel_dist(comparison_telemetry, boundary)
+                if t_driver is not None and t_ref is not None:
+                    # store delta and freeze cumulative split times
+                    self.sector_delta[sector_idx] = float(t_driver - t_ref)
+                    self.sector_split_time_sel[sector_idx] = float(t_driver)
+                    self.sector_split_time_ref[sector_idx] = float(t_ref)
+                    
+    def _build_sector_best_cache(self):
+        """Precompute global and per-driver sector bests from session.laps."""
+        laps = getattr(self.session, "laps", None)
+        if laps is None:
+            return
+        try:
+            df = laps
+            # Global best per sector
+            for sector in (1, 2, 3):
+                col = f"Sector{sector}Time"
+                if col not in df.columns:
+                    continue
+                series = df[col].dropna()
+                if series.empty:
+                    continue
+                best_td = series.min()
+                if best_td is not None and not pd.isna(best_td):
+                    self._global_sector_best[sector] = float(best_td.total_seconds())
+            # Personal bests per driver (code from self.data["results"])
+            results = self.data.get("results", []) if isinstance(self.data, dict) else []
+            for r in results:
+                code = r.get("code")
+                if not code:
+                    continue
+                drv_laps = df.pick_drivers(code)
+                if drv_laps.empty:
+                    continue
+                bests = {}
+                for sector in (1, 2, 3):
+                    col = f"Sector{sector}Time"
+                    if col not in drv_laps.columns:
+                        continue
+                    s = drv_laps[col].dropna()
+                    if s.empty:
+                        continue
+                    best_td = s.min()
+                    if best_td is not None and not pd.isna(best_td):
+                        bests[sector] = float(best_td.total_seconds())
+                self._driver_sector_best[code] = bests
+        except Exception as e:
+            print("Sector best cache build failed:", e)
+
+    def _get_sector_splits_for(self, driver_code: str, segment_name: str):
+        """Return sector times and cumulative splits for driver's best lap in a segment."""
+        laps = getattr(self.session, "laps", None)
+        if laps is None or not driver_code:
+            return None
+        try:
+            drv_laps = laps.pick_drivers(driver_code)
+            if drv_laps.empty:
+                return None
+            # Restrict to session part if available (Q1/Q2/Q3/…)
+            if "SessionPart" in drv_laps.columns and segment_name:
+                seg_mask = drv_laps["SessionPart"] == segment_name
+                q_laps = drv_laps[seg_mask]
+                if q_laps.empty:
+                    q_laps = drv_laps
+            else:
+                q_laps = drv_laps
+            if q_laps.empty:
+                return None
+            fastest_lap = q_laps.pick_fastest()
+            if fastest_lap is None:
+                return None
+            sector_times = []
+            splits = []
+            cum = 0.0
+            for sector in (1, 2, 3):
+                col = f"Sector{sector}Time"
+                val = fastest_lap.get(col, None)
+                if val is None or pd.isna(val):
+                    break
+                sec = float(val.total_seconds())
+                sector_times.append(sec)
+                cum += sec
+                splits.append(cum)
+            if not sector_times:
+                return None
+            return {"sector_times": sector_times, "splits": splits}
+        except Exception as e:
+            print(f"Sector splits fetch failed for {driver_code} {segment_name}: {e}")
+            return None
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # If the segment-selector modal is visible (a driver selected), give it first chance
@@ -906,6 +1392,16 @@ class QualifyingReplay(arcade.Window):
                         self.frame_index = 0
                         self.paused = False
                         self.playback_speed = 1.0
+
+                    # Sector + delta state from telemetry (with fallback) 
+                    self.sector_bounds_rel = seg.get("sector_bounds_rel", [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0])
+                    self.sector_delta = {1: None, 2: None, 3: None}
+                    self.current_sector = 1
+                    self._delta_cache_frame = -1
+                    self._delta_cache_text = ""
+                    self._prev_frame_index = 0
+                    self.sector_split_time_sel = {1: None, 2: None, 3: None}
+                    self.sector_split_time_ref = {1: None, 2: None, 3: None}
                     self.loading_telemetry = False
                     self.loading_message = ""
                     return
@@ -978,6 +1474,17 @@ class QualifyingReplay(arcade.Window):
                     self.frame_index = 0
                     self.paused = False
                     self.playback_speed = 1.0
+
+                # Sector + delta state from telemetry (with fallback) 
+                self.sector_bounds_rel = telemetry.get("sector_bounds_rel", [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0])
+                self.sector_delta = {1: None, 2: None, 3: None}
+                self.current_sector = 1
+                self._delta_cache_frame = -1
+                self._delta_cache_text = ""
+                self._prev_frame_index = 0
+                self.sector_split_time_sel = {1: None, 2: None, 3: None}
+                self.sector_split_time_ref = {1: None, 2: None, 3: None}
+
         except Exception as e:
             print("Telemetry load failed:", e)
             self.loaded_telemetry = None
@@ -1024,6 +1531,16 @@ class QualifyingReplay(arcade.Window):
             # Auto-pause when lap completes to prevent errors
             if self.frame_index >= self.n_frames - 1:
                 self.paused = True
+
+        # Reset sector state when we jump backwards in time
+        if self.frame_index < self._prev_frame_index:
+            self.sector_delta = {1: None, 2: None, 3: None}
+            self.current_sector = 1
+            self._delta_cache_frame = -1
+            self._delta_cache_text = ""
+            self.sector_split_time_sel = {1: None, 2: None, 3: None}
+            self.sector_split_time_ref = {1: None, 2: None, 3: None}
+        self._prev_frame_index = self.frame_index
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:

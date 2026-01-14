@@ -2,6 +2,7 @@ fastf1
 pandas
 matplotlib
 numpy
+pandas
 arcade
 pyglet
 pyside6

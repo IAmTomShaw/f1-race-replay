@@ -576,6 +576,29 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
     idxs = np.clip(idxs, 0, len(t_sorted_unique) - 1)
     gear_resampled = gear_sorted[idxs].astype(int)
 
+    # Sector boundaries in relative distance (0.0–1.0), Fallback for for older/partial sessions 3 equal sectors by distance
+    sector_bounds_rel = [0.0, 1.0 / 3.0, 2.0 / 3.0, 1.0]
+
+    try:
+        s1_td = fastest_lap.get("Sector1Time", None)
+        s2_td = fastest_lap.get("Sector2Time", None)
+        if (
+            s1_td is not None and not pd.isna(s1_td) and
+            s2_td is not None and not pd.isna(s2_td)
+        ):
+            s1_t = float(s1_td.total_seconds())
+            s2_t = float(s2_td.total_seconds())
+            s1_end_t = s1_t
+            s2_end_t = s1_t + s2_t
+
+            # Map sector end times to relative distances using resampled telemetry
+            s1_rel = float(np.interp(s1_end_t, timeline, rel_dist_resampled))
+            s2_rel = float(np.interp(s2_end_t, timeline, rel_dist_resampled))
+            sector_bounds_rel = [0.0, s1_rel, s2_rel, 1.0]
+    except Exception as e:
+        # Keep default equal sectors if anything goes wrong
+        print(f"Sector boundary computation failed for {driver_code} {quali_segment}: {e}")
+
     resampled_data = {
         "t": timeline,
         "x": x_resampled,
@@ -715,6 +738,7 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
         "drs_zones": lap_drs_zones,
         "max_speed": max_speed,
         "min_speed": min_speed,
+        "sector_bounds_rel": sector_bounds_rel,  # NEW
     }
 
 
