@@ -49,7 +49,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.finished_drivers = []
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
-        self.toggle_drs_zones = True 
+        self.toggle_drs_zones = True
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
@@ -429,7 +429,21 @@ class F1RaceReplayWindow(arcade.Window):
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
-            driver_list.append((code, color, pos, progress_m))
+
+            # Tire age comes directly from FastF1 API (includes pre-race usage)
+            # Subtract 1 because TyreLife is the lap being driven, not laps completed
+            tire_life = pos.get("tyre_life", 0)
+            tire_age = max(0, int(tire_life) - 1) if tire_life > 0 else 0
+
+            # Debug: Print first frame tire data
+            if self.frame_index < 1 and code == list(frame["drivers"].keys())[0]:
+                print(f"DEBUG: First driver {code} - tyre_life={tire_life}, tire_age={tire_age}")
+
+            # Add tire_age to position data
+            pos_with_age = pos.copy()
+            pos_with_age['tire_age'] = tire_age
+
+            driver_list.append((code, color, pos_with_age, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)

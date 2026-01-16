@@ -43,6 +43,7 @@ def _process_single_driver(args):
     rel_dist_all = []
     lap_numbers = []
     tyre_compounds = []
+    tyre_life_all = []
     speed_all = []
     gear_all = []
     drs_all = []
@@ -58,13 +59,16 @@ def _process_single_driver(args):
         lap_number = lap.LapNumber
         tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
 
+        # Get TyreLife from lap data (actual tire age in laps)
+        tyre_life = lap.TyreLife if not pd.isna(lap.TyreLife) else 0.0
+
         if lap_tel.empty:
             continue
 
         t_lap = lap_tel["SessionTime"].dt.total_seconds().to_numpy()
         x_lap = lap_tel["X"].to_numpy()
         y_lap = lap_tel["Y"].to_numpy()
-        d_lap = lap_tel["Distance"].to_numpy()          
+        d_lap = lap_tel["Distance"].to_numpy()
         rd_lap = lap_tel["RelativeDistance"].to_numpy()
         speed_kph_lap = lap_tel["Speed"].to_numpy()
         gear_lap = lap_tel["nGear"].to_numpy()
@@ -82,6 +86,7 @@ def _process_single_driver(args):
         rel_dist_all.append(rd_lap)
         lap_numbers.append(np.full_like(t_lap, lap_number))
         tyre_compounds.append(np.full_like(t_lap, tyre_compund_as_int))
+        tyre_life_all.append(np.full_like(t_lap, tyre_life))
         speed_all.append(speed_kph_lap)
         gear_all.append(gear_lap)
         drs_all.append(drs_lap)
@@ -92,25 +97,25 @@ def _process_single_driver(args):
         return None
 
     # Concatenate all arrays at once for better performance
-    all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
-    
+    all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all,
+                  lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
+
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
 
     # Sort all arrays by time in one operation
     order = np.argsort(t_all)
-    all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, speed_all, gear_all, drs_all]
-    
+    all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all,
+                lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
+
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
+    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
 
     throttle_all = np.concatenate(throttle_all)[order]
     brake_all = np.concatenate(brake_all)[order]
 
     print(f"Completed telemetry for driver: {driver_code}")
-    
+
     return {
         "code": driver_code,
         "data": {
@@ -118,9 +123,10 @@ def _process_single_driver(args):
             "x": x_all,
             "y": y_all,
             "dist": race_dist_all,
-            "rel_dist": rel_dist_all,                   
+            "rel_dist": rel_dist_all,
             "lap": lap_numbers,
             "tyre": tyre_compounds,
+            "tyre_life": tyre_life_all,
             "speed": speed_all,
             "gear": gear_all,
             "drs": drs_all,
@@ -237,17 +243,18 @@ def get_race_telemetry(session, session_type='R'):
             data["rel_dist"][order],
             data["lap"][order],
             data["tyre"][order],
+            data["tyre_life"][order],
             data["speed"][order],
             data["gear"][order],
             data["drs"][order],
             data["throttle"][order],
             data["brake"][order],
         ]
-        
+
         resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
         x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
- 
+        tyre_resampled, tyre_life_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
+
         resampled_data[code] = {
             "t": timeline,
             "x": x_resampled,
@@ -256,6 +263,7 @@ def get_race_telemetry(session, session_type='R'):
             "rel_dist": rel_dist_resampled,
             "lap": lap_resampled,
             "tyre": tyre_resampled,
+            "tyre_life": tyre_life_resampled,
             "speed": speed_resampled,
             "gear": gear_resampled,
             "drs": drs_resampled,
@@ -344,6 +352,7 @@ def get_race_telemetry(session, session_type='R'):
                 "lap": int(round(d["lap"][i])),
                 "rel_dist": float(d["rel_dist"][i]),
                 "tyre": float(d["tyre"][i]),
+                "tyre_life": float(d["tyre_life"][i]),
                 "speed": float(d['speed'][i]),
                 "gear": int(d['gear'][i]),
                 "drs": int(d['drs'][i]),
@@ -375,10 +384,11 @@ def get_race_telemetry(session, session_type='R'):
             frame_data[code] = {
                 "x": car["x"],
                 "y": car["y"],
-                "dist": car["dist"],    
+                "dist": car["dist"],
                 "lap": car["lap"],
                 "rel_dist": round(car["rel_dist"], 4),
                 "tyre": car["tyre"],
+                "tyre_life": car["tyre_life"],
                 "position": position,
                 "speed": car['speed'],
                 "gear": car['gear'],
