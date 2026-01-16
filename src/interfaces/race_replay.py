@@ -3,17 +3,20 @@ import arcade
 import numpy as np
 from src.f1_data import FPS
 from src.ui_components import (
-    LeaderboardComponent, 
-    WeatherComponent, 
-    LegendComponent, 
-    DriverInfoComponent, 
+    LeaderboardComponent,
+    WeatherComponent,
+    LegendComponent,
+    DriverInfoComponent,
     RaceProgressBarComponent,
     RaceControlsComponent,
+    DriverSearchComponent,
     ControlsPopupComponent,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
 )
+from src.lib.layout import LayoutManager
+from src.lib.theme import ThemeManager
 
 
 SCREEN_WIDTH = 1280
@@ -29,12 +32,22 @@ class F1RaceReplayWindow(arcade.Window):
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
 
+        # Theming and layout
+        self.theme_manager = ThemeManager("resources/themes.json")
+        self.theme = self.theme_manager.get("dark")
+        self.current_theme_name = self.theme.name
+
+        self.layout_manager = LayoutManager("resources/layout.json")
+        self.layout_px = self.layout_manager.as_pixels(self.width, self.height)
+
         self.frames = frames
         self.track_statuses = track_statuses
         self.n_frames = len(frames)
+        self.report_title = title
         self.drivers = list(drivers)
-        self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
-        self.driver_colors = driver_colors or {}
+        self.playback_speed = playback_speed
+        self.driver_colors_raw = driver_colors or {}
+        self.driver_colors = self.theme.remap_driver_colors(self.driver_colors_raw)
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
         self.total_laps = total_laps
@@ -49,6 +62,18 @@ class F1RaceReplayWindow(arcade.Window):
         self.finished_drivers = []
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
+        self.track_area = self.layout_px.get("track_map", {
+            "x": self.left_ui_margin,
+            "top": self.height,
+            "width": max(1, self.width - self.left_ui_margin - self.right_ui_margin),
+            "height": self.height,
+        })
+        self.focused_driver = None
+        self.pinned_drivers = []
+        self.selected_drivers = []
+        self.layout_edit_mode = False
+        self._layout_active = None
+
         self.toggle_drs_zones = True 
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
@@ -56,12 +81,12 @@ class F1RaceReplayWindow(arcade.Window):
         self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
+        self.driver_search_comp = DriverSearchComponent(x=self.left_ui_margin - 300, top=self.height - 20, width=200)
+        self.driver_search_comp.set_callback(self.set_focused_driver)
+
         self.controls_popup_comp = ControlsPopupComponent()
-
-        self.controls_popup_comp.set_size(340, 230) # width/height of the popup box
-        self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
-
-
+        self.controls_popup_comp.set_size(340, 230)
+        self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13)
         # Progress bar component with race event markers
         self.progress_bar_comp = RaceProgressBarComponent(
             left_margin=left_ui_margin,
@@ -89,6 +114,7 @@ class F1RaceReplayWindow(arcade.Window):
             total_laps=total_laps or 0,
             events=race_events
         )
+        self._apply_layout()
 
         # Build track geometry (Raw World Coordinates)
         (self.plot_x_ref, self.plot_y_ref,
@@ -126,12 +152,14 @@ class F1RaceReplayWindow(arcade.Window):
         bg_path = os.path.join("resources", "background.png")
         self.bg_texture = arcade.load_texture(bg_path) if os.path.exists(bg_path) else None
 
-        arcade.set_background_color(arcade.color.BLACK)
+        arcade.set_background_color(self.theme.color("background", arcade.color.BLACK))
 
         # Persistent UI Text objects (avoid per-frame allocations)
-        self.lap_text = arcade.Text("", 20, self.height - 40, arcade.color.WHITE, 24, anchor_y="top")
-        self.time_text = arcade.Text("", 20, self.height - 80, arcade.color.WHITE, 20, anchor_y="top")
-        self.status_text = arcade.Text("", 20, self.height - 120, arcade.color.WHITE, 24, bold=True, anchor_y="top")
+        text_color = self.theme.color("text_primary", arcade.color.WHITE)
+        self.lap_text = arcade.Text("", 20, self.height - 40, text_color, 24, anchor_y="top")
+        self.time_text = arcade.Text("", 20, self.height - 80, text_color, 20, anchor_y="top")
+        self.status_text = arcade.Text("", 20, self.height - 120, text_color, 24, bold=True, anchor_y="top")
+        self._apply_theme()
 
         # Trigger initial scaling calculation
         self.update_scaling(self.width, self.height)
@@ -181,6 +209,12 @@ class F1RaceReplayWindow(arcade.Window):
         perfectly within the new screen dimensions while maintaining aspect ratio.
         """
         padding = 0.05
+        area = self.track_area or {
+            "x": self.left_ui_margin,
+            "top": screen_h,
+            "width": max(1.0, screen_w - self.left_ui_margin - self.right_ui_margin),
+            "height": screen_h,
+        }
         # If a rotation is applied, we must compute the rotated bounds
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
@@ -210,11 +244,8 @@ class F1RaceReplayWindow(arcade.Window):
         world_w = max(1.0, world_x_max - world_x_min)
         world_h = max(1.0, world_y_max - world_y_min)
         
-        # Reserve left/right UI margins before applying padding so the track
-        # never overlaps side UI elements (leaderboard, telemetry, legends).
-        inner_w = max(1.0, screen_w - self.left_ui_margin - self.right_ui_margin)
-        usable_w = inner_w * (1 - 2 * padding)
-        usable_h = screen_h * (1 - 2 * padding)
+        usable_w = max(1.0, area["width"] * (1 - 2 * padding))
+        usable_h = max(1.0, area["height"] * (1 - 2 * padding))
 
         # Calculate scale to fit whichever dimension is the limiting factor
         scale_x = usable_w / world_w
@@ -223,9 +254,10 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Center the world in the screen (rotation done about original centre)
         # world_cx/world_cy are unchanged by rotation about centre
-        # Center within the available inner area (left_ui_margin .. screen_w - right_ui_margin)
-        screen_cx = self.left_ui_margin + inner_w / 2
-        screen_cy = screen_h / 2
+        # Center within the available inner area (track layout rectangle)
+        area_bottom = area["top"] - area["height"]
+        screen_cx = area["x"] + area["width"] / 2
+        screen_cy = area_bottom + area["height"] / 2
 
         self.tx = screen_cx - self.world_scale * world_cx
         self.ty = screen_cy - self.world_scale * world_cy
@@ -237,10 +269,11 @@ class F1RaceReplayWindow(arcade.Window):
     def on_resize(self, width, height):
         """Called automatically by Arcade when window is resized."""
         super().on_resize(width, height)
+        self.layout_manager.refresh_from_window(self.width, self.height)
+        self._apply_layout()
         self.update_scaling(width, height)
         # notify components
-        self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp, self.driver_search_comp):
             c.on_resize(self)
         
         # update persistent text positions
@@ -301,11 +334,11 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Map track status -> colour (R,G,B)
         STATUS_COLORS = {
-            "GREEN": (150, 150, 150),    # normal grey
-            "YELLOW": (220, 180,   0),   # caution
-            "RED": (200,  30,  30),      # red-flag
-            "VSC": (200, 130,  50),      # virtual safety car / amber-brown
-            "SC": (180, 100,  30),       # safety car (darker brown)
+            "GREEN": self.theme.status_color("GREEN", (150, 150, 150)),    # normal grey
+            "YELLOW": self.theme.status_color("YELLOW", (220, 180,   0)),  # caution
+            "RED": self.theme.status_color("RED", (200,  30,  30)),        # red-flag
+            "VSC": self.theme.status_color("VSC", (200, 130,  50)),        # virtual safety car
+            "SC": self.theme.status_color("SC", (180, 100,  30)),          # safety car
         }
         track_color = STATUS_COLORS.get("GREEN", (150, 150, 150))
 
@@ -349,7 +382,12 @@ class F1RaceReplayWindow(arcade.Window):
         for code, pos in frame["drivers"].items():
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            arcade.draw_circle_filled(sx, sy, 6, color)
+            radius = 6
+            if code == self.focused_driver:
+                arcade.draw_circle_outline(sx, sy, radius + 5, self.theme.color("highlight", arcade.color.WHITE), 3)
+            if code in self.pinned_drivers:
+                arcade.draw_circle_outline(sx, sy, radius + 8, self.theme.color("pin", arcade.color.YELLOW_ORANGE), 2)
+            arcade.draw_circle_filled(sx, sy, radius, color)
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
@@ -423,6 +461,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.weather_comp.draw(self)
         # optionally expose weather_bottom for driver info layout
         self.weather_bottom = self.height - 170 - 130 if (weather_info or self.has_weather) else None
+        self.driver_search_comp.draw(self)
 
         # Draw leaderboard via component
         driver_list = []
@@ -453,6 +492,9 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Draw tooltips and overlays on top of everything
         self.progress_bar_comp.draw_overlays(self)
+
+        if self.layout_edit_mode:
+            self._draw_layout_overlay()
                     
     def on_update(self, delta_time: float):
         self.race_controls_comp.on_update(delta_time)
@@ -474,7 +516,9 @@ class F1RaceReplayWindow(arcade.Window):
             self.frame_index = float(self.n_frames - 1)
 
     def on_key_press(self, symbol: int, modifiers: int):
-        # Allow ESC to close window at any time
+        if self.driver_search_comp.active:
+            if self.driver_search_comp.on_key_press(self, symbol, modifiers):
+                return
         if symbol == arcade.key.ESCAPE:
             arcade.close_window()
             return
@@ -535,6 +579,16 @@ class F1RaceReplayWindow(arcade.Window):
                 self.controls_popup_comp.show_over(left_pos, top_pos)
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+        elif symbol == arcade.key.P:
+            self._pin_or_focus_selected()
+        elif symbol == arcade.key.T:
+            self._cycle_theme()
+        elif symbol == arcade.key.L and (modifiers & arcade.key.MOD_SHIFT):
+            self.layout_manager.reset_to_defaults()
+            self._apply_layout()
+            self.update_scaling(self.width, self.height)
+        elif symbol == arcade.key.L:
+            self.layout_edit_mode = not self.layout_edit_mode
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -552,20 +606,141 @@ class F1RaceReplayWindow(arcade.Window):
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
+        if self.layout_edit_mode:
+            self._layout_active = self.layout_manager.start_interaction(x, y)
+            if self._layout_active:
+                return
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.driver_search_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
+            self.focused_driver = self.selected_drivers[-1] if getattr(self, "selected_drivers", None) else None
             return
         if self.legend_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
+        self.selected_drivers = []
+        self.focused_driver = None
         
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar and controls."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
+
+    def on_mouse_drag(self, x: float, y: float, dx: float, dy: float, buttons: int, modifiers: int):
+        if self.layout_edit_mode and self._layout_active:
+            self.layout_manager.update_interaction(x, y, self.width, self.height)
+            self._apply_layout(use_existing=True)
+            self.update_scaling(self.width, self.height)
+
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+        if self.layout_edit_mode and self._layout_active:
+            self.layout_manager.end_interaction(self.width, self.height)
+            self._layout_active = None
+            self._apply_layout()
+            self.update_scaling(self.width, self.height)
+
+    def on_text(self, text: str):
+        self.driver_search_comp.on_text(self, text)
+
+    def _apply_layout(self, use_existing: bool = False):
+        try:
+            layout = self.layout_manager.layout_px if (use_existing and self.layout_manager.layout_px) else self.layout_manager.as_pixels(self.width, self.height)
+        except Exception:
+            # fallback to defaults on any error
+            self.layout_manager.reset_to_defaults()
+            layout = self.layout_manager.as_pixels(self.width, self.height)
+        self.layout_px = layout
+        track = layout.get("track_map")
+        if track:
+            self.track_area = track
+            self.left_ui_margin = track["x"]
+            self.right_ui_margin = max(0, self.width - (track["x"] + track["width"]))
+            self.progress_bar_comp.left_margin = track["x"]
+            self.progress_bar_comp.right_margin = self.right_ui_margin
+        lb = layout.get("leaderboard")
+        if lb:
+            self.leaderboard_comp.x = lb["x"]
+            self.leaderboard_comp.width = lb["width"]
+            self.leaderboard_comp.top = lb["top"]
+            self.leaderboard_comp.height = lb["height"]
+        tele = layout.get("telemetry")
+        if tele:
+            self.driver_info_comp.left = tele["x"]
+            self.driver_info_comp.width = tele["width"]
+            self.driver_info_comp.top = tele["top"]
+            self.driver_info_comp.height = tele["height"]
+            search_top = min(self.height - 10, tele["top"] + 6)
+            self.driver_search_comp.update_position(
+                x=int(tele["x"]),
+                top=int(search_top),
+                width=int(min(tele["width"], 260)),
+            )
+            self.driver_search_comp.set_callback(self.set_focused_driver)
+        # Align legend near the track edge to avoid overlap
+        self.legend_comp.x = max(12, self.left_ui_margin - 320)
+
+    def _apply_theme(self):
+        self.leaderboard_comp.apply_theme(self.theme)
+        self.driver_info_comp.apply_theme(self.theme)
+        self.progress_bar_comp.apply_theme(self.theme)
+        self.driver_search_comp.set_theme(self.theme)
+        arcade.set_background_color(self.theme.color("background", arcade.color.BLACK))
+        text_color = self.theme.color("text_primary", arcade.color.WHITE)
+        self.lap_text.color = text_color
+        self.time_text.color = text_color
+        self.status_text.color = text_color
+        # Remap driver colors if theme provides a palette
+        self.driver_colors = self.theme.remap_driver_colors(self.driver_colors_raw)
+
+    def _cycle_theme(self):
+        self.theme = self.theme_manager.cycle(self.current_theme_name)
+        self.current_theme_name = self.theme.name
+        self._apply_theme()
+
+    def toggle_pin_driver(self, code: str):
+        if not code:
+            return
+        if code in self.pinned_drivers:
+            self.pinned_drivers = [c for c in self.pinned_drivers if c != code]
+        else:
+            self.pinned_drivers.append(code)
+            if len(self.pinned_drivers) > 3:
+                self.pinned_drivers = self.pinned_drivers[-3:]
+        self.focused_driver = code
+        self.selected_driver = code
+        self.selected_drivers = [code]
+
+    def _pin_or_focus_selected(self):
+        code = None
+        if getattr(self, "selected_drivers", None):
+            code = self.selected_drivers[-1]
+        elif self.focused_driver:
+            code = self.focused_driver
+        if code:
+            self.toggle_pin_driver(code)
+
+    def set_focused_driver(self, code: str):
+        if not code:
+            return
+        # Validate against current frame
+        if self.frames and code not in self.frames[0].get("drivers", {}):
+            return
+        self.focused_driver = code
+        self.selected_driver = code
+        self.selected_drivers = [code]
+
+    def _draw_layout_overlay(self):
+        for name, rect in self.layout_px.items():
+            left = rect["x"]
+            right = rect["x"] + rect["width"]
+            top = rect["top"]
+            bottom = rect["top"] - rect["height"]
+            arcade.draw_lrtb_rectangle_outline(left, right, top, bottom, self.theme.color("highlight", arcade.color.LIGHT_BLUE), 2)
+            arcade.Text(name, left + 6, top - 18, self.theme.color("text_primary", arcade.color.WHITE), 11, anchor_x="left", anchor_y="top").draw()

@@ -1,6 +1,5 @@
 import arcade
-from typing import List, Literal, Tuple, Optional
-from typing import Sequence, Optional, Tuple
+from typing import List, Literal, Tuple, Optional, Sequence, Callable
 from src.lib.time import format_time
 import numpy as np
 import os
@@ -20,6 +19,108 @@ class BaseComponent:
     def on_resize(self, window): pass
     def draw(self, window): pass
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool: return False
+
+class DriverSearchComponent(BaseComponent):
+    """
+    Minimal text input for driver search. Emits the code via callback on Enter.
+    """
+    def __init__(self, x: int = 20, top: int = 680, width: int = 180):
+        self.x = x
+        self.top = top
+        self.width = width
+        self.height = 34
+        self.value = ""
+        self.active = False
+        self.placeholder = "Driver code (e.g. VER)"
+        self.on_submit: Optional[Callable[[str], None]] = None
+        self.colors = {
+            "bg": (40, 40, 48, 220),
+            "border": (90, 90, 104),
+            "border_active": (90, 184, 255),
+            "text": arcade.color.WHITE,
+            "muted": arcade.color.LIGHT_GRAY,
+        }
+
+    def set_theme(self, theme):
+        if not theme:
+            return
+        self.colors["bg"] = (*theme.color("panel", (40, 40, 48)), 220)
+        self.colors["border"] = theme.color("panel_border", (90, 90, 104))
+        self.colors["border_active"] = theme.color("highlight", (90, 184, 255))
+        self.colors["text"] = theme.color("text_primary", arcade.color.WHITE)
+        self.colors["muted"] = theme.color("text_muted", arcade.color.LIGHT_GRAY)
+
+    def update_position(self, *, x: Optional[int] = None, top: Optional[int] = None, width: Optional[int] = None):
+        if x is not None:
+            self.x = x
+        if top is not None:
+            self.top = top
+        if width is not None:
+            self.width = width
+
+    def draw(self, window):
+        y_bottom = self.top - self.height
+        center_x = self.x + self.width / 2
+        center_y = y_bottom + self.height / 2
+        rect = arcade.XYWH(center_x, center_y, self.width, self.height)
+        arcade.draw_rect_filled(rect, self.colors["bg"])
+        arcade.draw_rect_outline(rect, self.colors["border_active"] if self.active else self.colors["border"], 2)
+
+        display_text = self.value if self.value else self.placeholder
+        color = self.colors["text"] if self.value else self.colors["muted"]
+        arcade.Text(
+            display_text,
+            self.x + 10,
+            self.top - self.height + (self.height // 2),
+            color,
+            13,
+            anchor_y="center",
+        ).draw()
+
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        y_bottom = self.top - self.height
+        if self.x <= x <= self.x + self.width and y_bottom <= y <= self.top:
+            self.active = True
+            return True
+        self.active = False
+        return False
+
+    def on_text(self, window, text: str) -> bool:
+        if not self.active:
+            return False
+        if not text or not text.isprintable():
+            return False
+        cleaned = text.upper()
+        if cleaned.isalnum() and len(self.value) < 4:
+            self.value += cleaned
+        return True
+
+    def on_key_press(self, window, symbol: int, modifiers: int) -> bool:
+        if not self.active:
+            return False
+        if symbol == arcade.key.ENTER or symbol == arcade.key.RETURN:
+            return self._submit()
+        if symbol == arcade.key.ESCAPE:
+            self.active = False
+            return True
+        if symbol == arcade.key.BACKSPACE:
+            self.value = self.value[:-1]
+            return True
+        return False
+
+    def _submit(self) -> bool:
+        code = self.value.strip().upper()
+        if not code:
+            return False
+        if self.on_submit:
+            try:
+                self.on_submit(code)
+            except Exception:
+                pass
+        return True
+
+    def set_callback(self, callback: Callable[[str], None]):
+        self.on_submit = callback
 
 class LegendComponent(BaseComponent):
     def __init__(self, x: int = 20, y: int = 220, visible=True): # Increased y to 220 to fit all lines
@@ -242,12 +343,24 @@ class LeaderboardComponent(BaseComponent):
     def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True):
         self.x = x
         self.width = width
+        self.top: Optional[int] = None
+        self.height: Optional[int] = None
         self.entries = []  # list of tuples (code, color, pos, progress_m)
         self.rects = []    # clickable rects per entry
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
         self._tyre_textures = {}
         self._visible: bool = visible
+        self.colors = {
+            "panel": (20, 22, 28, 220),
+            "border": (80, 88, 96),
+            "title": arcade.color.WHITE,
+            "selected_bg": arcade.color.LIGHT_GRAY,
+            "selected_text": arcade.color.BLACK,
+            "text": arcade.color.WHITE,
+            "pin": (245, 158, 11),
+            "muted_pin": (120, 120, 130),
+        }
         # Import the tyre textures from the images/tyres folder (all files)
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
@@ -278,6 +391,18 @@ class LeaderboardComponent(BaseComponent):
         """
         self._visible = True
 
+    def apply_theme(self, theme):
+        if not theme:
+            return
+        self.colors["panel"] = (*theme.color("panel", (20, 22, 28)), 220)
+        self.colors["border"] = theme.color("panel_border", (80, 88, 96))
+        self.colors["title"] = theme.color("text_primary", arcade.color.WHITE)
+        self.colors["text"] = theme.color("text_primary", arcade.color.WHITE)
+        self.colors["selected_bg"] = theme.color("highlight", arcade.color.LIGHT_GRAY)
+        self.colors["selected_text"] = arcade.color.BLACK
+        self.colors["pin"] = theme.color("pin", (245, 158, 11))
+        self.colors["muted_pin"] = theme.color("text_muted", (120, 120, 130))
+
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
         # entries sorted as expected
         self.entries = entries
@@ -286,25 +411,22 @@ class LeaderboardComponent(BaseComponent):
         if not self._visible:
             return
         self.selected = getattr(window, "selected_drivers", [])
-        leaderboard_y = window.height - 40
-        arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        pinned = getattr(window, "pinned_drivers", [])
+        leaderboard_y = self.top if self.top is not None else window.height - 40
+        max_rows = None
+        if self.height:
+            usable = max(self.height - 40, 1)
+            max_rows = max(1, int(usable // self.row_height))
+
+        panel_height = self.height if self.height is not None else (40 + self.row_height * max(len(self.entries), 10))
+        panel_center_y = leaderboard_y - panel_height / 2
+        panel_rect = arcade.XYWH(self.x + self.width / 2, panel_center_y, self.width, panel_height)
+        arcade.draw_rect_filled(panel_rect, self.colors["panel"])
+        arcade.draw_rect_outline(panel_rect, self.colors["border"], 1)
+
+        arcade.Text("Leaderboard", self.x + 8, leaderboard_y - 4, self.colors["title"], 20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
-
-        # Sort entries by lap number an distance progressed
-        # If any of the entries have lap > 1, then sort
-
-        if any(e[2].get("lap", 0) > 1 for e in self.entries):
-            new_entries = sorted(
-                self.entries,
-                key=lambda e: (
-                    -e[2].get("lap", 0),  # Descending lap number
-                    -e[2].get("dist")                 # Descending distance progressed
-                )
-            )
-        else:
-            new_entries = self.entries
-
-        for i, (code, color, pos, progress_m) in enumerate(new_entries):
+        for i, (code, color, pos, progress_m) in enumerate(self.entries):
             current_pos = i + 1
             top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
@@ -314,12 +436,15 @@ class LeaderboardComponent(BaseComponent):
 
             if code in self.selected:
                 rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
-                arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
-                text_color = arcade.color.BLACK
+                arcade.draw_rect_filled(rect, self.colors["selected_bg"])
+                text_color = self.colors["selected_text"]
             else:
                 text_color = color
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
-            arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+            # Pinned indicator
+            pin_color = self.colors["pin"] if code in pinned else self.colors["muted_pin"]
+            arcade.draw_circle_filled(left_x + 8, top_y - self.row_height / 2, 4, pin_color)
+            arcade.Text(text, left_x + 16, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
              # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
@@ -361,6 +486,9 @@ class LeaderboardComponent(BaseComponent):
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
             if left <= x <= right and bottom <= y <= top:
+                if button == arcade.MOUSE_BUTTON_RIGHT and hasattr(window, "toggle_pin_driver"):
+                    window.toggle_pin_driver(code)
+                    return True
                 # Detect multi-select modifiers
                 is_multi = (modifiers & arcade.key.MOD_SHIFT)
 
@@ -618,14 +746,43 @@ class DriverInfoComponent(BaseComponent):
         self.left = left
         self.width = width
         self.min_top = min_top
+        self.top: Optional[int] = None
+        self.height: Optional[int] = None
+        self.colors = {
+            "panel": (0, 0, 0, 200),
+            "border": arcade.color.GRAY,
+            "header_text": arcade.color.BLACK,
+            "text": arcade.color.WHITE,
+            "muted": arcade.color.LIGHT_GRAY,
+            "primary": arcade.color.WHITE,
+            "pin": (245, 158, 11),
+        }
+
+    def apply_theme(self, theme):
+        if not theme:
+            return
+        self.colors["panel"] = (*theme.color("panel", (0, 0, 0)), 200)
+        self.colors["border"] = theme.color("panel_border", arcade.color.GRAY)
+        self.colors["text"] = theme.color("text_primary", arcade.color.WHITE)
+        self.colors["muted"] = theme.color("text_muted", arcade.color.LIGHT_GRAY)
+        self.colors["primary"] = theme.color("highlight", arcade.color.WHITE)
+        self.colors["pin"] = theme.color("pin", (245, 158, 11))
 
     def draw(self, window):
         # Support multiple selection via window.selected_drivers
-        codes = getattr(window, "selected_drivers", [])
-        if not codes:
-            # Fallback to single selection compatibility
-            single = getattr(window, "selected_driver", None)
-            codes = [single] if single else []
+        pinned = getattr(window, "pinned_drivers", [])
+        focused = getattr(window, "focused_driver", None)
+        selected = getattr(window, "selected_drivers", []) or []
+
+        codes = []
+        if focused:
+            codes.append(focused)
+        for code in selected:
+            if code not in codes:
+                codes.append(code)
+        for code in pinned:
+            if code not in codes:
+                codes.append(code)
 
         if not codes or not window.frames:
             return
@@ -633,44 +790,57 @@ class DriverInfoComponent(BaseComponent):
         idx = min(int(window.frame_index), window.n_frames - 1)
         frame = window.frames[idx]
 
-        box_width, box_height, gap = self.width, 210, 10
+        box_width, box_height, gap = self.width, 255, 18
         weather_bottom = getattr(window, "weather_bottom", None)
-        current_top = weather_bottom - 20 if weather_bottom else window.height - 200
+        start_top = self.top if self.top is not None else (weather_bottom - 20 if weather_bottom else window.height - 200)
+        max_height = self.height
+        current_top = start_top
 
         for code in codes:
             if code not in frame["drivers"]: continue
-            if current_top - box_height < self.min_top: break
+            if current_top - box_height < self.min_top:
+                break
+            if max_height is not None and (start_top - (current_top - box_height)) > max_height:
+                break
 
             driver_pos = frame["drivers"][code]
             center_y = current_top - (box_height / 2)
-            self._draw_info_box(window, code, driver_pos, center_y, box_width, box_height)
+            is_pinned = code in pinned
+            is_primary = code == focused
+            self._draw_info_box(window, code, driver_pos, center_y, box_width, box_height, is_pinned, is_primary)
             current_top -= (box_height + gap)
 
-    def _draw_info_box(self, window, code, driver_pos, center_y, box_width, box_height):
+    def _draw_info_box(self, window, code, driver_pos, center_y, box_width, box_height, is_pinned=False, is_primary=False):
         center_x = self.left + box_width / 2
         top, bottom = center_y + box_height / 2, center_y - box_height / 2
         left, right = center_x - box_width / 2, center_x + box_width / 2
 
         rect = arcade.XYWH(center_x, center_y, box_width, box_height)
-        arcade.draw_rect_filled(rect, (0, 0, 0, 200))
+        arcade.draw_rect_filled(rect, self.colors["panel"])
 
-        team_color = window.driver_colors.get(code, arcade.color.GRAY)
-        arcade.draw_rect_outline(rect, team_color, 2)
+        team_color = window.driver_colors.get(code, self.colors["border"])
+        border_color = self.colors["border"] if not is_primary else self.colors["primary"]
+        arcade.draw_rect_outline(rect, border_color, 2)
 
         header_height = 30
         header_cy = top - (header_height / 2)
         arcade.draw_rect_filled(arcade.XYWH(center_x, header_cy, box_width, header_height), team_color)
-        arcade.Text(f"Driver: {code}", left + 10, header_cy, arcade.color.BLACK, 14, anchor_y="center",
+        header_text = f"Driver: {code}"
+        if is_pinned:
+            header_text += "  (Pinned)"
+        arcade.Text(header_text, left + 10, header_cy, self.colors["header_text"], 14, anchor_y="center",
                     bold=True).draw()
+        if is_pinned:
+            arcade.draw_circle_filled(right - 18, header_cy, 6, self.colors["pin"])
 
         cursor_y, row_gap = top - header_height - 25, 25
         left_text_x = left + 15
 
         # Telemetry Text
         speed = driver_pos.get('speed', 0)
-        arcade.Text(f"Speed: {speed:.0f} km/h", left + 15, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        arcade.Text(f"Speed: {speed:.0f} km/h", left + 15, cursor_y, self.colors["text"], 12, anchor_y="center").draw()
         cursor_y -= row_gap
-        arcade.Text(f"Gear: {driver_pos.get('gear', '-')}", left + 15, cursor_y, arcade.color.WHITE, 12,
+        arcade.Text(f"Gear: {driver_pos.get('gear', '-')}", left + 15, cursor_y, self.colors["text"], 12,
                     anchor_y="center").draw()
         cursor_y -= row_gap
 
@@ -725,26 +895,36 @@ class DriverInfoComponent(BaseComponent):
             except (StopIteration, IndexError):
                 pass
 
-        arcade.Text(gap_ahead, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
+        arcade.Text(gap_ahead, left_text_x, cursor_y, self.colors["muted"], 11, anchor_y="center").draw()
         cursor_y -= 22
-        arcade.Text(gap_behind, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
+        arcade.Text(gap_behind, left_text_x, cursor_y, self.colors["muted"], 11, anchor_y="center").draw()
 
         # Graphs
         thr, brk = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
         t_r, b_r = max(0.0, min(1.0, thr / 100.0)), max(0.0, min(1.0, brk / 100.0 if brk > 1.0 else brk))
-        bar_w, bar_h, b_y = 20, 80, bottom + 35
-        r_center = right - 50
+        # Draw throttle/brake meters below the gap info
+        bar_w, bar_h = 20, 80
+        gap_to_bottom = 10
+        b_y = bottom + bar_h / 2 + gap_to_bottom
+        center_x = self.left + box_width / 2
+        spacing = 30
 
-        # Throttle
-        arcade.Text("THR", r_center - 15, b_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
-        arcade.draw_rect_filled(arcade.XYWH(r_center - 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
-        if t_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center - 15, b_y + (bar_h * t_r) / 2, bar_w, bar_h * t_r),
-                                            arcade.color.GREEN)
-        # Brake
-        arcade.Text("BRK", r_center + 15, b_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
-        arcade.draw_rect_filled(arcade.XYWH(r_center + 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
-        if b_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center + 15, b_y + (bar_h * b_r) / 2, bar_w, bar_h * b_r),
-                                            arcade.color.RED)
+        thr_center_x = center_x - spacing
+        brk_center_x = center_x + spacing
+
+        arcade.Text("THR", thr_center_x, b_y - bar_h / 2 - 10, self.colors["text"], 10, anchor_x="center").draw()
+        arcade.draw_rect_filled(arcade.XYWH(thr_center_x, b_y, bar_w, bar_h), arcade.color.DARK_GRAY)
+        if t_r > 0:
+            filled_h = bar_h * t_r
+            fill_center_y = (b_y - bar_h / 2) + filled_h / 2
+            arcade.draw_rect_filled(arcade.XYWH(thr_center_x, fill_center_y, bar_w, filled_h), arcade.color.GREEN)
+
+        arcade.Text("BRK", brk_center_x, b_y - bar_h / 2 - 10, self.colors["text"], 10, anchor_x="center").draw()
+        arcade.draw_rect_filled(arcade.XYWH(brk_center_x, b_y, bar_w, bar_h), arcade.color.DARK_GRAY)
+        if b_r > 0:
+            filled_h = bar_h * b_r
+            fill_center_y = (b_y - bar_h / 2) + filled_h / 2
+            arcade.draw_rect_filled(arcade.XYWH(brk_center_x, fill_center_y, bar_w, filled_h), arcade.color.RED)
 
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
@@ -939,6 +1119,14 @@ class RaceProgressBarComponent(BaseComponent):
         self._hover_event: Optional[dict] = None
         self._mouse_x: float = 0
         self._mouse_y: float = 0
+
+    def apply_theme(self, theme):
+        if not theme:
+            return
+        self.COLORS["background"] = (*theme.color("panel", (30, 30, 30)), 200)
+        self.COLORS["progress_border"] = theme.color("panel_border", (100, 100, 100))
+        self.COLORS["text"] = theme.color("text_primary", (220, 220, 220))
+        self.COLORS["progress_fill"] = theme.color("highlight", (0, 180, 0))
         
     def set_race_data(self, 
                       total_frames: int, 
@@ -1916,54 +2104,3 @@ def plotDRSzones(example_lap):
        drs_zones.append(zone)
    
    return drs_zones
-
-def draw_finish_line(self, session_type = 'R'):
-    if(session_type not in ['R', 'Q']):
-        print("Invalid session type for finish line drawing...")
-        return
-
-    start_inner = None
-    start_outer = None
-
-    if(session_type == 'Q' and len(self.inner_pts) > 0 and len(self.outer_pts) > 0):
-        start_inner = self.inner_pts[0]
-        start_outer = self.outer_pts[0]
-    elif(session_type == 'R' and len(self.screen_inner_points) > 0 and len(self.screen_outer_points) > 0):
-        start_inner = self.screen_inner_points[0]
-        start_outer = self.screen_outer_points[0]
-    else:
-        return
-    
-    # Draw checkered finish line
-    if start_inner and start_outer:
-        num_squares = 20
-        extension = 20
-            
-        # Calculate direction vector and normalize
-        dx = start_outer[0] - start_inner[0]
-        dy = start_outer[1] - start_inner[1]
-        length = np.sqrt(dx**2 + dy**2)
-            
-        if length > 0:
-            # Normalize direction (unit vector)
-            dx_norm = dx / length
-            dy_norm = dy / length
-                
-            # Extend line beyond track limits
-            extended_inner = (start_inner[0] - extension * dx_norm, 
-                             start_inner[1] - extension * dy_norm)
-            extended_outer = (start_outer[0] + extension * dx_norm, 
-                             start_outer[1] + extension * dy_norm)
-            
-            # Draw checkered pattern across extended line
-            for i in range(num_squares):
-                t1 = i / num_squares # start of segment
-                t2 = (i + 1) / num_squares # end of segment
-                
-                x1 = extended_inner[0] + t1 * (extended_outer[0] - extended_inner[0])
-                y1 = extended_inner[1] + t1 * (extended_outer[1] - extended_inner[1])
-                x2 = extended_inner[0] + t2 * (extended_outer[0] - extended_inner[0])
-                y2 = extended_inner[1] + t2 * (extended_outer[1] - extended_inner[1])
-                
-                color = arcade.color.WHITE if i % 2 == 0 else arcade.color.BLACK
-                arcade.draw_line(x1, y1, x2, y2, color, 6)

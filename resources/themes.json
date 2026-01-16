@@ -1,0 +1,100 @@
+{
+  "dark": {
+    "colors": {
+      "background": "#0c0c0f",
+      "panel": "#1a1d22",
+      "panel_border": "#2d323c",
+      "text_primary": "#f5f7fa",
+      "text_muted": "#b7c0cc",
+      "highlight": "#7dd3fc",
+      "pin": "#f59e0b"
+    },
+    "track_status": {
+      "GREEN": "#7a7f89",
+      "YELLOW": "#f2c94c",
+      "RED": "#ef4444",
+      "SC": "#f97316",
+      "VSC": "#f59e0b"
+    }
+  },
+  "high_contrast": {
+    "colors": {
+      "background": "#000000",
+      "panel": "#0f172a",
+      "panel_border": "#e5e7eb",
+      "text_primary": "#ffffff",
+      "text_muted": "#e5e7eb",
+      "highlight": "#22d3ee",
+      "pin": "#fbbf24"
+    },
+    "track_status": {
+      "GREEN": "#d1d5db",
+      "YELLOW": "#fde047",
+      "RED": "#ef4444",
+      "SC": "#fb923c",
+      "VSC": "#fbbf24"
+    },
+    "driver_palette": [
+      "#0ea5e9",
+      "#22c55e",
+      "#f97316",
+      "#a855f7",
+      "#f43f5e",
+      "#84cc16",
+      "#eab308",
+      "#14b8a6",
+      "#c084fc",
+      "#ef4444",
+      "#10b981",
+      "#3b82f6",
+      "#d946ef",
+      "#f59e0b",
+      "#8b5cf6",
+      "#22c55e",
+      "#facc15",
+      "#6366f1",
+      "#ef4444",
+      "#14b8a6"
+    ]
+  },
+  "deuteranopia": {
+    "colors": {
+      "background": "#0d1117",
+      "panel": "#161b22",
+      "panel_border": "#2f343f",
+      "text_primary": "#f0f6fc",
+      "text_muted": "#c9d1d9",
+      "highlight": "#38bdf8",
+      "pin": "#eab308"
+    },
+    "track_status": {
+      "GREEN": "#94a3b8",
+      "YELLOW": "#fcd34d",
+      "RED": "#ef4444",
+      "SC": "#f59e0b",
+      "VSC": "#fbbf24"
+    },
+    "driver_palette": [
+      "#E69F00",
+      "#56B4E9",
+      "#009E73",
+      "#F0E442",
+      "#0072B2",
+      "#D55E00",
+      "#CC79A7",
+      "#999999",
+      "#2E8B57",
+      "#8A2BE2",
+      "#87CEFA",
+      "#B22222",
+      "#20B2AA",
+      "#708090",
+      "#DDA0DD",
+      "#FF8C00",
+      "#6A5ACD",
+      "#3CB371",
+      "#CD5C5C",
+      "#4682B4"
+    ]
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "track_map": {
+    "x": 0.12,
+    "top": 0.97,
+    "width": 0.54,
+    "height": 0.94
+  },
+  "leaderboard": {
+    "x": 0.82,
+    "top": 0.95,
+    "width": 0.18,
+    "height": 0.88
+  },
+  "telemetry": {
+    "x": 0.66,
+    "top": 0.95,
+    "width": 0.16,
+    "height": 0.55
+  }
+}
