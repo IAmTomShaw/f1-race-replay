@@ -7,3 +7,4 @@ pyglet
 pyside6
 questionary
 rich
+ollama>=0.1.0
