@@ -13,6 +13,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
 - **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **LLM Strategy Analyst:** AI-powered race strategy recommendations using local LLMs (Ollama).
 
 ## Controls
 
@@ -113,6 +114,40 @@ To run a Sprint Qualifying session (if the event has one), add `--sprint`:
 python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 ```
 
+### LLM Strategy Analyst
+
+Get AI-powered race strategy recommendations using local LLMs via Ollama:
+
+```bash
+# Basic strategy recommendation
+python src/cli_strategy.py --year 2024 --round 12 --driver VER --lap 30
+
+# With custom question
+python src/cli_strategy.py --year 2024 --round 12 --driver VER --lap 30 \
+  --question "Is the undercut feasible?"
+
+# Post-race evaluation
+python src/cli_strategy.py --year 2024 --round 12 --driver VER --lap 30 \
+  --evaluate --actual-pit-lap 32
+
+# Full JSON output for audit/analysis
+python src/cli_strategy.py --year 2024 --round 12 --driver VER --lap 30 --json
+```
+
+**Why this is not just an LLM demo:**
+
+The LLM is strictly constrained to:
+- Use only explicitly provided telemetry-derived facts
+- Surface uncertainties instead of hallucinating missing information
+- Produce structured, auditable JSON outputs
+
+The system is designed as a decision-support agent with:
+- **Controlled vocabulary** for factors and uncertainties (prevents invented categories)
+- **Hallucination guards** enforcing "allowed facts only" in prompts
+- **Post-race evaluation** completing the reason → act → evaluate loop
+
+**Setup:** Requires [Ollama](https://ollama.com) installed and running. Pull a model like `llama3.2` or use your preferred local model with `--model`.
+
 **NEW GUI MENU:** To use the new GUI menu system, you can simply run:
 ```bash
 python main.py --gui
@@ -132,6 +167,8 @@ f1-race-replay/
 ├── src/
 │   ├── f1_data.py            # Telemetry loading, processing, and frame generation
 │   ├── arcade_replay.py      # Visualization and UI logic
+│   ├── strategy_analyzer.py  # LLM-powered strategy analysis (Ollama integration)
+│   ├── cli_strategy.py       # CLI for strategy recommendations
 │   └── ui_components.py      # UI components like buttons and leaderboard
 │   ├── interfaces/
 │   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
