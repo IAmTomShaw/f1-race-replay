@@ -35,7 +35,7 @@ class LegendComponent(BaseComponent):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(icons_folder, filename)
                     self._control_icons_textures[texture_name] = arcade.load_texture(texture_path)
-        self.lines = ["Help (Click or 'H')"]
+        self.lines = ["Help (Click or 'H')", "Toggle Follow Mode (F)"]
         
         self.controls_text_offset = 180
         self._text = arcade.Text("", 0, 0, arcade.color.CYAN, 14)
