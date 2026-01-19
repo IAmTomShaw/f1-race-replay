@@ -20,6 +20,7 @@ class BaseComponent:
     def on_resize(self, window): pass
     def draw(self, window): pass
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool: return False
+    def on_key_press(self, window, key: int, modifiers: int) -> bool: return False
 
 class LegendComponent(BaseComponent):
     def __init__(self, x: int = 20, y: int = 220, visible=True): # Increased y to 220 to fit all lines
@@ -288,6 +289,15 @@ class LeaderboardComponent(BaseComponent):
         self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        
+
+        # Label for Tyre Age (L...)
+        arcade.Text("Age", self.x + self.width - 22, leaderboard_y - 5, arcade.color.GRAY, 10, anchor_x="right", anchor_y="top").draw()
+        
+ 
+        # Access the static stint history data we saved in f1_data.py
+        driver_stints = getattr(window, "data", {}).get("driver_stints", {})
+
         self.rects = []
 
         # Sort entries by lap number an distance progressed
@@ -321,7 +331,7 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            # 1. Draw Current Tyre Icon
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track
@@ -331,13 +341,19 @@ class LeaderboardComponent(BaseComponent):
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
                 arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
 
-                # Draw the textured rect
-                arcade.draw_texture_rect(
-                    rect=rect,
-                    texture=tyre_texture,
-                    angle=0,
-                    alpha=255
-                )
+            # Draw Tyre Age
+            tyre_age = pos.get("tyre_age")
+            if tyre_age is not None:
+                arcade.Text(
+                    f"L{int(tyre_age)}",
+                    left_x + self.width - 22,
+                    top_y - 12,
+                    arcade.color.LIGHT_GRAY,
+                    10,
+                    anchor_x="right",
+                    anchor_y="center"
+                ).draw()
+
 
                 # DRS Indicator
                 drs_val = pos.get("drs", 0)
@@ -668,7 +684,7 @@ class DriverInfoComponent(BaseComponent):
 
         # Telemetry Text
         speed = driver_pos.get('speed', 0)
-        arcade.Text(f"Speed: {speed:.0f} km/h", left + 15, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        arcade.Text(f"Speed: {speed:.0f} km/h", left_text_x, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
         cursor_y -= row_gap
         arcade.Text(f"Gear: {driver_pos.get('gear', '-')}", left + 15, cursor_y, arcade.color.WHITE, 12,
                     anchor_y="center").draw()
