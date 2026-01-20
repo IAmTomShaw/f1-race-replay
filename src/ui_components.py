@@ -1027,6 +1027,7 @@ class RaceProgressBarComponent(BaseComponent):
         self._events: List[dict] = []
         self._total_frames: int = 0
         self._total_laps: int = 0
+        self._lap_events: List[dict] = []
         self._bar_left: float = 0
         self._bar_width: float = 0
         
@@ -1049,6 +1050,9 @@ class RaceProgressBarComponent(BaseComponent):
         self._total_frames = max(1, total_frames)
         self._total_laps = total_laps or 1
         self._events = sorted(events, key=lambda e: e.get("frame", 0))
+        # Cache any explicit lap events so we can render lap markers at the
+        # correct frames instead of spreading them uniformly across the race
+        self._lap_events = [e for e in self._events if e.get("type") == self.EVENT_LAP]
     
     @property
     def visible(self) -> bool:
@@ -1140,26 +1144,51 @@ class RaceProgressBarComponent(BaseComponent):
         
         # 3. Draw lap markers (vertical lines)
         if self._total_laps > 1:
-            for lap in range(1, self._total_laps + 1):
-                # Approximate frame for lap transition
-                lap_frame = int((lap / self._total_laps) * self._total_frames)
-                lap_x = self._frame_to_x(lap_frame)
-                
-                # Draw subtle vertical line
-                arcade.draw_line(
-                    lap_x, self.bottom + 2,
-                    lap_x, self.bottom + self.height - 2,
-                    self.COLORS["lap_marker"], 1
-                )
-                
-                # Draw lap number below for major laps (every 5 laps or first/last)
-                if lap == 1 or lap == self._total_laps or lap % 10 == 0:
-                    arcade.Text(
-                        str(lap),
-                        lap_x, self.bottom - 4,
-                        self.COLORS["text"], 9,
-                        anchor_x="center", anchor_y="top"
-                    ).draw()
+            if self._lap_events:
+                # Use explicit lap events (based on real telemetry) so that the
+                # markers line up with the actual lap boundaries shown in the HUD.
+                for lap_event in self._lap_events:
+                    lap = lap_event.get("lap")
+                    lap_frame = lap_event.get("frame", 0)
+                    lap_x = self._frame_to_x(lap_frame)
+
+                    arcade.draw_line(
+                        lap_x, self.bottom + 2,
+                        lap_x, self.bottom + self.height - 2,
+                        self.COLORS["lap_marker"], 1
+                    )
+
+                    # Draw lap number below for major laps (every 10 laps or first/last)
+                    if lap and (lap == 1 or lap == self._total_laps or lap % 10 == 0):
+                        arcade.Text(
+                            str(lap),
+                            lap_x, self.bottom - 4,
+                            self.COLORS["text"], 9,
+                            anchor_x="center", anchor_y="top"
+                        ).draw()
+            else:
+                # Fallback: approximate lap markers uniformly when we don't
+                # have explicit lap frame information.
+                for lap in range(1, self._total_laps + 1):
+                    # Approximate frame for lap transition
+                    lap_frame = int((lap / self._total_laps) * self._total_frames)
+                    lap_x = self._frame_to_x(lap_frame)
+
+                    # Draw subtle vertical line
+                    arcade.draw_line(
+                        lap_x, self.bottom + 2,
+                        lap_x, self.bottom + self.height - 2,
+                        self.COLORS["lap_marker"], 1
+                    )
+
+                    # Draw lap number below for major laps (every 10 laps or first/last)
+                    if lap == 1 or lap == self._total_laps or lap % 10 == 0:
+                        arcade.Text(
+                            str(lap),
+                            lap_x, self.bottom - 4,
+                            self.COLORS["text"], 9,
+                            anchor_x="center", anchor_y="top"
+                        ).draw()
         
         # 4. Draw event markers
         for event in self._events:
@@ -1905,6 +1934,53 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
                 })
         
         prev_drivers = current_drivers
+
+    # Detect lap transitions for the race leader so that lap markers on the
+    # progress bar align with the actual laps shown in the HUD.
+    # We scan all frames once and look at the driver in P1 to infer the
+    # current race lap, then emit an EVENT_LAP whenever that lap value changes.
+    last_leader_lap = None
+    for i, frame in enumerate(frames):
+        drivers_data = frame.get("drivers", {})
+        if not drivers_data:
+            continue
+
+        # Find the race leader (position == 1, or lowest numeric position)
+        leader_code = None
+        leader_pos = None
+        for code, info in drivers_data.items():
+            pos_raw = info.get("position")
+            try:
+                pos = int(pos_raw)
+            except Exception:
+                continue
+            if leader_pos is None or pos < leader_pos:
+                leader_pos = pos
+                leader_code = code
+
+        if leader_code is None:
+            continue
+
+        lap_raw = drivers_data[leader_code].get("lap")
+        try:
+            leader_lap = int(lap_raw)
+        except Exception:
+            continue
+
+        if last_leader_lap is None:
+            last_leader_lap = leader_lap
+            continue
+
+        if leader_lap != last_leader_lap:
+            # First frame we've seen with this new leader lap — treat as the
+            # start of the new lap for progress-bar purposes.
+            events.append({
+                "type": RaceProgressBarComponent.EVENT_LAP,
+                "frame": i,
+                "label": f"Lap {leader_lap}",
+                "lap": leader_lap,
+            })
+            last_leader_lap = leader_lap
     
     # Add flag events from track_statuses
     for status in track_statuses:
