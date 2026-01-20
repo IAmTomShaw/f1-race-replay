@@ -357,7 +357,7 @@ def get_race_telemetry(session, session_type='R'):
 
         # 5b. Sort by race distance to get POSITIONS (1–20)
         # Leader = largest race distance covered
-        snapshot.sort(key=lambda r: r["dist"], reverse=True)
+        snapshot.sort(key=lambda r: (r.get("lap", 0), r["dist"]), reverse=True)
 
         leader = snapshot[0]
         leader_lap = leader["lap"]
@@ -447,10 +447,14 @@ def get_qualifying_results(session):
 
     for _, row in results.iterrows():
         driver_code = row["Abbreviation"]
+        # Skip drivers with no position (DNF/DNS/no lap data)
+        if pd.isna(row["Position"]):
+            continue
         position = int(row["Position"])
         q1_time = row["Q1"]
         q2_time = row["Q2"]
         q3_time = row["Q3"]
+        full_name = row["FullName"]
 
         # Convert pandas Timedelta objects to seconds (or None if NaT)
         def convert_time_to_seconds(time_val) -> str:
@@ -460,6 +464,7 @@ def get_qualifying_results(session):
 
         qualifying_data.append({
             "code": driver_code,
+            "full_name": full_name,
             "position": position,
             "color": get_driver_colors(session).get(driver_code, (128,128,128)),
             "Q1": convert_time_to_seconds(q1_time),
@@ -699,7 +704,7 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
                 "brake": float(resampled_data["brake"][i]),
                 "drs": int(resampled_data["drs"][i]),
             }
-        }
+        } 
         if weather_snapshot:
             frame_payload["weather"] = weather_snapshot
 
@@ -709,19 +714,29 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
             
     frames[-1]["t"] = round(parse_time_string(str(fastest_lap["LapTime"])), 3)
 
+    sector_times = {
+        "sector1": parse_time_string(str(fastest_lap.get("Sector1Time"))) if pd.notna(fastest_lap.get("Sector1Time")) else None,
+        "sector2": parse_time_string(str(fastest_lap.get("Sector2Time"))) if pd.notna(fastest_lap.get("Sector2Time")) else None,
+        "sector3": parse_time_string(str(fastest_lap.get("Sector3Time"))) if pd.notna(fastest_lap.get("Sector3Time")) else None,
+    }
+    
+    # Extract tyre compound from the lap
+    compound = str(fastest_lap.get("Compound", "UNKNOWN")) if pd.notna(fastest_lap.get("Compound")) else "UNKNOWN"
+    compound_number = get_tyre_compound_int(compound)
     return {
         "frames": frames,
         "track_statuses": formatted_track_statuses,
         "drs_zones": lap_drs_zones,
         "max_speed": max_speed,
         "min_speed": min_speed,
+        "sector_times": sector_times,
+        "compound": compound_number,
     }
 
 
 def _process_quali_driver(args):
     """Process qualifying telemetry data for a single driver - must be top-level for multiprocessing"""
     session, driver_code = args
-
     print(f"Getting qualifying telemetry for driver: {driver_code}")
 
     driver_telemetry_data = {}
@@ -743,10 +758,10 @@ def _process_quali_driver(args):
         except ValueError:
             driver_telemetry_data[segment] = {"frames": [], "track_statuses": []}
 
-    print(f"Finished processing qualifying telemetry for driver: {driver_code}")
-        
+    print(f"Finished processing qualifying telemetry for driver: {driver_code}, {session.get_driver(driver_code)['FullName']},")
     return {
         "driver_code": driver_code,
+        "driver_full_name": session.get_driver(driver_code)["FullName"],
         "driver_telemetry_data": driver_telemetry_data,
         "max_speed": max_speed,
         "min_speed": min_speed,
@@ -807,7 +822,10 @@ def get_quali_telemetry(session, session_type='Q'):
         results = pool.map(_process_quali_driver, driver_args)
     for result in results:
         driver_code = result["driver_code"]
-        telemetry_data[driver_code] = result["driver_telemetry_data"]
+        telemetry_data[driver_code] = {
+            "full_name": result["driver_full_name"],
+            **result["driver_telemetry_data"]
+        }
 
         if result["max_speed"] > max_speed:
             max_speed = result["max_speed"]
@@ -834,6 +852,23 @@ def get_quali_telemetry(session, session_type='Q'):
         "min_speed": min_speed,
     }
 
+
+def get_race_weekends_by_year(year):
+    """Returns a list of race weekends for a given year."""
+    enable_cache()
+    schedule = fastf1.get_event_schedule(year)
+    weekends = []
+    for _, event in schedule.iterrows():
+        if event.is_testing():
+            continue
+        weekends.append({
+            "round_number": event['RoundNumber'],
+            "event_name": event['EventName'],
+            "date": str(event['EventDate'].date()),
+            "country": event['Country'],
+            "type": event['EventFormat'],
+        })
+    return weekends
 
 def list_rounds(year):
     """Lists all rounds for a given year."""

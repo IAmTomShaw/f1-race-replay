@@ -2,14 +2,14 @@ import arcade
 import threading
 import time
 import numpy as np
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, LegendComponent
+from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent, draw_finish_line, LegendComponent, QualifyingLapTimeComponent
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
+from src.ui_components import LegendComponent
 
-SCREEN_WIDTH = 1920
-SCREEN_HEIGHT = 1080
+SCREEN_WIDTH = 1280
+SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Qualifying Telemetry"
 
 H_ROW = 38
@@ -22,6 +22,8 @@ BOTTOM_MARGIN = 40
 class QualifyingReplay(arcade.Window):
     def __init__(self, session, data, circuit_rotation=0, left_ui_margin=340, right_ui_margin=0, title="Qualifying Results"):
         super().__init__(width=SCREEN_WIDTH, height=SCREEN_HEIGHT, title=title, resizable=True)
+        self.maximize()
+        
         self.session = session
         self.data = data
         self.leaderboard = LapTimeLeaderboardComponent(
@@ -31,6 +33,7 @@ class QualifyingReplay(arcade.Window):
             center_x= self.width // 2 + 100,
             center_y= 40
         )
+        self.qualifying_lap_time_comp = QualifyingLapTimeComponent()
         self.leaderboard.set_entries(self.data.get("results", []))
         self.drs_zones = []
         self.drs_zones_xy = []
@@ -129,6 +132,10 @@ class QualifyingReplay(arcade.Window):
 
         self.update_scaling(self.width, self.height)
 
+        self.is_rewinding = False
+        self.is_forwarding = False
+        self.was_paused_before_hold = False
+
     def update_scaling(self, screen_w, screen_h):
         """
         Recalculates the scale and translation to fit the track 
@@ -197,7 +204,8 @@ class QualifyingReplay(arcade.Window):
             if frames:
                 fastest_driver = self.data.get("results", [])[0] if isinstance(self.data.get("results", []), list) and len(self.data.get("results", [])) > 0 else None
                 # Get comparison telemetry if available
-                comparison_telemetry = self.data.get("telemetry", {}).get(fastest_driver.get("code")).get("Q3").get("frames", []) if self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                comparison_data = self.data.get("telemetry", {}).get(fastest_driver.get("code")) if fastest_driver and self.show_comparison_telemetry else None
+                comparison_telemetry = comparison_data.get("Q3").get("frames", []) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
@@ -528,16 +536,15 @@ class QualifyingReplay(arcade.Window):
                 except Exception as e:
                     print("Chart draw error (controls):", e)
                 
-                # Add lap time to the left of the track map
+                # Draw qualifying lap time component at top of map area
+                self.qualifying_lap_time_comp.x = map_left
+                self.qualifying_lap_time_comp.y = map_top
+                self.qualifying_lap_time_comp.fastest_driver = fastest_driver
+                self.qualifying_lap_time_comp.fastest_driver_sector_times = comparison_data.get("Q3").get("sector_times", {}) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                self.qualifying_lap_time_comp.draw(self)
 
-                current_frame = frames[self.frame_index]
-                current_t = current_frame.get("t", 0.0)
-                    
-                formatted_time = format_time(current_t)
-
-                arcade.Text(f"Lap Time: {formatted_time}", map_left + 10, map_top - 30, arcade.color.ANTI_FLASH_WHITE, 16).draw()
-
-                arcade.Text(f"Playback Speed: {self.playback_speed:.1f}x", map_left + 10, map_top - 50, arcade.color.ANTI_FLASH_WHITE, 14).draw()
+                y_offset = map_top - 48
+                arcade.Text(f"Playback Speed: {self.playback_speed:.1f}x", map_left + 10, y_offset - 130, arcade.color.ANTI_FLASH_WHITE, 14).draw()
 
                 # Legends
                 legend_x = chart_right - 100
@@ -579,14 +586,14 @@ class QualifyingReplay(arcade.Window):
                     inner_world = getattr(self, "world_inner_points", None) or list(zip(self.x_inner, self.y_inner))
                     outer_world = getattr(self, "world_outer_points", None) or list(zip(self.x_outer, self.y_outer))
 
-                    inner_pts = [world_to_map(x, y) for x, y in inner_world if x is not None and y is not None]
-                    outer_pts = [world_to_map(x, y) for x, y in outer_world if x is not None and y is not None]
-
+                    self.inner_pts = [world_to_map(x, y) for x, y in inner_world if x is not None and y is not None]
+                    self.outer_pts = [world_to_map(x, y) for x, y in outer_world if x is not None and y is not None]
                     try:
-                        if len(inner_pts) > 1:
-                            arcade.draw_line_strip(inner_pts, arcade.color.GRAY, 2)
-                        if len(outer_pts) > 1:
-                            arcade.draw_line_strip(outer_pts, arcade.color.GRAY, 2)
+                        if len(self.inner_pts) > 1:
+                            arcade.draw_line_strip(self.inner_pts, arcade.color.GRAY, 2)
+                        if len(self.outer_pts) > 1:
+                            arcade.draw_line_strip(self.outer_pts, arcade.color.GRAY, 2)
+                        draw_finish_line(self, 'Q')
                     except Exception as e:
                         print("Circuit draw error:", e)
 
@@ -666,7 +673,8 @@ class QualifyingReplay(arcade.Window):
                 ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
                 ("[R]       Restart"),
                 ("[D]       Toggle DRS zones on track map"),
-                ("[C]       Toggle comparison driver telemetry")
+                ("[C]       Toggle comparison driver telemetry"),
+                ("[ESC]    Close Window")
             ]
             for i, lines in enumerate(legend_lines):
                 line = lines[0] if isinstance(lines, tuple) else lines
@@ -793,6 +801,10 @@ class QualifyingReplay(arcade.Window):
         return self.chart_active and self.n_frames > 0 and self.frame_index >= self.n_frames - 1
 
     def on_key_press(self, symbol: int, modifiers: int):
+        # Allow ESC to close window at any time
+        if symbol == arcade.key.ESCAPE:
+            arcade.close_window()
+            return
         # Allow restart (R), comparison toggle (C), and DRS toggle (D) even when lap is complete
         if symbol == arcade.key.R:
             self.frame_index = 0
@@ -818,16 +830,17 @@ class QualifyingReplay(arcade.Window):
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
         elif symbol == arcade.key.RIGHT:
-            # step forward by 10 frames (keep integer)
-            self.frame_index = int(min(self.frame_index + 10, max(0, self.n_frames - 1)))
-            self.race_controls_comp.flash_button('forward')
+            self.was_paused_before_hold = self.paused
+            self.is_forwarding = True
+            self.paused = True
         elif symbol == arcade.key.LEFT:
-            # step backward by 10 frames (keep integer)
-            self.frame_index = int(max(self.frame_index - 10, 0))
-            self.race_controls_comp.flash_button('rewind')
+            self.was_paused_before_hold = self.paused
+            self.is_rewinding = True
+            self.paused = True
         elif symbol == arcade.key.UP:
-            self.playback_speed *= 2.0
-            self.race_controls_comp.flash_button('speed_increase')
+            if self.playback_speed < 1024.0:
+                self.playback_speed *= 2.0
+                self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.DOWN:
             self.playback_speed = max(0.1, self.playback_speed / 2.0)
             self.race_controls_comp.flash_button('speed_decrease')
@@ -849,6 +862,8 @@ class QualifyingReplay(arcade.Window):
         # If already loading, ignore
         if self.loading_telemetry:
             return
+
+        self.qualifying_lap_time_comp.reset()
 
         # Try to find telemetry already provided in the window's data object
         telemetry_store = self.data.get("telemetry") if isinstance(self.data, dict) else None
@@ -877,7 +892,6 @@ class QualifyingReplay(arcade.Window):
                     # populate top-level frames/n_frames and min/max speeds for chart scaling
                     self.frames = frames
                     self.drs_zones = drs_zones
-                    print("DRS zones loaded:", self.drs_zones)
                     self.n_frames = len(frames)
                     if self._speeds is not None and self._speeds.size > 0:
                         self.min_speed = float(np.min(self._speeds))
@@ -975,15 +989,27 @@ class QualifyingReplay(arcade.Window):
             self.loading_message = ""
 
     def on_update(self, delta_time: float):
-        # time-based playback synced to telemetry timestamps
         if not self.chart_active or self.loaded_telemetry is None:
             return
-        if self.paused:
-            self.race_controls_comp.on_update(delta_time)
-            return
         self.race_controls_comp.on_update(delta_time)
-        # advance play_time by delta_time scaled by playback_speed
-        self.play_time += delta_time * self.playback_speed
+        self.qualifying_lap_time_comp.on_update(delta_time)
+
+        # Block for continuous seeking
+        seek_speed = 3.0 * max(1.0, self.playback_speed)  # scales with current playback speed
+
+        if self.is_rewinding:
+            self.play_time -= delta_time * seek_speed
+            self.race_controls_comp.flash_button('rewind')
+        elif self.is_forwarding:
+            self.play_time += delta_time * seek_speed
+            self.race_controls_comp.flash_button('forward')
+        else:
+            # Normal playback path (no seeking)
+            if self.paused:
+                return
+            # advance play_time by delta_time scaled by playback_speed
+            self.play_time += delta_time * self.playback_speed
+
         # compute integer frame index from cached times (fast, robust)
         if self._times is not None and len(self._times) > 0:
             # clamp play_time into available range
@@ -1002,6 +1028,27 @@ class QualifyingReplay(arcade.Window):
             if self.frame_index >= self.n_frames - 1:
                 self.paused = True
 
-def run_qualifying_replay(session, data, title="Qualifying Results"):
+    def on_key_release(self, symbol: int, modifiers: int):
+        if symbol == arcade.key.RIGHT:
+            self.is_forwarding = False
+            self.paused = self.was_paused_before_hold
+        elif symbol == arcade.key.LEFT:
+            self.is_rewinding = False
+            self.paused = self.was_paused_before_hold
+
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+        if self.is_forwarding or self.is_rewinding:
+            self.is_forwarding = False
+            self.is_rewinding = False
+            self.paused = self.was_paused_before_hold
+
+def run_qualifying_replay(session, data, title="Qualifying Results", ready_file=None):
     window = QualifyingReplay(session=session, data=data, title=title)
+    # Signal readiness to parent process (if requested) after window created
+    if ready_file:
+        try:
+            with open(ready_file, 'w') as f:
+                f.write('ready')
+        except Exception:
+            pass
     arcade.run()
