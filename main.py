@@ -4,6 +4,7 @@ from src.arcade_replay import run_arcade_replay
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 from src.cli.race_selection import cli_load
+from src.cli.telemetry_compare import cli_compare, cli_compare_quick
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
 
@@ -103,9 +104,42 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
 if __name__ == "__main__":
 
   if "--cli" in sys.argv:
-    # Run the CLI
-
+    # Run the CLI race selection
     cli_load()
+    sys.exit(0)
+
+  if "--compare" in sys.argv:
+    # Run the telemetry comparison CLI
+    # Interactive mode: python main.py --compare
+    # Quick mode: python main.py --compare --year 2024 --round 1 --driver1 VER --lap1 10 --driver2 HAM --lap2 15
+    
+    if "--driver1" in sys.argv and "--driver2" in sys.argv:
+      # Quick comparison mode with command-line arguments
+      year = int(sys.argv[sys.argv.index("--year") + 1]) if "--year" in sys.argv else 2024
+      round_number = int(sys.argv[sys.argv.index("--round") + 1]) if "--round" in sys.argv else 1
+      
+      # Session type
+      session_type = 'R'
+      if "--qualifying" in sys.argv:
+        session_type = 'Q'
+      elif "--sprint" in sys.argv:
+        session_type = 'S'
+      elif "--sprint-qualifying" in sys.argv:
+        session_type = 'SQ'
+      
+      driver1 = sys.argv[sys.argv.index("--driver1") + 1]
+      lap1 = int(sys.argv[sys.argv.index("--lap1") + 1])
+      driver2 = sys.argv[sys.argv.index("--driver2") + 1]
+      lap2 = int(sys.argv[sys.argv.index("--lap2") + 1])
+      
+      save_path = None
+      if "--save" in sys.argv:
+        save_path = sys.argv[sys.argv.index("--save") + 1]
+      
+      cli_compare_quick(year, round_number, session_type, driver1, lap1, driver2, lap2, save_path)
+    else:
+      # Interactive comparison mode
+      cli_compare()
     sys.exit(0)
 
   if "--year" in sys.argv:

@@ -128,6 +128,32 @@ To run a Sprint Qualifying session (if the event has one), add `--sprint`:
 python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 ```
 
+### Telemetry Comparison Tool
+
+Compare lap telemetry between two drivers or different laps from the same driver. This generates multi-panel charts showing Speed, Throttle/Brake, and Delta Time indexed by track distance.
+
+**Interactive mode** (guided CLI):
+```bash
+python main.py --compare
+```
+
+**Quick mode** (command-line arguments):
+```bash
+# Compare VER lap 10 vs HAM lap 15 in the 2024 Bahrain GP race
+python main.py --compare --year 2024 --round 1 --driver1 VER --lap1 10 --driver2 HAM --lap2 15
+
+# Compare qualifying laps
+python main.py --compare --year 2024 --round 1 --qualifying --driver1 VER --lap1 1 --driver2 LEC --lap2 1
+
+# Save chart to file instead of displaying
+python main.py --compare --year 2024 --round 1 --driver1 VER --lap1 10 --driver2 HAM --lap2 15 --save output.png
+```
+
+The comparison chart includes:
+- **Speed trace**: Overlay of both laps' speed profiles
+- **Throttle/Brake**: Combined input visualization (throttle above, brake below zero line)
+- **Delta Time**: Cumulative time difference showing where time is gained/lost
+
 ## File Structure
 
 ```
@@ -142,14 +168,22 @@ f1-race-replay/
 │   ├── f1_data.py            # Telemetry loading, processing, and frame generation
 │   ├── arcade_replay.py      # Visualization and UI logic
 │   └── ui_components.py      # UI components like buttons and leaderboard
+│   ├── compare/              # Telemetry comparison module
+│   │   ├── __init__.py       # Module exports
+│   │   ├── telemetry_compare.py  # Distance-based interpolation and alignment
+│   │   └── compare_chart.py  # Matplotlib chart generation
 │   ├── interfaces/
 │   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
 │   │   └── race_replay.py    # Race replay interface and telemetry visualization
+│   ├── cli/
+│   │   ├── race_selection.py # CLI for race selection
+│   │   └── telemetry_compare.py  # CLI for telemetry comparison
 │   └── lib/
 │       └── tyres.py          # Type definitions for telemetry data structures
 │       └── time.py           # Time formatting utilities
 └── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
 └── computed_data/            # Computed telemetry data (created automatically upon first run)
+└── comparison_charts/        # Saved comparison charts (created when using --save)
 ```
 
 ## Customization
