@@ -866,6 +866,332 @@ class ControlsPopupComponent(BaseComponent):
         return True
 
 
+class PodiumComponent(BaseComponent):
+    """
+    Displays a podium celebration screen at the end of the race showing:
+    - Top 3 drivers on podium blocks with staggered reveal (P3 -> P2 -> P1)
+    - Stats for each podium driver
+    - Confetti celebration effect
+    """
+    def __init__(self, visible=False):
+        self.visible = visible
+        self.race_results = []  # Full race results list
+        self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
+        
+        # Animation timing (in frames at 60fps)
+        self._animation_frame = 0
+        self._p3_reveal_start = 10   # P3 starts appearing at frame 10
+        self._p2_reveal_start = 35   # P2 starts appearing at frame 35
+        self._p1_reveal_start = 60   # P1 starts appearing at frame 60
+        self._reveal_duration = 20    # Each podium takes 20 frames to fully appear
+        
+        # Confetti particles
+        self._confetti = []
+        self._confetti_colors = [
+            (255, 215, 0),    # Gold
+            (192, 192, 192),  # Silver
+            (205, 127, 50),   # Bronze
+            (255, 0, 0),      # Red
+            (0, 255, 0),      # Green
+            (0, 100, 255),    # Blue
+            (255, 255, 255),  # White
+            (255, 105, 180),  # Pink
+        ]
+        
+    def set_results(self, results: list):
+        """Set the race results data"""
+        self.race_results = results
+        
+    def show(self):
+        """Show the podium screen"""
+        self.visible = True
+        self._animation_frame = 0
+        self._init_confetti()
+        
+    def hide(self):
+        """Hide the podium screen"""
+        self.visible = False
+        self._animation_frame = 0
+        self._confetti = []
+        
+    def _init_confetti(self):
+        """Initialize confetti particles"""
+        import random
+        self._confetti = []
+        for _ in range(150):
+            self._confetti.append({
+                'x': random.uniform(0, 1920),
+                'y': random.uniform(800, 1200),
+                'vx': random.uniform(-2, 2),
+                'vy': random.uniform(-8, -3),
+                'size': random.uniform(4, 10),
+                'color': random.choice(self._confetti_colors),
+                'rotation': random.uniform(0, 360),
+                'rot_speed': random.uniform(-10, 10),
+            })
+        
+    def toggle_visibility(self) -> bool:
+        """Toggle podium visibility"""
+        if self.visible:
+            self.hide()
+        else:
+            self.show()
+        return self.visible
+    
+    def _format_time(self, seconds: float) -> str:
+        """Format time in seconds to mm:ss.xxx"""
+        if seconds is None:
+            return "N/A"
+        if seconds < 0:
+            return "N/A"
+        mins = int(seconds // 60)
+        secs = seconds % 60
+        if mins > 0:
+            return f"{mins}:{secs:06.3f}"
+        else:
+            return f"{secs:.3f}s"
+    
+    def _format_gap(self, seconds: float, position: int) -> str:
+        """Format gap to leader"""
+        if position == 1:
+            return self._format_time(seconds)
+        if seconds is None:
+            return "N/A"
+        return f"+{seconds:.3f}s"
+    
+    def _get_reveal_alpha(self, podium_pos: int) -> int:
+        """Get the alpha value for a podium position based on animation progress"""
+        if podium_pos == 3:
+            start = self._p3_reveal_start
+        elif podium_pos == 2:
+            start = self._p2_reveal_start
+        else:
+            start = self._p1_reveal_start
+        
+        if self._animation_frame < start:
+            return 0
+        
+        progress = (self._animation_frame - start) / self._reveal_duration
+        return int(min(255, max(0, progress * 255)))
+    
+    def _update_confetti(self):
+        """Update confetti particle positions"""
+        for p in self._confetti:
+            p['x'] += p['vx']
+            p['y'] += p['vy']
+            p['vy'] += 0.15  # Gravity
+            p['rotation'] += p['rot_speed']
+            # Wrap horizontally
+            if p['x'] < -20:
+                p['x'] = 1940
+            elif p['x'] > 1940:
+                p['x'] = -20
+    
+    def _draw_confetti(self, window):
+        """Draw confetti particles"""
+        for p in self._confetti:
+            if 0 < p['y'] < window.height + 50:
+                # Scale x position to window width
+                x = (p['x'] / 1920) * window.width
+                arcade.draw_rectangle_filled(
+                    x, p['y'], p['size'], p['size'] * 0.6,
+                    (*p['color'], 220), p['rotation']
+                )
+    
+    def draw(self, window):
+        if not self.visible or not self.race_results:
+            return
+        
+        # Update animation
+        self._animation_frame += 1
+        self._update_confetti()
+        
+        # Draw full-screen semi-transparent overlay
+        overlay_alpha = min(200, self._animation_frame * 15)
+        overlay_rect = arcade.XYWH(window.width / 2, window.height / 2, window.width, window.height)
+        arcade.draw_rect_filled(overlay_rect, (0, 0, 0, overlay_alpha))
+        
+        # Draw confetti behind podium
+        self._draw_confetti(window)
+        
+        # Get top 3 drivers
+        podium_drivers = self.race_results[:3]
+        if len(podium_drivers) < 3:
+            return
+        
+        center_x = window.width / 2
+        center_y = window.height / 2
+        
+        # Podium block dimensions
+        block_width = 200
+        p1_height = 160
+        p2_height = 120
+        p3_height = 85
+        block_gap = 25
+        
+        p1_x = center_x
+        p2_x = center_x - block_width - block_gap
+        p3_x = center_x + block_width + block_gap
+        
+        podium_base_y = center_y - 60
+        
+        # Draw "RACE COMPLETE" header (always visible after brief delay)
+        header_alpha = min(255, max(0, (self._animation_frame - 5) * 20))
+        if header_alpha > 0:
+            header_y = window.height - 60
+            self._text.font_size = 38
+            self._text.bold = True
+            self._text.color = (255, 215, 0, header_alpha)
+            self._text.text = "🏆 RACE COMPLETE 🏆"
+            self._text.x = center_x
+            self._text.y = header_y
+            self._text.anchor_x = "center"
+            self._text.anchor_y = "center"
+            self._text.draw()
+        
+        # Podium positions: Draw P3 first, then P2, then P1
+        positions = [
+            (3, p3_x, p3_height, podium_drivers[2], (205, 127, 50)),   # Bronze - first
+            (2, p2_x, p2_height, podium_drivers[1], (192, 192, 192)),  # Silver - second
+            (1, p1_x, p1_height, podium_drivers[0], (255, 215, 0)),    # Gold - last
+        ]
+        
+        for pos, x, height, driver, medal_color in positions:
+            alpha = self._get_reveal_alpha(pos)
+            if alpha == 0:
+                continue
+            
+            block_bottom = podium_base_y
+            block_top = podium_base_y + height
+            
+            # Draw podium block
+            block_rect = arcade.XYWH(x, block_bottom + height/2, block_width, height)
+            driver_color = driver.get("color", (128, 128, 128))
+            arcade.draw_rect_filled(block_rect, (*driver_color[:3], alpha))
+            arcade.draw_rect_outline(block_rect, (255, 255, 255, alpha), 3)
+            
+            # Position number on block
+            self._text.font_size = 42
+            self._text.bold = True
+            self._text.color = (255, 255, 255, alpha)
+            self._text.text = str(pos)
+            self._text.x = x
+            self._text.y = block_bottom + height/2
+            self._text.anchor_x = "center"
+            self._text.anchor_y = "center"
+            self._text.draw()
+            
+            # Driver code above block
+            name_y = block_top + 20
+            self._text.font_size = 22
+            self._text.bold = True
+            self._text.color = (255, 255, 255, alpha)
+            self._text.text = driver.get("code", "???")
+            self._text.x = x
+            self._text.y = name_y
+            self._text.anchor_x = "center"
+            self._text.draw()
+            
+            # Full name
+            self._text.font_size = 12
+            self._text.bold = False
+            self._text.color = (200, 200, 200, alpha)
+            self._text.text = driver.get("full_name", "Unknown Driver")
+            self._text.y = name_y + 20
+            self._text.draw()
+            
+            # Team name
+            self._text.font_size = 11
+            self._text.color = (*medal_color[:3], alpha)
+            self._text.text = driver.get("team", "Unknown Team")
+            self._text.y = name_y + 35
+            self._text.draw()
+            
+            # Stats card below podium - fixed sizing
+            card_height = 145
+            card_width = block_width - 5
+            stats_card_y = podium_base_y - 20 - card_height/2
+            card_rect = arcade.XYWH(x, stats_card_y, card_width, card_height)
+            arcade.draw_rect_filled(card_rect, (25, 25, 30, alpha))
+            arcade.draw_rect_outline(card_rect, (*medal_color[:3], alpha), 2)
+            
+            # Stats content - properly centered in card
+            self._text.font_size = 10
+            line_height = 18
+            card_top = stats_card_y + card_height/2 - 12
+            label_x = x - card_width/2 + 10
+            value_x = x + 5
+            
+            stats = [
+                ("Time", self._format_gap(driver.get("time"), pos), (150, 255, 150)),
+                ("Points", f"+{int(driver.get('points', 0))}", (255, 215, 0)),
+                ("Grid", self._get_grid_text(driver, pos), self._get_grid_color(driver, pos)),
+                ("Best Lap", self._format_time(driver.get("fastest_lap")), (150, 150, 255)),
+                ("WDC Pos", f"P{driver.get('wdc_position', '?')}", (255, 200, 100)),
+                ("GP Wins", str(driver.get('wdc_wins', 0)), (255, 150, 150)),
+            ]
+            
+            for i, (label, value, color) in enumerate(stats):
+                y = card_top - i * line_height
+                
+                # Label
+                self._text.bold = True
+                self._text.color = (180, 180, 180, alpha)
+                self._text.text = f"{label}:"
+                self._text.x = label_x
+                self._text.y = y
+                self._text.anchor_x = "left"
+                self._text.draw()
+                
+                # Value
+                self._text.bold = False
+                self._text.color = (*color, alpha)
+                self._text.text = value
+                self._text.x = value_x
+                self._text.anchor_x = "left"
+                self._text.draw()
+        
+        # Draw instruction at bottom
+        if self._animation_frame > 80:
+            inst_alpha = min(255, (self._animation_frame - 80) * 10)
+            self._text.font_size = 14
+            self._text.bold = False
+            self._text.color = (180, 180, 180, inst_alpha)
+            self._text.text = "Press P to toggle podium • Click to dismiss • ESC to exit"
+            self._text.x = center_x
+            self._text.y = 40
+            self._text.anchor_x = "center"
+            self._text.anchor_y = "center"
+            self._text.draw()
+    
+    def _get_grid_text(self, driver, pos):
+        """Get formatted grid position text"""
+        grid = driver.get("grid_position", 0)
+        pos_change = grid - pos
+        if pos_change > 0:
+            return f"P{grid}→P{pos} (+{pos_change})"
+        elif pos_change < 0:
+            return f"P{grid}→P{pos} ({pos_change})"
+        return f"P{grid}→P{pos} (=)"
+    
+    def _get_grid_color(self, driver, pos):
+        """Get color for grid position change"""
+        grid = driver.get("grid_position", 0)
+        pos_change = grid - pos
+        if pos_change > 0:
+            return (100, 255, 100)
+        elif pos_change < 0:
+            return (255, 100, 100)
+        return (200, 200, 200)
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        """Handle mouse click to dismiss podium"""
+        if self.visible:
+            self.hide()
+            return True
+        return False
+
+
 class SessionInfoComponent(BaseComponent):
     """
     Displays session information banner at the top-center of the screen.

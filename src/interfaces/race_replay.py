@@ -11,6 +11,7 @@ from src.ui_components import (
     RaceControlsComponent,
     ControlsPopupComponent,
     SessionInfoComponent,
+    PodiumComponent,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
@@ -26,12 +27,13 @@ class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None):
+                 session_info=None, race_results=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
 
         self.frames = frames
+        self.race_results = race_results or []  # Store race results for podium
         self.track_statuses = track_statuses
         self.n_frames = len(frames)
         self.drivers = list(drivers)
@@ -93,6 +95,13 @@ class F1RaceReplayWindow(arcade.Window):
                 date=session_info.get('date', ''),
                 total_laps=total_laps
             )
+
+        # Podium component for end-of-race celebration
+        self.podium_comp = PodiumComponent(visible=False)
+        if self.race_results:
+            self.podium_comp.set_results(self.race_results)
+        self.race_finished = False  # Track if we've reached the end
+        self.podium_shown_once = False  # Track if podium was auto-shown
 
         self.is_rewinding = False
         self.is_forwarding = False
@@ -526,6 +535,9 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Draw tooltips and overlays on top of everything
         self.progress_bar_comp.draw_overlays(self)
+        
+        # Draw podium overlay (on top of everything when visible)
+        self.podium_comp.draw(self)
                     
     def on_update(self, delta_time: float):
         self.race_controls_comp.on_update(delta_time)
@@ -545,11 +557,26 @@ class F1RaceReplayWindow(arcade.Window):
         
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
+            # Auto-show podium when race reaches the end (only once)
+            if not self.podium_shown_once and self.race_results:
+                self.race_finished = True
+                self.paused = True
+                self.podium_comp.show()
+                self.podium_shown_once = True
 
     def on_key_press(self, symbol: int, modifiers: int):
         # Allow ESC to close window at any time
         if symbol == arcade.key.ESCAPE:
             arcade.close_window()
+            return
+        # Toggle podium with P key
+        if symbol == arcade.key.P:
+            if self.race_results:
+                self.podium_comp.toggle_visibility()
+            return
+        # If podium is visible, most keys should just close it
+        if self.podium_comp.visible:
+            self.podium_comp.hide()
             return
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
@@ -628,6 +655,9 @@ class F1RaceReplayWindow(arcade.Window):
             self.paused = self.was_paused_before_hold
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+        # If podium is visible, clicking anywhere dismisses it
+        if self.podium_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
         # forward to components; stop at first that handled it
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return

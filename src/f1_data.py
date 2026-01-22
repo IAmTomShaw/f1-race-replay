@@ -437,6 +437,107 @@ def get_race_telemetry(session, session_type='R'):
     }
 
 
+def get_race_results(session):
+    """
+    Extract the race results including podium positions and driver stats.
+    Returns a list of dicts with driver info, position, time, points, etc.
+    Also includes WDC standings and race wins at this point in the season.
+    """
+    results = session.results
+    driver_colors = get_driver_colors(session)
+    
+    # Get driver standings (WDC) at this point in the season
+    try:
+        standings = fastf1.get_driver_standings(session.event['EventDate'].year)
+        # Filter standings up to and including this round
+        current_round = session.event['RoundNumber']
+        standings_at_race = standings[standings['round'] <= current_round]
+        # Get the latest standings for each driver
+        latest_standings = standings_at_race.groupby('driverCode').last().reset_index()
+        wdc_positions = {row['driverCode']: int(row['position']) for _, row in latest_standings.iterrows()}
+        wdc_points = {row['driverCode']: float(row['points']) for _, row in latest_standings.iterrows()}
+        wdc_wins = {row['driverCode']: int(row['wins']) for _, row in latest_standings.iterrows()}
+    except Exception as e:
+        print(f"Could not load driver standings: {e}")
+        wdc_positions = {}
+        wdc_points = {}
+        wdc_wins = {}
+    
+    race_data = []
+    
+    for _, row in results.iterrows():
+        driver_code = row.get("Abbreviation", "")
+        # Skip drivers with no position
+        if pd.isna(row.get("Position")):
+            continue
+            
+        position = int(row["Position"])
+        full_name = row.get("FullName", driver_code)
+        team_name = row.get("TeamName", "Unknown")
+        
+        # Time to leader (or race time for winner)
+        time_val = row.get("Time")
+        if pd.notna(time_val):
+            if hasattr(time_val, 'total_seconds'):
+                time_seconds = time_val.total_seconds()
+            else:
+                time_seconds = float(time_val)
+        else:
+            time_seconds = None
+        
+        # Status (Finished, +1 Lap, DNF, etc.)
+        status = row.get("Status", "Finished")
+        
+        # Points scored
+        points = row.get("Points", 0)
+        if pd.isna(points):
+            points = 0
+        else:
+            points = float(points)
+        
+        # Grid position (starting position)
+        grid_pos = row.get("GridPosition", 0)
+        if pd.isna(grid_pos):
+            grid_pos = 0
+        else:
+            grid_pos = int(grid_pos)
+        
+        # Fastest lap info
+        fastest_lap = row.get("FastestLapTime")
+        fastest_lap_seconds = None
+        if pd.notna(fastest_lap):
+            if hasattr(fastest_lap, 'total_seconds'):
+                fastest_lap_seconds = fastest_lap.total_seconds()
+        
+        # Number of laps completed
+        laps_completed = row.get("LapsCompleted", 0)
+        if pd.isna(laps_completed):
+            laps_completed = 0
+        else:
+            laps_completed = int(laps_completed)
+        
+        race_data.append({
+            "code": driver_code,
+            "full_name": full_name,
+            "team": team_name,
+            "position": position,
+            "color": driver_colors.get(driver_code, (128, 128, 128)),
+            "time": time_seconds,
+            "status": status,
+            "points": points,
+            "grid_position": grid_pos,
+            "fastest_lap": fastest_lap_seconds,
+            "laps_completed": laps_completed,
+            "wdc_position": wdc_positions.get(driver_code, 0),
+            "wdc_points": wdc_points.get(driver_code, 0),
+            "wdc_wins": wdc_wins.get(driver_code, 0),
+        })
+    
+    # Sort by position
+    race_data.sort(key=lambda x: x["position"])
+    
+    return race_data
+
 def get_qualifying_results(session):
 
     # Extract the qualifying results and return a list of the drivers, their positions and their lap times in each qualifying segment
