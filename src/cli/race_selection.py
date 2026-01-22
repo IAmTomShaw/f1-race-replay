@@ -58,13 +58,12 @@ def cli_load():
         hud = True
 
     flag = None
-    match session:
-        case "Qualifying":
-            flag = "--qualifying" 
-        case "Sprint Qualifying":
-            flag = "--sprint-qualifying"  
-        case "Sprint":
-            flag = "--sprint"     
+    if session == "Qualifying":
+        flag = "--qualifying"
+    elif session == "Sprint Qualifying":
+        flag = "--sprint-qualifying"
+    elif session == "Sprint":
+        flag = "--sprint"
     main_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'main.py'))
     cmd = [sys.executable, main_path, "--viewer"]
     if year is not None:

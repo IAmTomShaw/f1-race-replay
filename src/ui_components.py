@@ -993,9 +993,11 @@ class PodiumComponent(BaseComponent):
             if 0 < p['y'] < window.height + 50:
                 # Scale x position to window width
                 x = (p['x'] / 1920) * window.width
-                arcade.draw_rectangle_filled(
-                    x, p['y'], p['size'], p['size'] * 0.6,
-                    (*p['color'], 220), p['rotation']
+                rect = arcade.XYWH(x, p['y'], p['size'], p['size'] * 0.6)
+                arcade.draw_rect_filled(
+                    rect,
+                    (*p['color'], 220),
+                    p['rotation']
                 )
     
     def draw(self, window):
@@ -1128,7 +1130,6 @@ class PodiumComponent(BaseComponent):
                 ("Grid", self._get_grid_text(driver, pos), self._get_grid_color(driver, pos)),
                 ("Best Lap", self._format_time(driver.get("fastest_lap")), (150, 150, 255)),
                 ("WDC Pos", f"P{driver.get('wdc_position', '?')}", (255, 200, 100)),
-                ("GP Wins", str(driver.get('wdc_wins', 0)), (255, 150, 150)),
             ]
             
             for i, (label, value, color) in enumerate(stats):
@@ -1985,7 +1986,7 @@ class RaceControlsComponent(BaseComponent):
             return True
         return False
     
-    def _point_in_rect(self, x: float, y: float, rect: tuple[float, float, float, float] | None) -> bool:
+    def _point_in_rect(self, x: float, y: float, rect: Optional[Tuple[float, float, float, float]]) -> bool:
         """Check if point is inside rectangle."""
         if rect is None:
             return False
@@ -2161,7 +2162,7 @@ class QualifyingLapTimeComponent(BaseComponent):
         s3_color = arcade.color.GREEN if s3_time > 0 and current_t >= s3_time else arcade.color.LIGHT_GRAY
         arcade.Text("S3", self.x + 200, self.y - 120, s3_color, 9, bold=True).draw()      
     
-    def show_delta_sector_times(self, sector_idx: int, sector_time: float, delta_sector_time: float | None, text_color: tuple):
+    def show_delta_sector_times(self, sector_idx: int, sector_time: float, delta_sector_time: Optional[float], text_color: tuple):
         if self._delta_sector == sector_idx and self._time_elapsed < 1.0 and delta_sector_time is not None:
             # Show delta for 1 second
             if delta_sector_time < 0:
