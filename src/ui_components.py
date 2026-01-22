@@ -831,6 +831,7 @@ class ControlsPopupComponent(BaseComponent):
             "[D]    Toggle DRS Zones",
             "[B]    Toggle Progress Bar",
             "[L]    Toggle Driver Labels",
+            "[P]    Toggle Podium",
             "[H]    Toggle Help Popup",
         ]
         
@@ -939,17 +940,19 @@ class PodiumComponent(BaseComponent):
         return self.visible
     
     def _format_time(self, seconds: float) -> str:
-        """Format time in seconds to mm:ss.xxx"""
+        """Format time in seconds to hh:mm:ss.xxx or mm:ss.xxx"""
         if seconds is None:
             return "N/A"
         if seconds < 0:
             return "N/A"
-        mins = int(seconds // 60)
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
         secs = seconds % 60
-        if mins > 0:
-            return f"{mins}:{secs:06.3f}"
-        else:
-            return f"{secs:.3f}s"
+        if hours > 0:
+            return f"{hours:02}:{minutes:02}:{secs:06.3f}"
+        if minutes > 0:
+            return f"{minutes}:{secs:06.3f}"
+        return f"{secs:.3f}s"
     
     def _format_gap(self, seconds: float, position: int) -> str:
         """Format gap to leader"""
@@ -958,6 +961,19 @@ class PodiumComponent(BaseComponent):
         if seconds is None:
             return "N/A"
         return f"+{seconds:.3f}s"
+
+    def _format_points(self, points: float) -> str:
+        """Format points without truncating half points."""
+        if points is None:
+            return "N/A"
+        if abs(points - round(points)) < 1e-6:
+            return f"+{int(round(points))}"
+        return f"+{points:.1f}"
+
+    def _format_wdc_position(self, position) -> str:
+        if position is None:
+            return "?"
+        return f"P{position}"
     
     def _get_reveal_alpha(self, podium_pos: int) -> int:
         """Get the alpha value for a podium position based on animation progress"""
@@ -1126,10 +1142,10 @@ class PodiumComponent(BaseComponent):
             
             stats = [
                 ("Time", self._format_gap(driver.get("time"), pos), (150, 255, 150)),
-                ("Points", f"+{int(driver.get('points', 0))}", (255, 215, 0)),
+                ("Points", self._format_points(driver.get("points")), (255, 215, 0)),
                 ("Grid", self._get_grid_text(driver, pos), self._get_grid_color(driver, pos)),
                 ("Best Lap", self._format_time(driver.get("fastest_lap")), (150, 150, 255)),
-                ("WDC Pos", f"P{driver.get('wdc_position', '?')}", (255, 200, 100)),
+                ("WDC Pos", self._format_wdc_position(driver.get("wdc_position")), (255, 200, 100)),
             ]
             
             for i, (label, value, color) in enumerate(stats):

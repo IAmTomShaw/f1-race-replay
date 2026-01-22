@@ -100,7 +100,6 @@ class F1RaceReplayWindow(arcade.Window):
         self.podium_comp = PodiumComponent(visible=False)
         if self.race_results:
             self.podium_comp.set_results(self.race_results)
-        self.race_finished = False  # Track if we've reached the end
         self.podium_shown_once = False  # Track if podium was auto-shown
 
         self.is_rewinding = False
@@ -559,7 +558,6 @@ class F1RaceReplayWindow(arcade.Window):
             self.frame_index = float(self.n_frames - 1)
             # Auto-show podium when race reaches the end (only once)
             if not self.podium_shown_once and self.race_results:
-                self.race_finished = True
                 self.paused = True
                 self.podium_comp.show()
                 self.podium_shown_once = True

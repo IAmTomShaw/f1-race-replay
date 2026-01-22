@@ -614,9 +614,9 @@ def get_race_results(session):
             "grid_position": grid_pos,
             "fastest_lap": fastest_lap_seconds,
             "laps_completed": laps_completed,
-            "wdc_position": wdc_positions.get(driver_code, 0),
-            "wdc_points": wdc_points.get(driver_code, 0),
-            "wdc_wins": wdc_wins.get(driver_code, 0),
+            "wdc_position": wdc_positions.get(driver_code),
+            "wdc_points": wdc_points.get(driver_code),
+            "wdc_wins": wdc_wins.get(driver_code),
         })
     
     # Sort by position
