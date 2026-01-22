@@ -1065,7 +1065,7 @@ class PodiumComponent(BaseComponent):
             self._text.font_size = 38
             self._text.bold = True
             self._text.color = (255, 215, 0, header_alpha)
-            self._text.text = "🏆 RACE COMPLETE 🏆"
+            self._text.text = "*** RACE COMPLETE ***"
             self._text.x = center_x
             self._text.y = header_y
             self._text.anchor_x = "center"
