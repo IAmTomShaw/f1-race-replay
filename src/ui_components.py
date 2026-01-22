@@ -992,23 +992,28 @@ class PodiumComponent(BaseComponent):
     
     def _update_confetti(self):
         """Update confetti particle positions"""
+        # Determine the effective width for horizontal wrapping. Fall back to 1920 if
+        # there is no active window yet so behavior remains consistent.
+        window = arcade.get_window()
+        effective_width = window.width if window is not None else 1920
+
         for p in self._confetti:
             p['x'] += p['vx']
             p['y'] += p['vy']
             p['vy'] += 0.15  # Gravity
             p['rotation'] += p['rot_speed']
-            # Wrap horizontally
+            # Wrap horizontally with a small off-screen margin
             if p['x'] < -20:
-                p['x'] = 1940
-            elif p['x'] > 1940:
+                p['x'] = effective_width + 20
+            elif p['x'] > effective_width + 20:
                 p['x'] = -20
     
     def _draw_confetti(self, window):
         """Draw confetti particles"""
         for p in self._confetti:
             if 0 < p['y'] < window.height + 50:
-                # Scale x position to window width
-                x = (p['x'] / 1920) * window.width
+                # Scale x position to window width, using the actual window width
+                x = (p['x'] / window.width) * window.width
                 rect = arcade.XYWH(x, p['y'], p['size'], p['size'] * 0.6)
                 arcade.draw_rect_filled(
                     rect,
