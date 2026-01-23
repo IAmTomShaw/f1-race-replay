@@ -13,13 +13,17 @@ from src.lib.time import parse_time_string, format_time
 
 import pandas as pd
 
-def enable_cache():
-    # Check if cache folder exists
-    if not os.path.exists('.fastf1-cache'):
-        os.makedirs('.fastf1-cache')
+CACHE_DIR = '.fastf1-cache'
+COMPUTED_DIR = 'computed_data'
+MAX_WORKERS = 4
 
-    # Enable local cache
-    fastf1.Cache.enable_cache('.fastf1-cache')
+def enable_cache():
+    # check if cache folder exists
+    if not os.path.exists(CACHE_DIR):
+        os.makedirs(CACHE_DIR)
+
+    # enable local cache
+    fastf1.Cache.enable_cache(CACHE_DIR)
 
 FPS = 25
 DT = 1 / FPS
@@ -155,22 +159,23 @@ def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
 
-def get_race_telemetry(session, session_type='R'):
+def get_race_telemetry(session, session_type='R', refresh=False):
 
-    event_name = str(session).replace(' ', '_')
+    event_name = str(session).replace(' ', '_').replace(':', '')
     cache_suffix = 'sprint' if session_type == 'S' else 'race'
 
-    # Check if this data has already been computed
+    # check if this data has already been computed
 
     try:
-        if "--refresh-data" not in sys.argv:
-            with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
+        if not refresh:
+            file_path = os.path.join(COMPUTED_DIR, f"{event_name}_{cache_suffix}_telemetry.pkl")
+            with open(file_path, "rb") as f:
                 frames = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
                 print("The replay should begin in a new window shortly!")
                 return frames
     except FileNotFoundError:
-        pass  # Need to compute from scratch
+        pass  # need to compute from scratch
 
 
     drivers = session.drivers
@@ -187,12 +192,12 @@ def get_race_telemetry(session, session_type='R'):
     
     max_lap_number = 0
 
-    # 1. Get all of the drivers telemetry data using multiprocessing
-    # Prepare arguments for parallel processing
+    # 1. get all of the drivers telemetry data using multiprocessing
+    # prepare arguments for parallel processing
     print(f"Processing {len(drivers)} drivers in parallel...")
     driver_args = [(driver_no, session, driver_codes[driver_no]) for driver_no in drivers]
     
-    num_processes = min(cpu_count(), len(drivers))
+    num_processes = min(MAX_WORKERS, cpu_count(), len(drivers))
     
     with Pool(processes=num_processes) as pool:
         results = pool.map(_process_single_driver, driver_args)
@@ -414,12 +419,13 @@ def get_race_telemetry(session, session_type='R'):
         frames.append(frame_payload)
     print("completed telemetry extraction...")
     print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    # if computed_data/ directory doesn't exist, create it
+    if not os.path.exists(COMPUTED_DIR):
+        os.makedirs(COMPUTED_DIR)
 
-    # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    # save using pickle (10-100x faster than json)
+    file_path = os.path.join(COMPUTED_DIR, f"{event_name}_{cache_suffix}_telemetry.pkl")
+    with open(file_path, "wb") as f:
         pickle.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
@@ -768,10 +774,10 @@ def _process_quali_driver(args):
     }
 
 
-def get_quali_telemetry(session, session_type='Q'):
-    # This function is going to get the results from qualifying and the telemetry for each drivers' fastest laps in each qualifying segment
+def get_quali_telemetry(session, session_type='Q', refresh=False):
+    # this function is going to get the results from qualifying and the telemetry for each drivers' fastest laps in each qualifying segment
 
-    # The structure of the returned data will be:
+    # the structure of the returned data will be:
     # {
     #   "results": [ { "code": driver_code, "position": position, "Q1": time, "Q2": time, "Q3": time }, ... ],
     #   "telemetry": {
@@ -784,19 +790,20 @@ def get_quali_telemetry(session, session_type='Q'):
     #   }
     # }
 
-    event_name = str(session).replace(' ', '_')
+    event_name = str(session).replace(' ', '_').replace(':', '')
     cache_suffix = 'sprintquali' if session_type == 'SQ' else 'quali'
 
-    # Check if this data has already been computed
+    # check if this data has already been computed
     try:
-        if "--refresh-data" not in sys.argv:
-            with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
+        if not refresh:
+            file_path = os.path.join(COMPUTED_DIR, f"{event_name}_{cache_suffix}_telemetry.pkl")
+            with open(file_path, "rb") as f:
                 data = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
                 print("The replay should begin in a new window shortly!")
                 return data
     except FileNotFoundError:
-        pass  # Need to compute from scratch
+        pass  # need to compute from scratch
 
     qualifying_results = get_qualifying_results(session)
 
@@ -816,7 +823,7 @@ def get_quali_telemetry(session, session_type='Q'):
 
     print(f"Processing {len(session.drivers)} drivers in parallel...")
     
-    num_processes = min(cpu_count(), len(session.drivers))
+    num_processes = min(MAX_WORKERS, cpu_count(), len(session.drivers))
     
     with Pool(processes=num_processes) as pool:
         results = pool.map(_process_quali_driver, driver_args)
@@ -832,12 +839,13 @@ def get_quali_telemetry(session, session_type='Q'):
         if result["min_speed"] < min_speed or min_speed == 0.0:
             min_speed = result["min_speed"]
 
-    # Save to the compute_data directory
+    # save to the compute_data directory
 
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    if not os.path.exists(COMPUTED_DIR):
+        os.makedirs(COMPUTED_DIR)
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    file_path = os.path.join(COMPUTED_DIR, f"{event_name}_{cache_suffix}_telemetry.pkl")
+    with open(file_path, "wb") as f:
         pickle.dump({
             "results": qualifying_results,
             "telemetry": telemetry_data,
