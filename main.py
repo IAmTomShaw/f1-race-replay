@@ -244,7 +244,8 @@ if __name__ == "__main__":
         ready_file = sys.argv[idx]
 
     main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
-    sys.exit(0)  # ADD THIS - exit after viewer runs
+    sys.exit(0)
+  
 
   # Run the GUI (only if not in viewer or compare mode)
   app = QApplication(sys.argv)
