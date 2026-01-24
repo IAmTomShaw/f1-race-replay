@@ -57,12 +57,14 @@ class F1RaceReplayWindow(arcade.Window):
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
         self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
+        self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
+        self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
 
-        self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
-        self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
+        self.controls_popup_comp.set_size(420, 310) # width/height of the popup box
+        self.controls_popup_comp.set_font_sizes(header_font_size=18, body_font_size=15) # adjust font sizes
 
 
         # Progress bar component with race event markers
@@ -712,6 +714,15 @@ class F1RaceReplayWindow(arcade.Window):
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
+        if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        # controls popup comp
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):

@@ -22,7 +22,7 @@ class BaseComponent:
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool: return False
 
 class LegendComponent(BaseComponent):
-    def __init__(self, x: int = 20, y: int = 220, visible=True): # Increased y to 220 to fit all lines
+    def __init__(self, x: int = 20, y: int = 40, visible=True):
         self.x = x
         self.y = y
         self._control_icons_textures = {}
@@ -35,9 +35,8 @@ class LegendComponent(BaseComponent):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(icons_folder, filename)
                     self._control_icons_textures[texture_name] = arcade.load_texture(texture_path)
-        self.lines = ["Help (Click or 'H')", "Toggle Follow Mode (F)"]
+        self.lines = ["Help (Click or 'H')"]
         
-        self.controls_text_offset = 180
         self._text = arcade.Text("", 0, 0, arcade.color.CYAN, 14)
     
     @property
@@ -65,12 +64,15 @@ class LegendComponent(BaseComponent):
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
 
         line_x = self.x
-        line_y = self.y - getattr(self, "controls_text_offset", 0)
+        # Check click on "Help" line (index 0)
+        # Using the new layout logic: base_y = self.y + (i * 25)
+        # i=0 is Help.
+        line_y = self.y 
         left = line_x
         text_width = self._text.content_width or 120
         right = line_x + text_width + 8
-        top = line_y + 8
-        bottom = line_y - 18
+        top = line_y + 12
+        bottom = line_y - 4
 
         if left <= x <= right and bottom <= y <= top:
             popup = getattr(window, "controls_popup_comp", None)
@@ -102,12 +104,15 @@ class LegendComponent(BaseComponent):
             icon_size = 14
             # Draw icons if any
             
+            # Position stacks UPWARDS from self.y
+            base_y = self.y + (i * 25)
+
             if icon_keys:
                 control_icon_x = self.x + 12
                 for key in icon_keys:
                     icon_texture = self._control_icons_textures.get(key)
                     if icon_texture:
-                        control_icon_y = self.y - (i * 25) + 5 # slight vertical offset
+                        control_icon_y = base_y + 5 # slight vertical offset
                         rect = arcade.XYWH(control_icon_x, control_icon_y, icon_size, icon_size)
                         arcade.draw_texture_rect(
                             rect = rect,
@@ -124,16 +129,13 @@ class LegendComponent(BaseComponent):
                     self._text.color = arcade.color.LIGHT_GRAY
                     self._text.text = brackets[j]
                     self._text.x = self.x + (j * (icon_size + 5))
-                    self._text.y = self.y - (i * 25)
+                    self._text.y = base_y
                     self._text.draw()
             
             # Draw the text line
             self._text.text = line
             self._text.x = self.x + (60 if icon_keys else 0)
-            base_y = self.y - (i * 25)
             
-            if i == 0:
-                base_y -= getattr(self, "controls_text_offset", 0)
             self._text.y = base_y
             self._text.draw()
 
@@ -831,6 +833,7 @@ class ControlsPopupComponent(BaseComponent):
             "[D]    Toggle DRS Zones",
             "[B]    Toggle Progress Bar",
             "[L]    Toggle Driver Labels",
+            "[F]    Toggle Follow Mode",
             "[H]    Toggle Help Popup",
         ]
         
@@ -1480,6 +1483,9 @@ class RaceControlsComponent(BaseComponent):
         self._draw_forward_icon(forward_x, self.center_y)
 
         self._draw_speed_comp(forward_x + self.speed_container_offset, self.center_y, getattr(window, 'playback_speed', 1.0))
+        
+        # Draw Follow Mode (POV) toggle button next to speed controls
+        self._draw_follow_button(forward_x + self.speed_container_offset + 140, self.center_y, getattr(window, 'follow_mode', False))
 
     def draw_hover_effect(self, button_name: str, x: float, y: float, radius_offset: int = 2, border_width: int = 4):
         """Draw hover outline effect for a button if it's currently hovered."""
@@ -1657,6 +1663,11 @@ class RaceControlsComponent(BaseComponent):
                     window.playback_speed = self.PLAYBACK_SPEEDS[max(0, current_index - 1)]
                     self.flash_button('speed_decrease')
             return True
+        elif self._point_in_rect(x, y, getattr(self, "follow_mode_rect", None)):
+            if hasattr(window, 'follow_mode'):
+                window.follow_mode = not window.follow_mode
+                self.flash_button('follow_mode')
+            return True
         return False
     
     def _point_in_rect(self, x: float, y: float, rect: tuple[float, float, float, float] | None) -> bool:
@@ -1665,6 +1676,30 @@ class RaceControlsComponent(BaseComponent):
             return False
         left, bottom, right, top = rect
         return left <= x <= right and bottom <= y <= top
+
+    def _draw_follow_button(self, x: float, y: float, enabled: bool):
+        """Draw a toggle button for Follow Mode (POV)."""
+        self.draw_hover_effect('follow_mode', x, y)
+        
+        # Define button rect
+        size = self.button_size
+        rect = arcade.XYWH(x, y, size, size)
+        self.follow_mode_rect = (x - size//2, y - size//2,
+                                 x + size//2, y + size//2)
+        
+        # Determine color based on state
+        color = arcade.color.CYAN if enabled else arcade.color.GRAY
+        
+        # Draw explicit border/background
+        arcade.draw_rect_outline(rect, color, 2)
+        
+        if enabled:
+             arcade.draw_rect_filled(rect, (*color[:3], 100))
+        
+        # Draw "POV" text
+        arcade.Text("POV", x, y, arcade.color.WHITE, 10, 
+                    anchor_x="center", anchor_y="center", bold=True).draw()
+
 
 class QualifyingLapTimeComponent(BaseComponent):
     """
