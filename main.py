@@ -118,7 +118,6 @@ if __name__ == "__main__":
   os.makedirs("./logs", exist_ok=True)
   configuration_data = F1RaceReplayConfig()
   set_up_logging(configuration_data)
-  #logging.basicConfig(filename='logs/f1-race-replay.log', level=logging.INFO)
 
   if "--cli" in sys.argv:
     # Run the CLI

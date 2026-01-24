@@ -34,8 +34,6 @@ Recently added support for Qualifying session replays with telemetry visualizati
 ## Requirements
 
 - Python 3.11+
-- [FastF1](https://github.com/theOehrly/Fast-F1)
-- [Arcade](https://api.arcade.academy/en/latest/)
 - [UV by Astral](https://docs.astral.sh/uv/)
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
