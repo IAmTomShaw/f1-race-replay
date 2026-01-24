@@ -1,0 +1,17 @@
+[project]
+name = "f1-race-replay"
+version = "0.1.0"
+description = "An interactive Formula 1 race visualisation and data analysis tool built with Python! 🏎️"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "arcade>=3.3.3",
+    "fastf1>=3.7.0",
+    "matplotlib>=3.10.8",
+    "numpy>=2.4.1",
+    "pandas>=2.3.3",
+    "pyglet>=2.1.12",
+    "pyside6>=6.10.1",
+    "questionary>=2.1.1",
+    "rich>=14.2.0",
+]

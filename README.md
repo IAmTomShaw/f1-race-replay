@@ -36,12 +36,7 @@ Recently added support for Qualifying session replays with telemetry visualizati
 - Python 3.11+
 - [FastF1](https://github.com/theOehrly/Fast-F1)
 - [Arcade](https://api.arcade.academy/en/latest/)
-- numpy
-
-Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+- [UV by Astral](https://docs.astral.sh/uv/)
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
@@ -51,34 +46,22 @@ To get started with this project locally, you can follow these steps:
 
 1. **Clone the Repository:**
    ```bash
-   git clone https://github.com/IAmTomShaw/f1-race-replay
+    git clone https://github.com/IAmTomShaw/f1-race-replay
     cd f1-race-replay
     ```
-2. **Create a Virtual Environment:**
-    This process differs based on your operating system.
-    - On macOS/Linux:
-      ```bash
-      python3 -m venv venv
-      source venv/bin/activate
-      ```
-    - On Windows:
-      ```bash
-      python -m venv venv
-      .\venv\Scripts\activate
-      ```
-3. **Install Dependencies:**
+2. **Create a Virtual Environment & Install Dependencies:**
     ```bash
-    pip install -r requirements.txt
+      uv sync
     ```
 
-4. **Run the Application:**
+3. **Run the Application:**
     You can now run the application using the instructions in the Usage section below.
 
 ## Usage
 
 **DEFAULT GUI MENU:** To use the new GUI menu system, you can simply run:
 ```bash
-python main.py
+uv run main.py
 ```
 
 ![GUI Menu Preview](./resources/gui-menu.png)
@@ -87,7 +70,7 @@ This will open a graphical interface where you can select the year and round of 
 
 **OPTIONAL CLI MENU:** To use the CLI menu system, you can simply run:
 ```bash
-python main.py --cli
+uv run main.py --cli
 ```
 
 ![CLI Menu Preview](./resources/cli-menu.gif)
@@ -98,44 +81,45 @@ If you would already know the year and round number of the session you would lik
 
 Run the main script and specify the year and round:
 ```bash
-python main.py --viewer --year 2025 --round 12
+uv run main.py --viewer --year 2025 --round 12
 ```
 
 To run without HUD:
 ```bash
-python main.py --viewer --year 2025 --round 12 --no-hud
+uv run main.py --viewer --year 2025 --round 12 --no-hud
 ```
 
 To run a Sprint session (if the event has one), add `--sprint`:
 ```bash
-python main.py --viewer --year 2025 --round 12 --sprint
+uv run main.py --viewer --year 2025 --round 12 --sprint
 ```
 
 The application will load a pre-computed telemetry dataset if you have run it before for the same event. To force re-computation of telemetry data, use the `--refresh-data` flag:
 ```bash
-python main.py --viewer --year 2025 --round 12 --refresh-data
+uv run main.py --viewer --year 2025 --round 12 --refresh-data
 ```
 
 ### Qualifying Session Replay
 
 To run a Qualifying session replay, use the `--qualifying` flag:
 ```bash
-python main.py --viewer --year 2025 --round 12 --qualifying
+uv run main.py --viewer --year 2025 --round 12 --qualifying
 ```
 
 To run a Sprint Qualifying session (if the event has one), add `--sprint`:
 ```bash
-python main.py --viewer --year 2025 --round 12 --qualifying --sprint
+uv run main.py --viewer --year 2025 --round 12 --qualifying --sprint
 ```
 
 ## File Structure
 
 ```
 f1-race-replay/
-├── main.py                    # Entry point, handles session loading and starts the replay
-├── requirements.txt           # Python dependencies
-├── README.md                  # Project documentation
-├── roadmap.md                 # Planned features and project vision
+├── main.py                   # Entry point, handles session loading and starts the replay
+├── pyproject.toml            # Python Project file that stores app version and depenency versions
+├── uv.lock                   # UV created and managed file to ensure consistent environment across all devs
+├── README.md                 # Project documentation
+├── roadmap.md                # Planned features and project vision
 ├── resources/
 │   └── preview.png           # Race replay preview image
 ├── src/
