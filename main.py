@@ -1,5 +1,6 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
+from src.race_comparison import RaceComparison, RaceData, SyncMode
 
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
@@ -100,12 +101,111 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       session_info=session_info
     )
 
+def comparison_mode(year_a, round_a, year_b, round_b, session_type='R'):
+    """Load and compare two races"""
+    enable_cache()
+    
+    print(f"\n{'='*60}")
+    print(f"RACE COMPARISON MODE")
+    print(f"{'='*60}")
+    print(f"\nLoading Race A: {year_a} Round {round_a}")
+    session_a = load_session(year_a, round_a, session_type)
+    data_a = get_race_telemetry(session_a, session_type)
+    
+    race_a = RaceData(
+        frames=data_a['frames'],
+        driver_colors=data_a['driver_colors'],
+        track_statuses=data_a['track_statuses'],
+        total_laps=data_a['total_laps'],
+        year=year_a,
+        round_number=round_a,
+        event_name=session_a.event['EventName'],
+        session_type=session_type
+    )
+    print(f"✓ Loaded: {session_a.event['EventName']}")
+    
+    print(f"\nLoading Race B: {year_b} Round {round_b}")
+    session_b = load_session(year_b, round_b, session_type)
+    data_b = get_race_telemetry(session_b, session_type)
+    
+    race_b = RaceData(
+        frames=data_b['frames'],
+        driver_colors=data_b['driver_colors'],
+        track_statuses=data_b['track_statuses'],
+        total_laps=data_b['total_laps'],
+        year=year_b,
+        round_number=round_b,
+        event_name=session_b.event['EventName'],
+        session_type=session_type
+    )
+    print(f"✓ Loaded: {session_b.event['EventName']}")
+    
+    print(f"\nBuilding race comparison...")
+    comparison = RaceComparison(race_a, race_b, SyncMode.LAP)
+    print(f"✓ Synchronized {comparison.get_total_frames()} frames")
+    
+    # Get circuit info and example laps from BOTH races
+    print(f"\nLoading track layouts...")
+    
+    # Load track A
+    try:
+        quali_session_a = load_session(year_a, round_a, 'Q')
+        fastest_quali_a = quali_session_a.laps.pick_fastest()
+        example_lap_a = fastest_quali_a.get_telemetry()
+        print("✓ Using qualifying lap for Race A track layout")
+    except:
+        fastest_lap_a = session_a.laps.pick_fastest()
+        example_lap_a = fastest_lap_a.get_telemetry()
+        print("✓ Using race lap for Race A track layout")
+    
+    circuit_rotation_a = get_circuit_rotation(session_a)
+    
+    # Load track B
+    try:
+        quali_session_b = load_session(year_b, round_b, 'Q')
+        fastest_quali_b = quali_session_b.laps.pick_fastest()
+        example_lap_b = fastest_quali_b.get_telemetry()
+        print("✓ Using qualifying lap for Race B track layout")
+    except:
+        fastest_lap_b = session_b.laps.pick_fastest()
+        example_lap_b = fastest_lap_b.get_telemetry()
+        print("✓ Using race lap for Race B track layout")
+    
+    circuit_rotation_b = get_circuit_rotation(session_b)
+    
+    print(f"\n{'='*60}")
+    print(f"Starting comparison viewer...")
+    print(f"{'='*60}\n")
+    
+    from src.interfaces.comparison_viewer import run_comparison_viewer
+    run_comparison_viewer(comparison, example_lap_a, example_lap_b, 
+                         circuit_rotation_a, circuit_rotation_b)
+
 if __name__ == "__main__":
 
   if "--cli" in sys.argv:
     # Run the CLI
-
     cli_load()
+    sys.exit(0)
+
+  # Handle comparison mode FIRST (before other argument parsing)
+  if "--compare" in sys.argv:
+    if "--year" not in sys.argv or "--round" not in sys.argv:
+      print("Error: --compare requires --year, --round, --year-b, and --round-b")
+      sys.exit(1)
+    
+    if "--year-b" not in sys.argv or "--round-b" not in sys.argv:
+      print("Error: --compare requires both --year-b and --round-b")
+      sys.exit(1)
+    
+    year_a = int(sys.argv[sys.argv.index("--year") + 1])
+    round_a = int(sys.argv[sys.argv.index("--round") + 1])
+    year_b = int(sys.argv[sys.argv.index("--year-b") + 1])
+    round_b = int(sys.argv[sys.argv.index("--round-b") + 1])
+    
+    session_type = 'S' if "--sprint" in sys.argv else 'R'
+    
+    comparison_mode(year_a, round_a, year_b, round_b, session_type)
     sys.exit(0)
 
   if "--year" in sys.argv:
@@ -144,9 +244,9 @@ if __name__ == "__main__":
         ready_file = sys.argv[idx]
 
     main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+    sys.exit(0)  # ADD THIS - exit after viewer runs
 
-  # Run the GUI
-
+  # Run the GUI (only if not in viewer or compare mode)
   app = QApplication(sys.argv)
   win = RaceSelectionWindow()
   win.show()
