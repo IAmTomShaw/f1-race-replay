@@ -15,7 +15,8 @@ from src.ui_components import (
     build_track_from_example_lap,
     draw_finish_line
 )
-
+import logging
+logger = logging.getLogger(__name__)
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -29,7 +30,7 @@ class F1RaceReplayWindow(arcade.Window):
                  session_info=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
-        self.maximize()
+        # self.maximize()
 
         self.frames = frames
         self.track_statuses = track_statuses

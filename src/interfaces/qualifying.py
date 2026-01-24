@@ -7,6 +7,8 @@ from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
 from src.ui_components import LegendComponent
+import logging
+logger = logging.getLogger(__name__)
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -450,7 +452,7 @@ class QualifyingReplay(arcade.Window):
                         current_speed = draw_comparison_speeds[-1] if draw_comparison_speeds else 0
                         arcade.Text(f"{current_speed:.0f} km/h", pts[-1][0] + 10, pts[-1][1] - 15, arcade.color.YELLOW, 12).draw()
                     except Exception as e:
-                        print("Chart draw error (comparison speed):", e)
+                        logger.info("Chart draw error (comparison speed):", e)
 
                 # Draw speed in the top sub-area (x-axis = distance)
                 if draw_pos and draw_speeds:
@@ -467,7 +469,7 @@ class QualifyingReplay(arcade.Window):
                         current_speed = draw_speeds[-1] if draw_speeds else 0
                         arcade.Text(f"{current_speed:.0f} km/h", pts[-1][0] + 10, pts[-1][1] + 5, arcade.color.ANTI_FLASH_WHITE, 12).draw()
                     except Exception as e:
-                        print("Chart draw error (speed):", e)
+                        logger.info("Chart draw error (speed):", e)
 
                 # Draw gears in the middle sub-area
                 gear_pts = []
@@ -505,7 +507,7 @@ class QualifyingReplay(arcade.Window):
                         arcade.Text(f"Gear: {int(current_gear)}", gear_pts[-1][0] + 10, gear_pts[-1][1] + 5, arcade.color.LIGHT_GRAY, 12).draw()
                         
                 except Exception as e:
-                    print("Chart draw error (gear):", e)
+                    logger.info("Chart draw error (gear):", e)
 
 
                 th_min = self.th_min
@@ -534,7 +536,7 @@ class QualifyingReplay(arcade.Window):
                     if brake_pts:
                         arcade.draw_line_strip(brake_pts, arcade.color.RED, 2)
                 except Exception as e:
-                    print("Chart draw error (controls):", e)
+                    logger.info("Chart draw error (controls):", e)
                 
                 # Draw qualifying lap time component at top of map area
                 self.qualifying_lap_time_comp.x = map_left
@@ -595,7 +597,7 @@ class QualifyingReplay(arcade.Window):
                             arcade.draw_line_strip(self.outer_pts, arcade.color.GRAY, 2)
                         draw_finish_line(self, 'Q')
                     except Exception as e:
-                        print("Circuit draw error:", e)
+                        logger.info("Circuit draw error:", e)
 
                     # Draw the comparison driver's position (if available - doing this first so that the current driver is on top visually)
 
@@ -637,7 +639,7 @@ class QualifyingReplay(arcade.Window):
                                         arcade.draw_line_strip(outer_zone, drs_color, 3)
 
                             except Exception as e:
-                                print(f"DRS zone draw error: {e}")
+                                logger.info(f"DRS zone draw error: {e}")
 
                     # Draw current driver's position marker (sync with frame_index)
                     current_frame = frames[self.frame_index]
@@ -787,7 +789,7 @@ class QualifyingReplay(arcade.Window):
                 if handled:
                     return
             except Exception as e:
-                print("Segment selector click error:", e)
+                logger.info("Segment selector click error:", e)
 
         # Fallback: let the leaderboard handle the click (select drivers)
         self.leaderboard.on_mouse_press(self, x, y, button, modifiers)
@@ -981,7 +983,7 @@ class QualifyingReplay(arcade.Window):
                     self.paused = False
                     self.playback_speed = 1.0
         except Exception as e:
-            print("Telemetry load failed:", e)
+            logger.info("Telemetry load failed:", e)
             self.loaded_telemetry = None
             self.chart_active = False
         finally:

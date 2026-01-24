@@ -1,17 +1,24 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
+from src.config import F1RaceReplayConfig
 
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
+import os
 from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
+import logging
+import logging.config
+import atexit
+
+logger = logging.getLogger(__name__)
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None):
-  print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
+  logger.info(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
-  print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
+  logger.info(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
 
   # Enable cache for fastf1
   enable_cache()
@@ -44,7 +51,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     example_lap = None
     
     try:
-        print("Attempting to load qualifying session for track layout...")
+        logger.info("Attempting to load qualifying session for track layout...")
         quali_session = load_session(year, round_number, 'Q')
         if quali_session is not None and len(quali_session.laps) > 0:
             fastest_quali = quali_session.laps.pick_fastest()
@@ -52,18 +59,18 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
                 quali_telemetry = fastest_quali.get_telemetry()
                 if 'DRS' in quali_telemetry.columns:
                     example_lap = quali_telemetry
-                    print(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
+                    logger.info(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
     except Exception as e:
-        print(f"Could not load qualifying session: {e}")
+        logger.info(f"Could not load qualifying session: {e}")
 
     # fallback: Use fastest race lap
     if example_lap is None:
         fastest_lap = session.laps.pick_fastest()
         if fastest_lap is not None:
             example_lap = fastest_lap.get_telemetry()
-            print("Using fastest race lap (DRS detection may use speed-based fallback)")
+            logger.info("Using fastest race lap (DRS detection may use speed-based fallback)")
         else:
-            print("Error: No valid laps found in session")
+            logger.info("Error: No valid laps found in session")
             return
 
     drivers = session.drivers
@@ -100,7 +107,18 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       session_info=session_info
     )
 
+def set_up_logging(config):
+    logging.config.dictConfig(config.LOGGING_CONFIG)
+    queue_handler = logging.getHandlerByName("queue_handler")
+    if queue_handler is not None:
+        queue_handler.listener.start()
+        atexit.register(queue_handler.listener.stop)
+
 if __name__ == "__main__":
+  os.makedirs("./logs", exist_ok=True)
+  configuration_data = F1RaceReplayConfig()
+  set_up_logging(configuration_data)
+  #logging.basicConfig(filename='logs/f1-race-replay.log', level=logging.INFO)
 
   if "--cli" in sys.argv:
     # Run the CLI

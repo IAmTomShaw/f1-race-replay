@@ -4,6 +4,8 @@ from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
 import numpy as np
 import os
+import logging
+logger = logging.getLogger(__name__)
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
   if degrees is None:
@@ -609,7 +611,7 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
                         if hasattr(window, "leaderboard"):
                             window.leaderboard.selected = []
                     except Exception as e:
-                        print("Error starting telemetry load:", e)
+                        logger.error("Error starting telemetry load:", e)
                     return True
         return True # Consume all clicks when visible
 
@@ -2014,7 +2016,7 @@ def plotDRSzones(example_lap):
 
 def draw_finish_line(self, session_type = 'R'):
     if(session_type not in ['R', 'Q']):
-        print("Invalid session type for finish line drawing...")
+        logger.warning("Invalid session type for finish line drawing...")
         return
 
     start_inner = None
