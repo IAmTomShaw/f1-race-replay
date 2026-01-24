@@ -1,0 +1,22 @@
+SCREEN_WIDTH: 1280
+SCREEN_HEIGHT: 720
+MAXIMISE_ON_START: False
+RACE_PLAYBACK_SPEEDS:
+  - 0.1
+  - 0.2
+  - 0.5
+  - 1.0
+  - 2.0
+  - 4.0
+  - 8.0
+  - 16.0
+  - 32.0
+  - 64.0
+  - 128.0
+  - 256.0
+TRACK_STATUS_COLORS:
+  GREEN: [150, 150, 150]    # normal grey
+  YELLOW: [220, 180, 0]     # caution
+  RED: [200, 30, 30]        # red-flag
+  VSC: [200, 130, 50]       # virtual safety car / amber-brown
+  SC: [180, 100, 30]        # safety car (darker brown)

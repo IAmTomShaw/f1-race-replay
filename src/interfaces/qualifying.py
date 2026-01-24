@@ -7,13 +7,14 @@ from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
 from src.ui_components import LegendComponent
+from src.config import F1RaceReplayConfig
+
 import logging
 logger = logging.getLogger(__name__)
 
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
-SCREEN_TITLE = "F1 Qualifying Telemetry"
+gui_config = F1RaceReplayConfig().GUI_CONFIG
 
+SCREEN_TITLE = "F1 Qualifying Telemetry"
 H_ROW = 38
 HEADER_H = 56
 LEFT_MARGIN = 40
@@ -23,8 +24,9 @@ BOTTOM_MARGIN = 40
 
 class QualifyingReplay(arcade.Window):
     def __init__(self, session, data, circuit_rotation=0, left_ui_margin=340, right_ui_margin=0, title="Qualifying Results"):
-        super().__init__(width=SCREEN_WIDTH, height=SCREEN_HEIGHT, title=title, resizable=True)
-        self.maximize()
+        super().__init__(width=gui_config["SCREEN_WIDTH"], height=gui_config["SCREEN_HEIGHT"], title=title, resizable=True)
+        if gui_config["MAXIMISE_ON_START"]:
+            self.maximize()
         
         self.session = session
         self.data = data

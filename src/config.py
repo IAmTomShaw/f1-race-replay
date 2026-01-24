@@ -7,6 +7,7 @@ class F1RaceReplayConfig:
     def __init__(self):
         self.CONFIG_FILE_DIRECTORY = "src/config_files"
         self.LOGGING_CONFIG = self.load_config_file("logging_config.yaml")
+        self.GUI_CONFIG = self.load_config_file("gui_config.yaml")
 
     def load_config_file(self, file):
         config = ""

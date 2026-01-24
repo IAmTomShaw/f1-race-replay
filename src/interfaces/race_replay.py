@@ -2,6 +2,7 @@ import os
 import arcade
 import numpy as np
 from src.f1_data import FPS
+from src.config import F1RaceReplayConfig
 from src.ui_components import (
     LeaderboardComponent, 
     WeatherComponent, 
@@ -18,10 +19,9 @@ from src.ui_components import (
 import logging
 logger = logging.getLogger(__name__)
 
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
+gui_config = F1RaceReplayConfig().GUI_CONFIG
 SCREEN_TITLE = "F1 Race Replay"
-PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
+PLAYBACK_SPEEDS = gui_config["RACE_PLAYBACK_SPEEDS"]
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
@@ -29,8 +29,9 @@ class F1RaceReplayWindow(arcade.Window):
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
                  session_info=None):
         # Set resizable to True so the user can adjust mid-sim
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
-        # self.maximize()
+        super().__init__(width=gui_config["SCREEN_WIDTH"], height=gui_config["SCREEN_HEIGHT"], title=title, resizable=True)
+        if gui_config["MAXIMISE_ON_START"]:
+            self.maximize()
 
         self.frames = frames
         self.track_statuses = track_statuses
@@ -333,24 +334,16 @@ class F1RaceReplayWindow(arcade.Window):
                 current_track_status = status['status']
                 break
 
-        # Map track status -> colour (R,G,B)
-        STATUS_COLORS = {
-            "GREEN": (150, 150, 150),    # normal grey
-            "YELLOW": (220, 180,   0),   # caution
-            "RED": (200,  30,  30),      # red-flag
-            "VSC": (200, 130,  50),      # virtual safety car / amber-brown
-            "SC": (180, 100,  30),       # safety car (darker brown)
-        }
-        track_color = STATUS_COLORS.get("GREEN", (150, 150, 150))
+        track_color = gui_config["TRACK_STATUS_COLORS"].get("GREEN", (150, 150, 150))
 
         if current_track_status == "2":
-            track_color = STATUS_COLORS.get("YELLOW")
+            track_color = gui_config["TRACK_STATUS_COLORS"].get("YELLOW")
         elif current_track_status == "4":
-            track_color = STATUS_COLORS.get("SC")
+            track_color = gui_config["TRACK_STATUS_COLORS"].get("SC")
         elif current_track_status == "5":
-            track_color = STATUS_COLORS.get("RED")
+            track_color = gui_config["TRACK_STATUS_COLORS"].get("RED")
         elif current_track_status == "6" or current_track_status == "7":
-            track_color = STATUS_COLORS.get("VSC")
+            track_color = gui_config["TRACK_STATUS_COLORS"].get("VSC")
             
         if len(self.screen_inner_points) > 1:
             arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
