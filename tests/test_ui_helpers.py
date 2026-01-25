@@ -4,25 +4,30 @@ Unit tests for UI helper functions in src/ui_components.py
 Tests standalone helper functions that don't require the Arcade framework
 to be running, focusing on _format_wind_direction().
 
-Note: These tests mock the arcade import to avoid requiring arcade to be installed
-for testing pure utility functions.
+Note: The arcade module is mocked using patch.dict to avoid polluting sys.modules
+and to allow tests to run without arcade installed.
 """
-import pytest
 import sys
-from unittest.mock import MagicMock
+import pytest
+from unittest.mock import MagicMock, patch
 
-# Mock arcade before importing ui_components
-sys.modules['arcade'] = MagicMock()
 
-# Now we can import the helper function
-from src.ui_components import _format_wind_direction
+# Use patch.dict context manager to safely mock arcade during import
+# This avoids polluting sys.modules for the entire test session
+with patch.dict(sys.modules, {"arcade": MagicMock()}):
+    from src.ui_components import _format_wind_direction
 
 
 class TestFormatWindDirection:
-    """Tests for _format_wind_direction() that converts degrees to compass directions."""
+    """
+    Tests for _format_wind_direction() that converts degrees to compass directions.
+    
+    This function is defined in src/ui_components.py and converts wind direction
+    in degrees to a 16-point compass direction string (N, NNE, NE, ENE, etc.).
+    """
 
     # =========================================================================
-    # Cardinal Directions
+    # Cardinal Directions (N, E, S, W)
     # =========================================================================
 
     @pytest.mark.parametrize("degrees,expected", [
@@ -36,7 +41,7 @@ class TestFormatWindDirection:
         assert _format_wind_direction(degrees) == expected
 
     # =========================================================================
-    # Intercardinal (Ordinal) Directions
+    # Intercardinal (Ordinal) Directions (NE, SE, SW, NW)
     # =========================================================================
 
     @pytest.mark.parametrize("degrees,expected", [

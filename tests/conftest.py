@@ -120,7 +120,7 @@ def tyre_compound_case_variations():
 @pytest.fixture
 def cardinal_directions():
     """
-    Cardinal wind directions with their degree values.
+    Cardinal wind directions (N, E, S, W) with their degree values.
     
     Returns:
         list of tuples: (degrees, expected_direction)
@@ -130,6 +130,18 @@ def cardinal_directions():
         (90, "E"),
         (180, "S"),
         (270, "W"),
+    ]
+
+
+@pytest.fixture
+def intercardinal_directions():
+    """
+    Intercardinal wind directions (NE, SE, SW, NW) with their degree values.
+    
+    Returns:
+        list of tuples: (degrees, expected_direction)
+    """
+    return [
         (45, "NE"),
         (135, "SE"),
         (225, "SW"),
@@ -138,9 +150,9 @@ def cardinal_directions():
 
 
 @pytest.fixture
-def intercardinal_directions():
+def secondary_intercardinal_directions():
     """
-    Intercardinal wind directions for fine-grained testing.
+    Secondary intercardinal directions (16-point compass: NNE, ENE, ESE, etc.).
     
     Returns:
         list of tuples: (degrees, expected_direction)
