@@ -1964,6 +1964,11 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
 
 # Build track geometry from example lap telemetry
 def build_track_from_example_lap(example_lap, track_width=200):
+    if example_lap is None:
+        # Return dummy values if no layout data exists
+        dummy = np.array([0, 1])
+        return (dummy, dummy, dummy, dummy, dummy, dummy, 0, 1, 0, 1, [])
+    
     drs_zones = plotDRSzones(example_lap)
     plot_x_ref = example_lap["X"]
     plot_y_ref = example_lap["Y"]
@@ -1996,10 +2001,16 @@ def build_track_from_example_lap(example_lap, track_width=200):
 
 # Plot DRS Zones along the track sides to show DRS Zones on the track
 def plotDRSzones(example_lap):
+   if example_lap is None:
+       return []
    x_val = example_lap["X"]
    y_val = example_lap["Y"]
    drs_zones = []
    drs_start = None
+
+   def get_coord(seq, idx):
+       if hasattr(seq, 'iloc'): return seq.iloc[idx]
+       return seq[idx]
 
    for i, val in enumerate(example_lap["DRS"]):
        if val in [10, 12, 14]:
@@ -2009,18 +2020,18 @@ def plotDRSzones(example_lap):
            if drs_start is not None:
                drs_end = i - 1
                zone = {
-                   "start": {"x": x_val.iloc[drs_start], "y": y_val.iloc[drs_start], "index": drs_start},
-                   "end": {"x": x_val.iloc[drs_end], "y": y_val.iloc[drs_end], "index": drs_end}
+                   "start": {"x": float(get_coord(x_val, drs_start)), "y": float(get_coord(y_val, drs_start)), "index": drs_start},
+                   "end": {"x": float(get_coord(x_val, drs_end)), "y": float(get_coord(y_val, drs_end)), "index": drs_end},
                }
                drs_zones.append(zone)
                drs_start = None
-   
+    
    # Handle case where DRS zone extends to end of lap
    if drs_start is not None:
        drs_end = len(example_lap["DRS"]) - 1
        zone = {
-           "start": {"x": x_val.iloc[drs_start], "y": y_val.iloc[drs_start], "index": drs_start},
-           "end": {"x": x_val.iloc[drs_end], "y": y_val.iloc[drs_end], "index": drs_end}
+           "start": {"x": float(get_coord(x_val, drs_start)), "y": float(get_coord(y_val, drs_start)), "index": drs_start},
+           "end": {"x": float(get_coord(x_val, drs_end)), "y": float(get_coord(y_val, drs_end)), "index": drs_end},
        }
        drs_zones.append(zone)
    

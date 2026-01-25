@@ -173,8 +173,8 @@ def get_race_telemetry(session, session_type='R'):
     try:
         if "--refresh-data" not in sys.argv:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
-                frames = pickle.load(f)
-                return frames
+                data = pickle.load(f)
+                return data
     except FileNotFoundError:
         pass
 
@@ -427,27 +427,55 @@ def get_race_telemetry(session, session_type='R'):
         frames.append(frame_payload)
     print("completed telemetry extraction...")
     print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    
+    drivers_list = list(drivers)
+    circuit_rotation = get_circuit_rotation(session)
+    # Get example lap for layout (fetch once here)
+    layout_telemetry = None
+    try:
+        # Preferred: Qualifying for DRS
+        if session_type == 'R' or session_type == 'S':
+             q_sess = load_session(session.event['Year'], session.event['RoundNumber'], 'Q')
+             if q_sess and not q_sess.laps.empty:
+                 layout_telemetry = q_sess.laps.pick_fastest().get_telemetry()
+    except Exception: pass
+    
+    if layout_telemetry is None:
+        try:
+            layout_telemetry = session.laps.pick_fastest().get_telemetry()
+        except Exception: pass
 
-    # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "total_laps": int(max_lap_number),
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # Absolute fallback: Use the first available driver's resampled data
+    if layout_telemetry is None and resampled_data:
+        first_driver_code = list(resampled_data.keys())[0]
+        rd = resampled_data[first_driver_code]
+        layout_telemetry = {
+            "X": rd["x"],
+            "Y": rd["y"],
+            "DRS": rd.get("drs", np.zeros_like(rd["x"]))
+        }
 
-    print("Saved Successfully!")
-    print("The replay should begin in a new window shortly")
-    return {
+    data_payload = {
         "frames": frames,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
+        "event_name": session.event['EventName'],
+        "round_number": session.event['RoundNumber'],
+        "drivers": drivers_list,
+        "circuit_rotation": circuit_rotation,
+        "layout_telemetry": layout_telemetry
     }
+
+    # If computed_data/ directory doesn't exist, create it
+    if not os.path.exists("computed_data"):
+        os.makedirs("computed_data")
+
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+        pickle.dump(data_payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    print("Saved Successfully!")
+    return data_payload
 
 
 def get_qualifying_results(session):
@@ -849,25 +877,54 @@ def get_quali_telemetry(session, session_type='Q'):
         if result["min_speed"] < min_speed or min_speed == 0.0:
             min_speed = result["min_speed"]
 
-    # Save to the compute_data directory
+    # Pick a layout_telemetry (example lap) for the track map
+    layout_telemetry = None
+    try:
+        # Try to find any driver who has valid telemetry in telemetry_data
+        for code, driver_segments in telemetry_data.items():
+            for seg in ["Q3", "Q2", "Q1"]:
+                if driver_segments.get(seg) and driver_segments[seg].get("frames"):
+                    # Extract raw layout (x,y) from the first frame or similar
+                    # Actually run_qualifying_replay expects a full telemetry DF or similar?
+                    # No, build_track_from_example_lap expects a dataframe-like with X and Y.
+                    # We'll fetch it from the session once here while it's loaded.
+                    layout_telemetry = session.laps.pick_fastest().get_telemetry()
+                    break
+            if layout_telemetry is None: break
+    except Exception: pass
 
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    # Absolute fallback: Build from first valid segment in telemetry_data
+    if layout_telemetry is None and telemetry_data:
+        for code, segments in telemetry_data.items():
+            for seg in ["Q3", "Q2", "Q1"]:
+                if segments.get(seg) and segments[seg].get("frames"):
+                    frs = segments[seg]["frames"]
+                    xs = np.array([ (f.get("telemetry") or {}).get("x", 0) for f in frs ])
+                    ys = np.array([ (f.get("telemetry") or {}).get("y", 0) for f in frs ])
+                    drs = np.array([ (f.get("telemetry") or {}).get("drs", 0) for f in frs ])
+                    layout_telemetry = {"X": xs, "Y": ys, "DRS": drs}
+                    break
+            if layout_telemetry: break
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "results": qualifying_results,
-            "telemetry": telemetry_data,
-            "max_speed": max_speed,
-            "min_speed": min_speed,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    return {
+    data_payload = {
         "results": qualifying_results,
         "telemetry": telemetry_data,
         "max_speed": max_speed,
         "min_speed": min_speed,
+        "event_name": session.event['EventName'],
+        "round_number": session.event['RoundNumber'],
+        "circuit_rotation": get_circuit_rotation(session),
+        "layout_telemetry": layout_telemetry
     }
+
+    # Save to the compute_data directory
+    if not os.path.exists("computed_data"):
+        os.makedirs("computed_data")
+
+    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+        pickle.dump(data_payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    return data_payload
 
 
 def get_race_weekends_by_year(year):

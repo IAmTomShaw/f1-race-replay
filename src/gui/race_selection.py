@@ -68,7 +68,7 @@ class LoadingDialog(QDialog):
         self.details_box.hide()
         self.details_box.setStyleSheet("""
             QPlainTextEdit { 
-                background-color: #000000; color: #00FF00; font-family: 'Consolas', 'Courier New'; 
+                background-color: #000000; color: #00FF00; font-family: 'SF Mono', 'Menlo', 'Monaco', 'Courier New', monospace; 
                 font-size: 10px; border: 1px solid #383845; border-radius: 4px; padding: 5px;
             }
         """)
@@ -140,22 +140,25 @@ class FetchSessionWorker(QThread):
         try:
             # Attach log handler
             handler = QtLogHandler(self.log)
-            # Use a simpler format to avoid 'Laptop' or other prefix noise if requested
             handler.setFormatter(logging.Formatter('%(message)s'))
             f1_logger = logging.getLogger('fastf1')
             f1_logger.addHandler(handler)
             
             try:
-                from src.f1_data import enable_cache
+                from src.f1_data import enable_cache, load_session, get_race_telemetry, get_quali_telemetry
                 enable_cache()
-            except Exception:
-                pass
+            except Exception: pass
             
-            from src.f1_data import load_session
             sess = load_session(self.year, self.round_no, self.session_type)
             
+            # Pre-compute telemetry data (This is the heavy part)
+            if self.session_type == 'Q' or self.session_type == 'SQ':
+                data = get_quali_telemetry(sess, session_type=self.session_type)
+            else:
+                data = get_race_telemetry(sess, session_type=self.session_type)
+            
             f1_logger.removeHandler(handler)
-            self.result.emit(sess)
+            self.result.emit(data)
         except Exception as e:
             self.error.emit(str(e))
 
@@ -202,7 +205,7 @@ class RaceSelectionWindow(QMainWindow):
             QWidget {
                 background-color: #15151E;
                 color: #FFFFFF;
-                font-family: 'Inter', 'Segoe UI', 'San Francisco', sans-serif;
+                font-family: '.AppleSystemUIFont', 'Segoe UI', sans-serif;
             }
             QLabel {
                 color: #FFFFFF;

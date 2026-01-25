@@ -83,18 +83,18 @@ class QualifyingReplay(arcade.Window):
         self.legend_comp = LegendComponent()
 
         # Build the track layout from an example lap
-
-        example_lap = None
-        for res in self.data['results']:
-            if res['Q3'] is not None:
-                example_lap = self.session.laps.pick_drivers(res['code']).pick_fastest()
-                break
-            elif res['Q2'] is not None:
-                example_lap = self.session.laps.pick_drivers(res['code']).pick_fastest()
-                break
-            elif res['Q1'] is not None:
-                example_lap = self.session.laps.pick_drivers(res['code']).pick_fastest()
-                break
+        example_lap_tel = self.data.get('layout_telemetry')
+        if example_lap_tel is None and self.session:
+            for res in self.data['results']:
+                if res['Q3'] is not None:
+                    example_lap_tel = self.session.laps.pick_drivers(res['code']).pick_fastest().get_telemetry()
+                    break
+                elif res['Q2'] is not None:
+                    example_lap_tel = self.session.laps.pick_drivers(res['code']).pick_fastest().get_telemetry()
+                    break
+                elif res['Q1'] is not None:
+                    example_lap_tel = self.session.laps.pick_drivers(res['code']).pick_fastest().get_telemetry()
+                    break
 
         self.world_scale = 1.0
         self.tx = 0
@@ -104,7 +104,7 @@ class QualifyingReplay(arcade.Window):
          self.x_inner, self.y_inner,
          self.x_outer, self.y_outer,
          self.x_min, self.x_max,
-         self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap.get_telemetry())
+         self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap_tel)
          
         ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
         self._ref_xs = np.array([p[0] for p in ref_points])
