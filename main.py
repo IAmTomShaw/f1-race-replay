@@ -89,51 +89,37 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     )
 
 if __name__ == "__main__":
-
-  if "--gui" in sys.argv:
-    app = QApplication(sys.argv)
-    win = RaceSelectionWindow()
-    win.show()
-    sys.exit(app.exec())
-
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
-
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
-
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
-  else:
-    playback_speed = 1
-
+  # 1. Check for Replay Viewer mode (usually called as a subprocess)
   if "--viewer" in sys.argv:
-  
-    visible_hud = True
-    if "--no-hud" in sys.argv:
-      visible_hud = False
-
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-
-    # Optional ready-file path used when spawned from the GUI to signal ready state
+    year = 2025
+    if "--year" in sys.argv:
+      year = int(sys.argv[sys.argv.index("--year") + 1])
+    
+    round_number = 1
+    if "--round" in sys.argv:
+      round_number = int(sys.argv[sys.argv.index("--round") + 1])
+    
+    visible_hud = "--no-hud" not in sys.argv
+    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else \
+                   ('S' if "--sprint" in sys.argv else \
+                   ('Q' if "--qualifying" in sys.argv else 'R'))
+    
     ready_file = None
     if "--ready-file" in sys.argv:
       idx = sys.argv.index("--ready-file") + 1
       if idx < len(sys.argv):
         ready_file = sys.argv[idx]
+    
+    main(year, round_number, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+    sys.exit(0)
 
-    main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+  # 2. Check for explicit CLI request
+  if "--cli" in sys.argv or "--terminal" in sys.argv:
+    cli_load()
+    sys.exit(0)
 
-  # Run the CLI
-
-  cli_load()
-  sys.exit(0)
+  # 3. Default: Launch GUI
+  app = QApplication(sys.argv)
+  win = RaceSelectionWindow()
+  win.show()
+  sys.exit(app.exec())

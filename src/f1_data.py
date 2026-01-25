@@ -136,6 +136,14 @@ def load_session(year, round_number, session_type='R'):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
     session = fastf1.get_session(year, round_number, session_type)
     session.load(telemetry=True, weather=True)
+    
+    # Validation: Some historical data lacks telemetry/laps
+    try:
+        if not hasattr(session, 'laps') or session.laps.empty:
+            raise ValueError("Telemetry/Lap data not available for this session (Typical for pre-2018 data).")
+    except fastf1.core.DataNotLoadedError:
+        raise ValueError("Lap data could not be loaded. This session likely lacks telemetry support.")
+        
     return session
 
 # The following functions require a loaded session object
@@ -166,11 +174,16 @@ def get_race_telemetry(session, session_type='R'):
         if "--refresh-data" not in sys.argv:
             with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb") as f:
                 frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
                 return frames
     except FileNotFoundError:
-        pass  # Need to compute from scratch
+        pass
+
+    # Verify session data is loaded before parallel processing
+    try:
+        if not hasattr(session, 'laps') or session.laps.empty:
+            raise ValueError("No lap data available in session.")
+    except Exception as e:
+        raise ValueError(f"Session data validation failed: {e}")
 
 
     drivers = session.drivers

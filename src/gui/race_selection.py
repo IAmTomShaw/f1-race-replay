@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog
+    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog,
+    QDialog, QProgressBar, QPlainTextEdit
 )
 from PySide6.QtWidgets import QProgressDialog
 from PySide6.QtCore import QThread, Signal, Qt, QTimer
@@ -10,7 +11,153 @@ import os
 import subprocess
 import tempfile
 import uuid
+import logging
 from src.f1_data import get_race_weekends_by_year, load_session
+
+class QtLogHandler(logging.Handler):
+    def __init__(self, log_signal):
+        super().__init__()
+        self.log_signal = log_signal
+
+    def emit(self, record):
+        msg = self.format(record)
+        self.log_signal.emit(msg)
+
+class LoadingDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("F1 DATA PIPELINE")
+        self.setFixedSize(500, 150)
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setWindowFlags(self.windowFlags() & ~Qt.WindowContextHelpButtonHint)
+        
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(20, 20, 20, 20)
+        self.layout.setSpacing(15)
+        
+        self.status_label = QLabel("Initializing Connection...")
+        self.status_label.setStyleSheet("font-weight: bold; color: #FFFFFF; font-size: 13px;")
+        self.layout.addWidget(self.status_label)
+        
+        self.progress_bar = QProgressBar()
+        self.progress_bar.setRange(0, 100)
+        self.progress_bar.setValue(0)
+        self.progress_bar.setFixedHeight(6)
+        self.progress_bar.setTextVisible(False)
+        self.layout.addWidget(self.progress_bar)
+        
+        self.footer_layout = QHBoxLayout()
+        self.details_btn = QPushButton("SHOW CONSOLE LOGS")
+        self.details_btn.setCheckable(True)
+        self.details_btn.setFixedHeight(24)
+        self.details_btn.setStyleSheet("""
+            QPushButton { 
+                background-color: #2D2D3A; color: #8E8E93; border: 1px solid #383845; 
+                border-radius: 4px; font-size: 9px; font-weight: bold; padding: 0 10px;
+            }
+            QPushButton:checked { background-color: #FF1801; color: white; }
+        """)
+        self.details_btn.clicked.connect(self.toggle_details)
+        
+        self.footer_layout.addWidget(self.details_btn)
+        self.footer_layout.addStretch()
+        self.layout.addLayout(self.footer_layout)
+        
+        self.details_box = QPlainTextEdit()
+        self.details_box.setReadOnly(True)
+        self.details_box.hide()
+        self.details_box.setStyleSheet("""
+            QPlainTextEdit { 
+                background-color: #000000; color: #00FF00; font-family: 'Consolas', 'Courier New'; 
+                font-size: 10px; border: 1px solid #383845; border-radius: 4px; padding: 5px;
+            }
+        """)
+        self.layout.addWidget(self.details_box)
+        
+        self.setStyleSheet("""
+            QDialog { background-color: #15151E; border: 1px solid #383845; }
+            QProgressBar { background-color: #1F1F2B; border: none; border-radius: 3px; }
+            QProgressBar::chunk { background-color: #FF1801; border-radius: 3px; }
+        """)
+
+        self.progress_stages = {
+            "session info": 10,
+            "driver list": 20,
+            "session status": 30,
+            "timing data": 50,
+            "car data": 70,
+            "position data": 85,
+            "weather data": 95,
+            "race control": 100
+        }
+
+    def toggle_details(self, checked):
+        if checked:
+            self.details_box.show()
+            self.setFixedSize(500, 400)
+            self.details_btn.setText("HIDE CONSOLE LOGS")
+        else:
+            self.details_box.hide()
+            self.setFixedSize(500, 150)
+            self.details_btn.setText("SHOW CONSOLE LOGS")
+
+    def add_log(self, text):
+        clean_text = text.strip()
+        if not clean_text: return
+        
+        self.details_box.appendPlainText(text)
+        self.details_box.verticalScrollBar().setValue(
+            self.details_box.verticalScrollBar().maximum()
+        )
+        
+        lower_msg = clean_text.lower()
+        # Update progress bar based on stages
+        for stage, value in self.progress_stages.items():
+            if stage in lower_msg:
+                self.progress_bar.setValue(value)
+                break
+        
+        # Update status label with a clean version of the log
+        if "fetching" in lower_msg:
+            display_text = clean_text.split("...") [0] + "..."
+            # Remove timestamps or levels if present (v-simple regex-like split)
+            if " - INFO - " in display_text:
+                display_text = display_text.split(" - INFO - ")[-1]
+            self.status_label.setText(display_text)
+
+class FetchSessionWorker(QThread):
+    result = Signal(object)
+    error = Signal(str)
+    log = Signal(str)
+
+    def __init__(self, year, round_no, session_type, parent=None):
+        super().__init__(parent)
+        self.year = year
+        self.round_no = round_no
+        self.session_type = session_type
+
+    def run(self):
+        try:
+            # Attach log handler
+            handler = QtLogHandler(self.log)
+            # Use a simpler format to avoid 'Laptop' or other prefix noise if requested
+            handler.setFormatter(logging.Formatter('%(message)s'))
+            f1_logger = logging.getLogger('fastf1')
+            f1_logger.addHandler(handler)
+            
+            try:
+                from src.f1_data import enable_cache
+                enable_cache()
+            except Exception:
+                pass
+            
+            from src.f1_data import load_session
+            sess = load_session(self.year, self.round_no, self.session_type)
+            
+            f1_logger.removeHandler(handler)
+            self.result.emit(sess)
+        except Exception as e:
+            self.error.emit(str(e))
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -55,7 +202,7 @@ class RaceSelectionWindow(QMainWindow):
             QWidget {
                 background-color: #15151E;
                 color: #FFFFFF;
-                font-family: 'Segoe UI', sans-serif;
+                font-family: 'Inter', 'Segoe UI', 'San Francisco', sans-serif;
             }
             QLabel {
                 color: #FFFFFF;
@@ -302,13 +449,8 @@ class RaceSelectionWindow(QMainWindow):
             cmd.append(flag)
 
         # Show a modal loading dialog and load the session in a background thread.
-        dlg = QProgressDialog("Loading session data...", None, 0, 0, self)
-        dlg.setWindowTitle("Loading")
-        dlg.setWindowModality(Qt.ApplicationModal)
-        dlg.setCancelButton(None)
-        dlg.setMinimumDuration(0)
-        dlg.setRange(0, 0)
-        dlg.show()
+        self.active_loading_dlg = LoadingDialog(self)
+        self.active_loading_dlg.show()
         QApplication.processEvents()
 
         # Map label -> fastf1 session type code
@@ -319,28 +461,6 @@ class RaceSelectionWindow(QMainWindow):
             session_code = 'SQ'
         elif session_label == "Sprint":
             session_code = 'S'
-
-        class FetchSessionWorker(QThread):
-            result = Signal(object)
-            error = Signal(str)
-
-            def __init__(self, year, round_no, session_type, parent=None):
-                super().__init__(parent)
-                self.year = year
-                self.round_no = round_no
-                self.session_type = session_type
-
-            def run(self):
-                try:
-                    try:
-                        from src.f1_data import enable_cache
-                        enable_cache()
-                    except Exception:
-                        pass
-                    sess = load_session(self.year, self.round_no, self.session_type)
-                    self.result.emit(sess)
-                except Exception as e:
-                    self.error.emit(str(e))
 
         def _on_loaded(session_obj):
             # create a unique ready-file path and pass it to the child
@@ -364,7 +484,7 @@ class RaceSelectionWindow(QMainWindow):
                 try:
                     if os.path.exists(ready_path):
                         try:
-                            dlg.close()
+                            self.active_loading_dlg.close()
                         except Exception:
                             pass
                         timer.stop()
@@ -376,7 +496,7 @@ class RaceSelectionWindow(QMainWindow):
                     # if process exited early, show error
                     if proc.poll() is not None:
                         try:
-                            dlg.close()
+                            self.active_loading_dlg.close()
                         except Exception:
                             pass
                         timer.stop()
@@ -393,17 +513,16 @@ class RaceSelectionWindow(QMainWindow):
 
         def _on_error(msg):
             try:
-                dlg.close()
+                self.active_loading_dlg.close()
             except Exception:
                 pass
             QMessageBox.critical(self, "Load error", f"Failed to load session data:\n{msg}")
 
-        worker = FetchSessionWorker(year, round_no, session_code)
-        worker.result.connect(_on_loaded)
-        worker.error.connect(_on_error)
-        # Keep a reference so it doesn't get GC'd
-        self._session_worker = worker
-        worker.start()
+        self._session_worker = FetchSessionWorker(year, round_no, session_code, self)
+        self._session_worker.result.connect(_on_loaded)
+        self._session_worker.error.connect(_on_error)
+        self._session_worker.log.connect(self.active_loading_dlg.add_log)
+        self._session_worker.start()
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
