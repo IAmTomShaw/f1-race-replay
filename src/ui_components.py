@@ -1452,7 +1452,8 @@ class RaceControlsComponent(BaseComponent):
                 )
     def _draw_speed_comp(self, x: float, y: float, speed: float):
         """Draw speed multiplier text."""
-        if 'speed+' and 'speed-' in self._control_textures:
+        # Ensure both speed+ and speed- textures exist before rendering the speed controls
+        if 'speed+' in self._control_textures and 'speed-' in self._control_textures:
             texture_plus = self._control_textures['speed+']
             texture_minus = self._control_textures['speed-']
             

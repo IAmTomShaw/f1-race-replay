@@ -758,10 +758,14 @@ def _process_quali_driver(args):
         except ValueError:
             driver_telemetry_data[segment] = {"frames": [], "track_statuses": []}
 
-    print(f"Finished processing qualifying telemetry for driver: {driver_code}, {session.get_driver(driver_code)["FullName"]},")
+    # Avoid complex expressions inside f-strings which can confuse the parser on some Python versions
+    drv = session.get_driver(driver_code)
+    driver_full_name = drv["FullName"] if drv is not None and "FullName" in drv else None
+
+    print(f"Finished processing qualifying telemetry for driver: {driver_code}, {driver_full_name},")
     return {
         "driver_code": driver_code,
-        "driver_full_name": session.get_driver(driver_code)["FullName"],
+        "driver_full_name": driver_full_name,
         "driver_telemetry_data": driver_telemetry_data,
         "max_speed": max_speed,
         "min_speed": min_speed,
