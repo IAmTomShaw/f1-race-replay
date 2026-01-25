@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import uuid
 from src.f1_data import get_race_weekends_by_year, load_session
+from src.gui.insights_window import InsightsWindow
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -324,4 +325,56 @@ class RaceSelectionWindow(QMainWindow):
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
+
+    def create_session_buttons(self):
+        """Create buttons for different session types."""
+        # Add Insights button
+        insights_btn = QPushButton("📊 View Race Insights")
+        insights_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #9333EA;
+                color: white;
+                padding: 12px;
+                border-radius: 6px;
+                font-size: 14px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #7E22CE;
+            }
+        """)
+        insights_btn.clicked.connect(self.open_insights_window)
+        layout.addWidget(insights_btn)
+    
+    def open_insights_window(self):
+        """Open the race insights window."""
+        if not self.current_event:
+            self.show_error("Please select a race weekend first")
+            return
         
+        year = self.year_selector.currentText()
+        round_num = self.current_event['round']
+        
+        try:
+            from src.f1_data import load_session, enable_cache
+            enable_cache()
+            
+            # Load race session
+            session = load_session(int(year), int(round_num), 'R')
+            
+            # Get driver colors
+            driver_colors = {}
+            for driver in session.drivers:
+                try:
+                    driver_info = session.get_driver(driver)
+                    color = f"#{driver_info['TeamColor']}" if 'TeamColor' in driver_info else '#808080'
+                    driver_colors[driver] = color
+                except:
+                    driver_colors[driver] = '#808080'
+            
+            # Open insights window
+            self.insights_window = InsightsWindow(session, driver_colors, self)
+            self.insights_window.show()
+            
+        except Exception as e:
+            self.show_error(f"Failed to load race data: {str(e)}")
