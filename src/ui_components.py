@@ -188,11 +188,11 @@ class WeatherComponent(BaseComponent):
         panel_top = window.height - self.top_offset
         if not self.info and not getattr(window, "has_weather", False):
             return
-        arcade.Text("Weather", self.left + 12, panel_top - 10, arcade.color.WHITE, 18, bold=True, anchor_y="top").draw()
+
         def _fmt(val, suffix="", precision=1):
             return f"{val:.{precision}f}{suffix}" if val is not None else "N/A"
+        
         info = self.info or {}
-        # Map each weather line to its corresponding icon
         weather_lines = [
             ("Track", f"{_fmt(info.get('track_temp'), '°C')}", "thermometer"),
             ("Air", f"{_fmt(info.get('air_temp'), '°C')}", "thermometer"),
@@ -201,13 +201,17 @@ class WeatherComponent(BaseComponent):
             ("Rain", f"{info.get('rain_state','N/A')}", "rain"),
         ]
         
-        start_y = panel_top - 36
-        last_y = start_y
+        panel_height = len(weather_lines) * 22 + 50
+        panel_rect = arcade.XYWH(self.left + self.width/2 - 5, panel_top - panel_height/2 - 5, self.width + 10, panel_height)
+        arcade.draw_rect_filled(panel_rect, (0, 0, 0, 150))
+        arcade.draw_rect_outline(panel_rect, (255, 255, 255, 50), 1)
 
-        self._text.font_size = 18; self._text.bold = True; self._text.color = arcade.color.WHITE
-        self._text.text = "Weather"
-        self._text.x = self.left + 12; self._text.y = panel_top - 10
+        self._text.font_size = 16; self._text.bold = True; self._text.color = arcade.color.WHITE
+        self._text.text = "WEATHER"
+        self._text.x = self.left + 5; self._text.y = panel_top - 10
         self._text.draw()
+        
+        start_y = panel_top - 36
 
         for idx, (label, value, icon_key) in enumerate(weather_lines):
             line_y = start_y - idx * 22
@@ -215,25 +219,27 @@ class WeatherComponent(BaseComponent):
             # Draw weather icon
             weather_texture = self._weather_icon_textures.get(icon_key)
             if weather_texture:
-                weather_icon_x = self.left + 24
-                weather_icon_y = line_y - 15
-                icon_size = 16
-                rect = arcade.XYWH(weather_icon_x, weather_icon_y, icon_size, icon_size)
+                weather_icon_x = self.left + 20
+                weather_icon_y = line_y - 12
+                icon_size = 14
                 arcade.draw_texture_rect(
-                    rect=rect,
+                    rect=arcade.XYWH(weather_icon_x, weather_icon_y, icon_size, icon_size),
                     texture=weather_texture,
                     angle=0,
                     alpha=255
                 )
             
-            # Draw text
-
-            line_text = f"{label}: {value}"
-            
-            self._text.font_size = 14; self._text.bold = False; self._text.color = arcade.color.LIGHT_GRAY
+            line_text = f"{label.upper()}"
+            self._text.font_size = 11; self._text.bold = True; self._text.color = (200, 200, 200)
             self._text.text = line_text
-            self._text.x = self.left + 38; self._text.y = line_y
+            self._text.x = self.left + 35; self._text.y = line_y - 5
             self._text.draw()
+
+            self._text.text = value
+            self._text.color = arcade.color.WHITE
+            self._text.x = self.left + self.width - 5; self._text.anchor_x = "right"
+            self._text.draw()
+            self._text.anchor_x = "left"
 
         # Track the bottom of the weather panel so info boxes can stack below it
         window.weather_bottom = last_y - 20
@@ -246,6 +252,8 @@ class LeaderboardComponent(BaseComponent):
         self.rects = []    # clickable rects per entry
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
+        self.prev_positions = {} # code -> last_position
+        self.change_indicators = {} # code -> (status, timer)
         self._tyre_textures = {}
         self._visible: bool = visible
         # Import the tyre textures from the images/tyres folder (all files)
@@ -287,70 +295,123 @@ class LeaderboardComponent(BaseComponent):
             return
         self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
-        arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
-        self.rects = []
 
-        # Sort entries by lap number an distance progressed
-        # If any of the entries have lap > 1, then sort
-
+        # Sort entries by lap number and distance progressed
         if any(e[2].get("lap", 0) > 1 for e in self.entries):
             new_entries = sorted(
                 self.entries,
                 key=lambda e: (
                     -e[2].get("lap", 0),  # Descending lap number
-                    -e[2].get("dist")                 # Descending distance progressed
+                    -e[2].get("dist")     # Descending distance progressed
                 )
             )
         else:
             new_entries = self.entries
 
+        # Draw background panel for the leaderboard
+        total_height = len(new_entries) * self.row_height + 40
+        panel_rect = arcade.XYWH(self.x + self.width/2 - 5, leaderboard_y - total_height/2 - 5, self.width + 10, total_height)
+        arcade.draw_rect_filled(panel_rect, (0, 0, 0, 150))
+        arcade.draw_rect_outline(panel_rect, (255, 255, 255, 50), 1)
+
+        current_positions = {code: i + 1 for i, (code, color, pos, progress_m) in enumerate(new_entries)}
+        
+        # Detect changes
+        for code, pos in current_positions.items():
+            if code in self.prev_positions:
+                prev = self.prev_positions[code]
+                if pos < prev: # Gained position
+                    self.change_indicators[code] = ("UP", 2.0)
+                elif pos > prev: # Lost position
+                    self.change_indicators[code] = ("DOWN", 2.0)
+            self.prev_positions[code] = pos
+
+        # Update timers
+        # Use a fixed delta or pass it? For now, we'll use a slow decay
+        for code in list(self.change_indicators.keys()):
+            status, timer = self.change_indicators[code]
+            if timer > 0:
+                self.change_indicators[code] = (status, timer - 0.05)
+            else:
+                del self.change_indicators[code]
+
+        # Reference speed for gap calculation
+        REF_SPEED = 55.56 
+
         for i, (code, color, pos, progress_m) in enumerate(new_entries):
             current_pos = i + 1
-            top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
+            top_y = leaderboard_y - 40 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
             left_x = self.x
             right_x = self.x + self.width
             self.rects.append((code, left_x, bottom_y, right_x, top_y))
 
+            # Row background
+            row_bg_color = (255, 255, 255, 30) if i % 2 == 0 else (0, 0, 0, 0)
             if code in self.selected:
-                rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
-                arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
-                text_color = arcade.color.BLACK
+                row_bg_color = (255, 180, 0, 100) # Highlight selected
+            
+            row_rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, self.width, self.row_height)
+            arcade.draw_rect_filled(row_rect, row_bg_color)
+
+            # Team color bar
+            arcade.draw_rect_filled(arcade.XYWH(left_x + 2, (top_y + bottom_y)/2, 4, self.row_height - 2), color)
+
+            # Position and Driver Code
+            is_out = pos.get("rel_dist", 0) == 1
+            text_color = arcade.color.WHITE
+            
+            # Change Indicator
+            indicator_icon = ""
+            indicator_color = (0, 0, 0, 0)
+            if code in self.change_indicators:
+                status, timer = self.change_indicators[code]
+                alpha = int(min(255, timer * 127))
+                if status == "UP":
+                    indicator_color = (34, 197, 94, alpha) # Success Green
+                else:
+                    indicator_color = (239, 68, 68, alpha) # Error Red
+            
+            if indicator_color[3] > 0:
+                arcade.draw_rect_filled(arcade.XYWH(left_x + self.width - 2, (top_y + bottom_y)/2, 4, self.row_height - 4), indicator_color)
+
+            pos_text = f"{current_pos:2d}"
+            arcade.Text(pos_text, left_x + 10, top_y - 5, text_color, 13, bold=True, anchor_x="left", anchor_y="top").draw()
+            arcade.Text(code, left_x + 35, top_y - 5, text_color, 13, bold=True, anchor_x="left", anchor_y="top").draw()
+
+            if is_out:
+                arcade.Text("OUT", right_x - 45, top_y - 5, arcade.color.RED, 11, bold=True, anchor_x="right", anchor_y="top").draw()
             else:
-                text_color = color
-            text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
-            arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+                # Interval Gap
+                if i > 0:
+                    prev_progress = new_entries[i-1][3]
+                    gap_m = abs(prev_progress - progress_m)
+                    gap_s = gap_m / REF_SPEED
+                    gap_text = f"+{gap_s:.1f}s" if gap_s < 60 else "LAP"
+                    arcade.Text(gap_text, right_x - 45, top_y - 6, arcade.color.LIGHT_GRAY, 11, anchor_x="right", anchor_y="top").draw()
+                else:
+                    arcade.Text("INTERVAL", right_x - 45, top_y - 6, arcade.color.GRAY, 9, anchor_x="right", anchor_y="top").draw()
 
-             # Tyre Icons
-            tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
+            # Tyre Icons and DRS
+            tyre_val = str(pos.get("tyre", "?")).upper()
+            tyre_texture = self._tyre_textures.get(tyre_val)
+            icon_size = 14
+            icon_x = right_x - 12
+            icon_y = top_y - 12
+
             if tyre_texture:
-                # position tyre icon inside the leaderboard area so it doesn't collide with track
-                tyre_icon_x = left_x + self.width - 10
-                tyre_icon_y = top_y - 12
-                icon_size = 16
-                rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
-                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
-
-                # Draw the textured rect
                 arcade.draw_texture_rect(
-                    rect=rect,
+                    rect=arcade.XYWH(icon_x, icon_y, icon_size, icon_size),
                     texture=tyre_texture,
                     angle=0,
                     alpha=255
                 )
 
-                # DRS Indicator
-                drs_val = pos.get("drs", 0)
-                # DRS is active if value >= 10
-                is_drs_on = drs_val and int(drs_val) >= 10
-                drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
-                
-                # Position dot to the left of the tyre icon
-                # tyre_icon_x is the center of the tyre icon
-                drs_dot_x = tyre_icon_x - icon_size - 4 
-                drs_dot_y = tyre_icon_y
-
-                arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
+            # DRS Indicator
+            drs_val = pos.get("drs", 0)
+            is_drs_on = drs_val and int(drs_val) >= 10
+            drs_color = arcade.color.GREEN if is_drs_on else (100, 100, 100, 100)
+            arcade.draw_circle_filled(icon_x - 22, icon_y, 3, drs_color)
 
         # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
         if new_entries[0][2].get("lap", 0) == 1:
@@ -618,6 +679,8 @@ class DriverInfoComponent(BaseComponent):
         self.left = left
         self.width = width
         self.min_top = min_top
+        self.history = {} # code -> {'speed': [], 'throttle': [], 'brake': []}
+        self.max_history = 100
 
     def draw(self, window):
         # Support multiple selection via window.selected_drivers
@@ -642,9 +705,50 @@ class DriverInfoComponent(BaseComponent):
             if current_top - box_height < self.min_top: break
 
             driver_pos = frame["drivers"][code]
+            
+            # Update history
+            if code not in self.history:
+                self.history[code] = {'speed': [], 'throttle': [], 'brake': []}
+            
+            hist = self.history[code]
+            hist['speed'].append(driver_pos.get('speed', 0))
+            hist['throttle'].append(driver_pos.get('throttle', 0))
+            hist['brake'].append(driver_pos.get('brake', 0))
+            
+            for k in hist:
+                if len(hist[k]) > self.max_history:
+                    hist[k].pop(0)
+
             center_y = current_top - (box_height / 2)
             self._draw_info_box(window, code, driver_pos, center_y, box_width, box_height)
+            
+            # Draw Sparklines inside the box
+            self._draw_sparklines(code, left=self.left + 15, bottom=center_y - 80, width=box_width - 100, height=40)
+            
             current_top -= (box_height + gap)
+
+    def _draw_sparklines(self, code, left, bottom, width, height):
+        if code not in self.history: return
+        hist = self.history[code]
+        
+        # Draw Speed Sparkline (Blue)
+        self._draw_single_sparkline(hist['speed'], 360, left, bottom + 25, width, 20, (59, 130, 246))
+        # Draw Throttle (Green)
+        self._draw_single_sparkline(hist['throttle'], 100, left, bottom + 10, width, 10, (34, 197, 94))
+        # Draw Brake (Red)
+        self._draw_single_sparkline(hist['brake'], 100, left, bottom, width, 10, (239, 68, 68))
+
+    def _draw_single_sparkline(self, data, max_val, left, bottom, width, height, color):
+        if len(data) < 2: return
+        points = []
+        x_step = width / (self.max_history - 1)
+        for i, val in enumerate(data):
+            x = left + i * x_step
+            y = bottom + (val / max_val) * height
+            points.append((x, y))
+        
+        if len(points) > 1:
+            arcade.draw_line_strip(points, color, 1.5)
 
     def _draw_info_box(self, window, code, driver_pos, center_y, box_width, box_height):
         center_x = self.left + box_width / 2
@@ -652,15 +756,19 @@ class DriverInfoComponent(BaseComponent):
         left, right = center_x - box_width / 2, center_x + box_width / 2
 
         rect = arcade.XYWH(center_x, center_y, box_width, box_height)
-        arcade.draw_rect_filled(rect, (0, 0, 0, 200))
+        arcade.draw_rect_filled(rect, (0, 0, 0, 180))
+        arcade.draw_rect_outline(rect, (255, 255, 255, 40), 1)
 
         team_color = window.driver_colors.get(code, arcade.color.GRAY)
-        arcade.draw_rect_outline(rect, team_color, 2)
-
-        header_height = 30
+        
+        header_height = 25
         header_cy = top - (header_height / 2)
-        arcade.draw_rect_filled(arcade.XYWH(center_x, header_cy, box_width, header_height), team_color)
-        arcade.Text(f"Driver: {code}", left + 10, header_cy, arcade.color.BLACK, 14, anchor_y="center",
+        # Background for header
+        arcade.draw_rect_filled(arcade.XYWH(center_x, header_cy, box_width, header_height), (40, 40, 40, 200))
+        # Side accent bar
+        arcade.draw_rect_filled(arcade.XYWH(left + 2, header_cy, 4, header_height - 4), team_color)
+        
+        arcade.Text(f"DRIVER: {code}", left + 12, header_cy, arcade.color.WHITE, 12, anchor_y="center",
                     bold=True).draw()
 
         cursor_y, row_gap = top - header_height - 25, 25

@@ -48,6 +48,91 @@ class RaceSelectionWindow(QMainWindow):
         self.setWindowState(self.windowState())
 
     def _setup_ui(self):
+        self.setStyleSheet("""
+            QMainWindow {
+                background-color: #15151E;
+            }
+            QWidget {
+                background-color: #15151E;
+                color: #FFFFFF;
+                font-family: 'Segoe UI', sans-serif;
+            }
+            QLabel {
+                color: #FFFFFF;
+            }
+            QComboBox {
+                background-color: #2D2D3A;
+                border: 1px solid #383845;
+                border-radius: 4px;
+                padding: 4px 10px;
+                color: #FFFFFF;
+                min-width: 100px;
+            }
+            QComboBox::drop-down {
+                border: 0px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2D2D3A;
+                color: #FFFFFF;
+                selection-background-color: #FF1801;
+                border: 1px solid #383845;
+            }
+            QTreeWidget {
+                background-color: #1F1F2B;
+                border: 1px solid #383845;
+                border-radius: 4px;
+                color: #FFFFFF;
+                outline: none;
+            }
+            QTreeWidget::item {
+                padding: 10px;
+                border-bottom: 1px solid #2D2D3A;
+            }
+            QTreeWidget::item:selected {
+                background-color: #FF1801;
+                color: #FFFFFF;
+            }
+            QHeaderView::section {
+                background-color: #2D2D3A;
+                color: #8E8E93;
+                padding: 8px;
+                border: none;
+                font-weight: bold;
+                text-transform: uppercase;
+                font-size: 10px;
+            }
+            QPushButton {
+                background-color: #FF1801;
+                color: #FFFFFF;
+                border: none;
+                border-radius: 4px;
+                padding: 10px 20px;
+                font-weight: bold;
+                font-size: 13px;
+                text-transform: uppercase;
+            }
+            QPushButton:hover {
+                background-color: #E61501;
+            }
+            QPushButton:pressed {
+                background-color: #CC1201;
+            }
+            QScrollBar:vertical {
+                border: none;
+                background: #15151E;
+                width: 10px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #383845;
+                min-height: 20px;
+                border-radius: 5px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                border: none;
+                background: none;
+            }
+        """)
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -56,61 +141,59 @@ class RaceSelectionWindow(QMainWindow):
 
         # Header (title)
         header_layout = QHBoxLayout()
-        header_label = QLabel("F1 Race Replay 🏎️")
-        font = header_label.font()
-        font.setPointSize(18)
-        font.setBold(True)
-        header_label.setFont(font)
-        header_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header_label = QLabel("F1 COMMAND CENTER 📡")
+        header_label.setStyleSheet("font-size: 24px; font-weight: 800; color: #FF1801; letter-spacing: 2px;")
         
         header_layout.addWidget(header_label)
         header_layout.addStretch()
-        main_layout.addLayout(header_layout)
 
-        # Year selection
-        year_layout = QHBoxLayout()
-        year_label = QLabel("Select Year:")
+        # Year selection inline with header
+        year_label = QLabel("SEASON:")
+        year_label.setStyleSheet("font-weight: bold; color: #8E8E93; font-size: 10px;")
         self.year_combo = QComboBox()
-        current_year = 2025  # Update as needed
+        current_year = 2025
         for year in range(2010, current_year + 1):
             self.year_combo.addItem(str(year))
         self.year_combo.setCurrentText(str(current_year))
         self.year_combo.currentTextChanged.connect(self.load_schedule)
-
-        year_layout.addWidget(year_label)
-        year_layout.addWidget(self.year_combo)
-        main_layout.addLayout(year_layout)
+        
+        header_layout.addWidget(year_label)
+        header_layout.addWidget(self.year_combo)
+        main_layout.addLayout(header_layout)
 
         # Main content: left = schedule, right = session list
         content_layout = QHBoxLayout()
+        content_layout.setSpacing(20)
 
         # Schedule tree (left)
         self.schedule_tree = QTreeWidget()
-        self.schedule_tree.setHeaderLabels(["Round", "Event","Country", "Start Date"])
-        self.schedule_tree.setRootIsDecorated(False)
+        self.schedule_tree.setHeaderLabels(["ROUND", "EVENT", "LOCATION", "DATE"])
+        self.schedule_tree.setIndentation(0)
         content_layout.addWidget(self.schedule_tree, 3)
-        self.schedule_tree.setColumnWidth(2, 180)
+        self.schedule_tree.setColumnWidth(0, 50)
+        self.schedule_tree.setColumnWidth(2, 150)
 
         # Session panel (right)
         self.session_panel = QWidget()
+        self.session_panel.setObjectName("sessionPanel")
+        self.session_panel.setStyleSheet("#sessionPanel { background-color: #1F1F2B; border-radius: 8px; border: 1px solid #383845; }")
         self.session_panel_layout = QVBoxLayout()
         self.session_panel.setLayout(self.session_panel_layout)
+        self.session_panel_layout.setContentsMargins(15, 15, 15, 15)
         self.session_panel_layout.setAlignment(Qt.AlignTop)
-        header_lbl = QLabel("Sessions")
-        hdr_font = header_lbl.font()
-        hdr_font.setPointSize(14)
-        hdr_font.setBold(True)
-        header_lbl.setFont(hdr_font)
-        self.session_panel_layout.addWidget(header_lbl)
+        
+        session_header = QLabel("AVAILABLE SESSIONS")
+        session_header.setStyleSheet("font-size: 11px; font-weight: bold; color: #8E8E93; letter-spacing: 1px;")
+        self.session_panel_layout.addWidget(session_header)
+        self.session_panel_layout.addSpacing(10)
 
-        # placeholder spacer
         self.session_list_container = QWidget()
         self.session_list_layout = QVBoxLayout()
+        self.session_list_layout.setSpacing(10)
         self.session_list_container.setLayout(self.session_list_layout)
         self.session_panel_layout.addWidget(self.session_list_container)
 
         content_layout.addWidget(self.session_panel, 1)
-
         main_layout.addLayout(content_layout)
 
         # connect click handler
