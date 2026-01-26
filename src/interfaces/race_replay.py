@@ -596,8 +596,6 @@ class F1RaceReplayWindow(arcade.Window):
             self.race_controls_comp.flash_button('rewind')
         elif symbol == arcade.key.D:
             self.toggle_drs_zones = not self.toggle_drs_zones
-        elif symbol == arcade.key.T:
-            self.leaderboard_comp.toggle_times()
         elif symbol == arcade.key.L:
             self.show_driver_labels = not self.show_driver_labels
         elif symbol == arcade.key.H:
@@ -612,8 +610,10 @@ class F1RaceReplayWindow(arcade.Window):
                 self.controls_popup_comp.show_over(left_pos, top_pos)
         elif symbol == arcade.key.B:
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+        elif symbol == arcade.key.T:
+            self.leaderboard_comp.toggle_times() # toggle time vs leader
         elif symbol == arcade.key.I:
-            self.leaderboard_comp.toggle_intervals()
+            self.leaderboard_comp.toggle_intervals() # toggle time interval between drivers
         elif symbol == arcade.key.S:
             self.session_info_comp.toggle_visibility()
 
