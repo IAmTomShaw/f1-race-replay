@@ -282,9 +282,12 @@ class LeaderboardComponent(BaseComponent):
         
         self.selected = getattr(window, "selected_drivers", [])
         
-        # Calculate Height based on 20 drivers + Header
         total_height = (20 * self.row_height) + 40
-        top_y = window.height - 40
+        if hasattr(self, 'y'):
+            top_y = self.y
+        else:
+            top_y = window.height - 90
+            
         bottom_y = top_y - total_height
         
         # 1. Main Background Card
