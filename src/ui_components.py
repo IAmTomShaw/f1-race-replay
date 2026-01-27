@@ -242,13 +242,21 @@ class LeaderboardComponent(BaseComponent):
     def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True):
         self.x = x
         self.width = width
-        self.entries = []  # list of tuples (code, color, pos, progress_m)
+        # Match the styling of the Race Control Panel
+        self.bg_color = (15, 15, 20, 240)      # Deep Blue-Black
+        self.header_color = (30, 30, 35, 255)  # Slightly lighter header
+        self.border_color = (60, 60, 70)       # Subtle border
+        self.text_white = (255, 255, 255)
+        self.text_gray = (180, 180, 190)
+        
+        self.entries = []  # list of tuples (code, color, pos, progress_m, gap_str)
         self.rects = []    # clickable rects per entry
-        self.selected = []  # Changed to list for multiple selection
-        self.row_height = 25
+        self.selected = [] 
+        self.row_height = 28  # Slightly taller for better readability
         self._tyre_textures = {}
         self._visible: bool = visible
-        # Import the tyre textures from the images/tyres folder (all files)
+        
+        # Import tyre textures
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
             for filename in os.listdir(tyres_folder):
@@ -265,123 +273,141 @@ class LeaderboardComponent(BaseComponent):
     def visible(self, value: bool):
         self._visible = value
     
-    def toggle_visibility(self) -> bool:
-        """
-        Toggle the visibility of the leaderboard
-        """
-        self._visible = not self._visible
-        return self._visible
-    
-    def set_visible(self):
-        """
-        Set visibility of leaderboard to True
-        """
-        self._visible = True
-
-    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
-        # entries sorted as expected
+    def set_entries(self, entries):
         self.entries = entries
+
     def draw(self, window):
-        # Skip rendering entirely if hidden
         if not self._visible:
             return
+        
         self.selected = getattr(window, "selected_drivers", [])
-        leaderboard_y = window.height - 40
-        arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        
+        total_height = (20 * self.row_height) + 40
+        if hasattr(self, 'y'):
+            top_y = self.y
+        else:
+            top_y = window.height - 90
+            
+        bottom_y = top_y - total_height
+        
+        # 1. Main Background Card
+        arcade.draw_lrbt_rectangle_filled(
+            left=self.x, right=self.x + self.width,
+            bottom=bottom_y, top=top_y,
+            color=self.bg_color
+        )
+        # Border
+        arcade.draw_lrbt_rectangle_outline(
+            left=self.x, right=self.x + self.width,
+            bottom=bottom_y, top=top_y,
+            color=self.border_color, border_width=1
+        )
+
+        # 2. Header Row
+        header_height = 30
+        arcade.draw_lrbt_rectangle_filled(
+            left=self.x, right=self.x + self.width,
+            bottom=top_y - header_height, top=top_y,
+            color=self.header_color
+        )
+        arcade.draw_text("POS", self.x + 10, top_y - 20, self.text_gray, 10, anchor_x="left", bold=True)
+        arcade.draw_text("DRIVER", self.x + 50, top_y - 20, self.text_gray, 10, anchor_x="left", bold=True)
+        arcade.draw_text("GAP", self.x + 140, top_y - 20, self.text_gray, 10, anchor_x="left", bold=True)
+        
         self.rects = []
 
-        # Sort entries by lap number an distance progressed
-        # If any of the entries have lap > 1, then sort
-
+        # Sorting Logic
         if any(e[2].get("lap", 0) > 1 for e in self.entries):
             new_entries = sorted(
                 self.entries,
-                key=lambda e: (
-                    -e[2].get("lap", 0),  # Descending lap number
-                    -e[2].get("dist")                 # Descending distance progressed
-                )
+                key=lambda e: (-e[2].get("lap", 0), -e[2].get("dist"))
             )
         else:
             new_entries = self.entries
 
-        for i, (code, color, pos, progress_m) in enumerate(new_entries):
-            current_pos = i + 1
-            top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
-            bottom_y = top_y - self.row_height
-            left_x = self.x
-            right_x = self.x + self.width
-            self.rects.append((code, left_x, bottom_y, right_x, top_y))
-
-            if code in self.selected:
-                rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
-                arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
-                text_color = arcade.color.BLACK
+        # Draw Rows
+        start_y = top_y - header_height
+        
+        for i, entry in enumerate(new_entries):
+            # Safe Unpack
+            gap_str = ""
+            if len(entry) >= 5:
+                code, color, pos, progress_m, gap_str = entry[:5]
             else:
-                text_color = color
-            text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
-            arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+                code, color, pos, progress_m = entry[:4]
 
-             # Tyre Icons
-            tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
-            if tyre_texture:
-                # position tyre icon inside the leaderboard area so it doesn't collide with track
-                tyre_icon_x = left_x + self.width - 10
-                tyre_icon_y = top_y - 12
-                icon_size = 16
-                rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
-                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
+            row_top = start_y - (i * self.row_height)
+            row_bottom = row_top - self.row_height
+            center_y = (row_top + row_bottom) / 2
+            
+            # Hitbox for clicking
+            self.rects.append((code, self.x, row_bottom, self.x + self.width, row_top))
 
-                # Draw the textured rect
-                arcade.draw_texture_rect(
-                    rect=rect,
-                    texture=tyre_texture,
-                    angle=0,
-                    alpha=255
+            # Highlight Selection
+            if code in self.selected:
+                arcade.draw_lrbt_rectangle_filled(
+                    left=self.x, right=self.x + self.width,
+                    bottom=row_bottom, top=row_top,
+                    color=(255, 255, 255, 40) # White highlight
                 )
 
-                # DRS Indicator
-                drs_val = pos.get("drs", 0)
-                # DRS is active if value >= 10
-                is_drs_on = drs_val and int(drs_val) >= 10
-                drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
+            # A. Position Number
+            current_pos = i + 1
+            arcade.draw_text(f"{current_pos}", self.x + 15, center_y - 5, self.text_white, 12, anchor_x="center", bold=False)
+
+            # B. Team Color Bar (Vertical Strip)
+            arcade.draw_lrbt_rectangle_filled(
+                left=self.x + 30, right=self.x + 34,
+                bottom=row_bottom + 4, top=row_top - 4,
+                color=color
+            )
+
+            # C. Driver Code
+            arcade.draw_text(code, self.x + 45, center_y - 5, self.text_white, 12, anchor_x="left", bold=True)
+
+            # D. Gap Interval
+            if gap_str:
+                gap_col = self.text_white if "Leader" in gap_str else self.text_gray
+                arcade.draw_text(gap_str, self.x + 140, center_y - 5, gap_col, 11, anchor_x="left")
+
+            # E. Tyre Icon
+            tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
+            if tyre_texture:
+                icon_x = self.x + self.width - 20
                 
-                # Position dot to the left of the tyre icon
-                # tyre_icon_x is the center of the tyre icon
-                drs_dot_x = tyre_icon_x - icon_size - 4 
-                drs_dot_y = tyre_icon_y
+                # Draw Texture
+                rect = arcade.XYWH(icon_x, center_y, 16, 16)
+                arcade.draw_texture_rect(texture=tyre_texture, rect=rect)
+                
+                # DRS Dot
+                drs_val = pos.get("drs", 0)
+                is_drs_on = drs_val and int(drs_val) >= 10
+                drs_color = arcade.color.GREEN if is_drs_on else (80, 80, 80)
+                arcade.draw_circle_filled(icon_x - 14, center_y, 3, drs_color)
 
-                arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
-
-        # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
-        if new_entries[0][2].get("lap", 0) == 1:
-            arcade.Text("May be inaccurate during Lap 1",
-                        self.x, leaderboard_y - 30 - (len(new_entries) * self.row_height) - 20,
-                        arcade.color.YELLOW, 12, anchor_x="left", anchor_y="top").draw()
+        # Lap 1 Warning
+        if new_entries and new_entries[0][2].get("lap", 0) == 1:
+            arcade.draw_text("Sorting inaccurate Lap 1", self.x + 10, bottom_y - 20, arcade.color.YELLOW, 10)
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:
             if left <= x <= right and bottom <= y <= top:
-                # Detect multi-select modifiers
                 is_multi = (modifiers & arcade.key.MOD_SHIFT)
-
                 if is_multi:
                     if code in self.selected:
                         self.selected.remove(code)
                     else:
                         self.selected.append(code)
                 else:
-                    # Single click: clear others and toggle selection
                     if len(self.selected) == 1 and self.selected[0] == code:
                         self.selected = []
                     else:
                         self.selected = [code]
 
-                # Propagate both list and single reference for compatibility
                 window.selected_drivers = self.selected
                 window.selected_driver = self.selected[-1] if self.selected else None
                 return True
         return False
-
 class LapTimeLeaderboardComponent(BaseComponent):
     def __init__(self, x: int, right_margin: int = 260, width: int = 240):
         self.x = x
@@ -2062,3 +2088,131 @@ def draw_finish_line(self, session_type = 'R'):
                 
                 color = arcade.color.WHITE if i % 2 == 0 else arcade.color.BLACK
                 arcade.draw_line(x1, y1, x2, y2, color, 6)
+
+
+
+
+class RaceControlPanel:
+    def __init__(self, x, y):
+        self.x = x
+        self.y = y
+        self.width = 240
+        self.height = 180
+        self.padding = 15
+        
+        # Color Palette
+        self.colors = {
+            'bg': (15, 15, 20, 240),      # Deep Blue-Black
+            'header_text': (0, 0, 0),     # Black text
+            'border': (60, 60, 70),       # Subtle border
+            'separator': (255, 255, 255, 30), # Faint white line
+            'text_label': (180, 180, 190),# Light Grey
+            'text_value': (255, 255, 255),# Pure White
+            'green': (0, 225, 160),       # Green
+            'yellow': (255, 210, 0),      # Yellow
+            'red': (235, 30, 30),         # Red
+            'sc': (255, 140, 0)           # Orange
+        }
+
+        # Load Icons
+        self.icons = {}
+        icon_files = {
+            'temp': 'thermometer.png',
+            'humid': 'humidity.png',
+            'wind': 'wind.png',
+            'rain': 'rain.png'
+        }
+        
+        for key, filename in icon_files.items():
+            try:
+                # Build path: resources/icons/filename
+                path = os.path.join('resources', 'icons', filename)
+                if os.path.exists(path):
+                    self.icons[key] = arcade.load_texture(path)
+                else:
+                    self.icons[key] = None
+            except Exception:
+                self.icons[key] = None
+
+    def draw(self, weather_data, race_status):
+        left, right = self.x, self.x + self.width
+        top, bottom = self.y, self.y - self.height
+        
+        # Draw Background
+        arcade.draw_lrbt_rectangle_filled(left, right, bottom, top, self.colors['bg'])
+        arcade.draw_lrbt_rectangle_outline(left, right, bottom, top, self.colors['border'], 1)
+
+        # Draw Header
+        self._draw_header(race_status, left, right, top)
+
+        # Draw Data Table
+        start_y = top - 40 
+        row_height = 28
+        
+        def fmt(key, unit=""):
+            val = weather_data.get(key)
+            if isinstance(val, (int, float)):
+                return f"{val:.1f}{unit}"
+            return "--"
+
+        rows = [
+            ("Track Temp", fmt('track_temp', "°C"), self.icons.get('temp')),
+            ("Air Temp",   fmt('air_temp', "°C"),   self.icons.get('temp')),
+            ("Humidity",   fmt('humidity', "%"),    self.icons.get('humid')),
+            ("Wind",       fmt('wind_speed', " kph"), self.icons.get('wind')),
+            ("Rain",       "YES" if weather_data.get('rain_state') else "NO", self.icons.get('rain'))
+        ]
+
+        for i, (label, value, icon_texture) in enumerate(rows):
+            row_y = start_y - (i * row_height)
+            
+            # Separator line
+            if i < len(rows) - 1:
+                line_y = row_y - (row_height / 2) + 2
+                arcade.draw_line(left + 10, line_y, right - 10, line_y, self.colors['separator'], 1)
+
+            self._draw_row(left, right, row_y, label, value, icon_texture)
+
+    def _draw_header(self, status, left, right, top):
+        status_map = {
+            '1': {'col': self.colors['green'], 'txt': 'TRACK CLEAR'},
+            '2': {'col': self.colors['yellow'], 'txt': 'YELLOW FLAG'},
+            '3': {'col': self.colors['yellow'], 'txt': 'SC DEPLOYED'}, 
+            '4': {'col': self.colors['sc'], 'txt': 'SAFETY CAR'},
+            '5': {'col': self.colors['red'], 'txt': 'RED FLAG'},
+            '6': {'col': self.colors['sc'], 'txt': 'VIRTUAL SC'},
+            '7': {'col': self.colors['sc'], 'txt': 'VSC ENDING'},
+        }
+        current = status_map.get(str(status), status_map['1'])
+        
+        header_height = 32
+        arcade.draw_lrbt_rectangle_filled(left, right, top - header_height, top, current['col'])
+        
+        arcade.draw_text(
+            current['txt'],
+            x=left + (self.width / 2),
+            y=top - (header_height / 2) - 5,
+            color=self.colors['header_text'],
+            font_size=14,
+            bold=True,
+            anchor_x="center"
+        )
+
+    def _draw_row(self, left, right, y, label, value, icon):
+        # 1. Draw Icon
+        if icon:
+            # FIX FOR ARCADE 3.0: Use arcade.XYWH to create the rect
+            # args: center_x, center_y, width, height
+            rect = arcade.XYWH(left + 20, y, 16, 16)
+            arcade.draw_texture_rect(icon, rect=rect)
+        else:
+            # Fallback dot
+            arcade.draw_circle_filled(left + 20, y, 3, self.colors['text_label'])
+
+        # 2. Draw Label
+        arcade.draw_text(label, x=left + 45, y=y - 4, color=self.colors['text_label'], font_size=11, anchor_x="left")
+
+        # 3. Draw Value
+        arcade.draw_text(value, x=right - 15, y=y - 4, color=self.colors['text_value'], font_size=12, bold=True, anchor_x="right")
+
+        

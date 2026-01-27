@@ -26,3 +26,4 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
         except Exception:
             pass
     arcade.run()
+
