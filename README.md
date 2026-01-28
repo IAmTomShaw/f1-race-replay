@@ -7,6 +7,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 ## Features
 
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
+- **Race Insights & Charts:** Interactive visualizations for track evolution, tyre strategies, pit stops, driver performance, sector times, and gap analysis.
 - **Leaderboard:** See live driver positions and current tyre compounds.
 - **Lap & Time Display:** Track the current lap and total race time.
 - **Driver Status:** Drivers who retire or go out are marked as "OUT" on the leaderboard.
@@ -127,6 +128,23 @@ To run a Sprint Qualifying session (if the event has one), add `--sprint`:
 ```bash
 python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 ```
+
+### Race Insights and Charts
+
+To open the race insights window directly:
+```bash
+python main.py --insights --year 2025 --round 12
+```
+
+You can also access insights from the GUI menu by selecting a race and clicking "📊 View Race Insights".
+
+Available charts include:
+- **Track Evolution:** Lap time progression throughout the race
+- **Tyre Strategy:** Visual comparison of tyre compound usage
+- **Pit Stop Analysis:** Pit stop durations and frequency
+- **Driver Performance:** Position changes and lap time deltas
+- **Sector Comparison:** Sector time comparisons between drivers
+- **Gap Analysis:** Time gaps relative to a reference driver
 
 ## File Structure
 
