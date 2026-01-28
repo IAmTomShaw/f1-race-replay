@@ -11,6 +11,8 @@ import subprocess
 import tempfile
 import uuid
 from src.f1_data import get_race_weekends_by_year, load_session
+from src.gui.settings_dialog import SettingsDialog
+
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -58,6 +60,10 @@ class RaceSelectionWindow(QMainWindow):
         header_layout = QHBoxLayout()
         header_label = QLabel("F1 Race Replay 🏎️")
         font = header_label.font()
+        settings_btn = QPushButton("⚙ Settings")
+        settings_btn.setCursor(Qt.PointingHandCursor)
+        settings_btn.setFixedHeight(32)
+        settings_btn.clicked.connect(self.open_settings)
         font.setPointSize(18)
         font.setBold(True)
         header_label.setFont(font)
@@ -65,6 +71,7 @@ class RaceSelectionWindow(QMainWindow):
         
         header_layout.addWidget(header_label)
         header_layout.addStretch()
+        header_layout.addWidget(settings_btn)
         main_layout.addLayout(header_layout)
 
         # Year selection
@@ -86,7 +93,7 @@ class RaceSelectionWindow(QMainWindow):
 
         # Schedule tree (left)
         self.schedule_tree = QTreeWidget()
-        self.schedule_tree.setHeaderLabels(["Round", "Event","Country", "Start Date"])
+        self.schedule_tree.setHeaderLabels(["Round", "Event", "Country", "Start Date"])
         self.schedule_tree.setRootIsDecorated(False)
         content_layout.addWidget(self.schedule_tree, 3)
         self.schedule_tree.setColumnWidth(2, 180)
@@ -164,9 +171,9 @@ class RaceSelectionWindow(QMainWindow):
         except Exception:
             pass
         # determine sessions to show
-        ev_type = (ev.get('type') or '').lower()
+        ev_type = (ev.get("type") or "").lower()
         sessions = ["Qualifying", "Race"]
-        if 'sprint' in ev_type:
+        if "sprint" in ev_type:
             sessions.insert(0, "Sprint Qualifying")
             # show sprint-related session
             sessions.insert(2, "Sprint")
@@ -180,7 +187,9 @@ class RaceSelectionWindow(QMainWindow):
         # add buttons for each session (launch playback in separate process)
         for s in sessions:
             btn = QPushButton(s)
-            btn.clicked.connect(lambda _, sname=s, e=ev: self._on_session_button_clicked(e, sname))
+            btn.clicked.connect(
+                lambda _, sname=s, e=ev: self._on_session_button_clicked(e, sname)
+            )
             self.session_list_layout.addWidget(btn)
 
     def _on_session_button_clicked(self, ev, session_label):
@@ -209,7 +218,9 @@ class RaceSelectionWindow(QMainWindow):
         elif session_label == "Sprint":
             flag = "--sprint"
 
-        main_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'main.py'))
+        main_path = os.path.normpath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "main.py")
+        )
         cmd = [sys.executable, main_path, "--viewer"]
         if year is not None:
             cmd += ["--year", str(year)]
@@ -324,4 +335,7 @@ class RaceSelectionWindow(QMainWindow):
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
-        
+
+    def open_settings(self):
+        dialog = SettingsDialog(self)
+        dialog.exec()
