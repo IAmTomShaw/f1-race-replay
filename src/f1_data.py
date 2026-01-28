@@ -6,12 +6,131 @@ from multiprocessing import Pool, cpu_count
 import numpy as np
 import json
 import pickle
+import importlib
 from datetime import timedelta
 
 from src.lib.tyres import get_tyre_compound_int
 from src.lib.time import parse_time_string, format_time
 
 import pandas as pd
+
+
+def _safe_int(value, default=0):
+    try:
+        if pd.isna(value):
+            return default
+        return int(value)
+    except Exception:
+        return default
+
+
+def _safe_float(value, default=0.0):
+    try:
+        if pd.isna(value):
+            return default
+        return float(value)
+    except Exception:
+        return default
+
+
+def _parse_time_value(value):
+    if value is None or pd.isna(value):
+        return None
+    if hasattr(value, "total_seconds"):
+        try:
+            return float(value.total_seconds())
+        except Exception:
+            return None
+    if isinstance(value, (int, float, np.number)):
+        return float(value)
+    text = str(value).strip()
+    if text == "" or text.lower() in {"nan", "nat"}:
+        return None
+    if any(token in text.lower() for token in ["lap", "dnf", "ret", "disq", "dns", "not classified"]):
+        return None
+    text = text.lstrip("+")
+    return parse_time_string(text)
+
+
+def _pick_dataframe(candidate):
+    if isinstance(candidate, pd.DataFrame):
+        return candidate
+    if isinstance(candidate, (list, tuple)):
+        for item in candidate:
+            if isinstance(item, pd.DataFrame):
+                return item
+    return None
+
+
+def _extract_driver_code(row, code_col=None):
+    if code_col and code_col in row:
+        return row.get(code_col)
+    for key in ["driverCode", "DriverCode", "code", "Abbreviation"]:
+        if key in row:
+            return row.get(key)
+    driver_info = row.get("Driver") if "Driver" in row else None
+    if isinstance(driver_info, dict):
+        return driver_info.get("driverCode") or driver_info.get("code") or driver_info.get("abbreviation")
+    return None
+
+
+def _get_wdc_maps(session):
+    wdc_positions = {}
+    wdc_points = {}
+    wdc_wins = {}
+
+    event_date = session.event.get("EventDate") if session.event is not None else None
+    year = event_date.year if event_date is not None else session.event.get("EventYear")
+    current_round = session.event.get("RoundNumber") if session.event is not None else None
+
+    standings_df = None
+    try:
+        standings_df = _pick_dataframe(fastf1.get_driver_standings(year))
+    except Exception:
+        standings_df = None
+
+    if standings_df is None:
+        try:
+            ergast_module = importlib.import_module("fastf1.ergast")
+            ergast = ergast_module.Ergast()
+            response = ergast.get_driver_standings(season=year)
+            standings_df = _pick_dataframe(getattr(response, "content", response))
+        except Exception:
+            standings_df = None
+
+    if standings_df is None or standings_df.empty:
+        return wdc_positions, wdc_points, wdc_wins
+
+    columns = {col.lower(): col for col in standings_df.columns}
+    round_col = columns.get("round") or columns.get("roundnumber")
+    code_col = columns.get("drivercode") or columns.get("code") or columns.get("abbreviation")
+    position_col = columns.get("position")
+    points_col = columns.get("points")
+    wins_col = columns.get("wins")
+
+    filtered_df = standings_df
+    if round_col and current_round is not None:
+        try:
+            filtered_df = standings_df[standings_df[round_col].astype(int) <= int(current_round)]
+        except Exception:
+            filtered_df = standings_df
+
+    for _, row in filtered_df.iterrows():
+        driver_code = _extract_driver_code(row, code_col)
+        if not driver_code:
+            continue
+        position = _safe_int(row.get(position_col) if position_col else row.get("position"), None)
+        points = _safe_float(row.get(points_col) if points_col else row.get("points"), None)
+        wins = _safe_int(row.get(wins_col) if wins_col else row.get("wins"), None)
+
+        if position is not None:
+            wdc_positions[driver_code] = position
+        if points is not None:
+            wdc_points[driver_code] = points
+        if wins is not None:
+            wdc_wins[driver_code] = wins
+
+    return wdc_positions, wdc_points, wdc_wins
 
 def enable_cache():
     # Check if cache folder exists
@@ -436,6 +555,74 @@ def get_race_telemetry(session, session_type='R'):
         "total_laps": int(max_lap_number),
     }
 
+
+def get_race_results(session):
+    """
+    Extract the race results including podium positions and driver stats.
+    Returns a list of dicts with driver info, position, time, points, etc.
+    Also includes WDC standings and race wins at this point in the season.
+    """
+    results = session.results
+    driver_colors = get_driver_colors(session)
+    
+    # Get driver standings (WDC) at this point in the season
+    try:
+        wdc_positions, wdc_points, wdc_wins = _get_wdc_maps(session)
+    except Exception as e:
+        print(f"Could not load driver standings: {e}")
+        wdc_positions, wdc_points, wdc_wins = {}, {}, {}
+    
+    race_data = []
+    
+    for _, row in results.iterrows():
+        driver_code = row.get("Abbreviation", "")
+        # Skip drivers with no position
+        if pd.isna(row.get("Position")):
+            continue
+            
+        position = int(row["Position"])
+        full_name = row.get("FullName", driver_code)
+        team_name = row.get("TeamName", "Unknown")
+        
+        # Time to leader (or race time for winner)
+        time_seconds = _parse_time_value(row.get("Time"))
+        
+        # Status (Finished, +1 Lap, DNF, etc.)
+        status = row.get("Status", "Finished")
+        
+        # Points scored
+        points = _safe_float(row.get("Points", 0), 0.0)
+        
+        # Grid position (starting position)
+        grid_pos = _safe_int(row.get("GridPosition", 0), 0)
+        
+        # Fastest lap info
+        fastest_lap_seconds = _parse_time_value(row.get("FastestLapTime"))
+        
+        # Number of laps completed
+        laps_completed = _safe_int(row.get("LapsCompleted", 0), 0)
+        
+        race_data.append({
+            "code": driver_code,
+            "full_name": full_name,
+            "team": team_name,
+            "position": position,
+            "color": driver_colors.get(driver_code, (128, 128, 128)),
+            "time": time_seconds,
+            "status": status,
+            "points": points,
+            "grid_position": grid_pos,
+            "fastest_lap": fastest_lap_seconds,
+            "laps_completed": laps_completed,
+            "wdc_position": wdc_positions.get(driver_code),
+            "wdc_points": wdc_points.get(driver_code),
+            "wdc_wins": wdc_wins.get(driver_code),
+        })
+    
+    # Sort by position
+    race_data.sort(key=lambda x: x["position"])
+    
+    return race_data
 
 def get_qualifying_results(session):
 

@@ -1,4 +1,4 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints, get_race_results
 from src.arcade_replay import run_arcade_replay
 
 from src.interfaces.qualifying import run_qualifying_replay
@@ -83,6 +83,9 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         'total_laps': race_telemetry['total_laps']
     }
 
+    # Get race results for podium display
+    race_results = get_race_results(session)
+
     # Run the arcade replay
 
     run_arcade_replay(
@@ -97,7 +100,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       circuit_rotation=circuit_rotation,
       visible_hud=visible_hud,
       ready_file=ready_file,
-      session_info=session_info
+      session_info=session_info,
+      race_results=race_results
     )
 
 if __name__ == "__main__":
@@ -107,7 +111,6 @@ if __name__ == "__main__":
 
     cli_load()
     sys.exit(0)
-
   if "--year" in sys.argv:
     year_index = sys.argv.index("--year") + 1
     year = int(sys.argv[year_index])
