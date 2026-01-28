@@ -3,7 +3,12 @@ from typing import List, Literal, Tuple, Optional
 from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
 import numpy as np
+import pandas as pd
 import os
+from src.tyre_degradation_integration import (
+    format_tyre_health_bar, 
+    format_degradation_text
+)
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
   if degrees is None:
@@ -414,22 +419,56 @@ class LeaderboardComponent(BaseComponent):
                     self._gap_text.draw()
 
             # Tyre Icons
-            tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
+            tyre_val = pos.get("tyre", "?")
+            tyre_texture = self._tyre_textures.get(str(tyre_val).upper())
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track
                 tyre_icon_x = left_x + self.width - 10
                 tyre_icon_y = top_y - 12
                 icon_size = 16
                 rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
-                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, angle=0, alpha=255)
 
-                # Draw the textured rect
-                arcade.draw_texture_rect(
-                    rect=rect,
-                    texture=tyre_texture,
-                    angle=0,
-                    alpha=255
-                )
+                current_life = pos.get("tyre_life", 0)
+                tyre_health_ratio = 1.0
+                if window.degradation_integrator:
+                    idx = min(int(window.frame_index), len(window.frames) - 1)
+                    health_data = window.degradation_integrator.get_health_for_frame(code, window.frames[idx])
+                    if health_data:
+                        tyre_health_ratio = health_data['health'] / 100.0
+                else:
+                    max_tyre_life = getattr(window, "max_tyre_life", {})
+                    try:
+                        tyre_key = int(tyre_val)
+                    except (TypeError, ValueError):
+                        max_life = 30
+                    else:
+                        max_life = max_tyre_life.get(tyre_key, 30)
+                    if max_life > 0:
+                        tyre_health_ratio = max(0.0, min(1.0, 1.0 - (current_life / max_life)))
+                    else:
+                        tyre_health_ratio = 1.0
+
+                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=80)
+                bright_height = icon_size * tyre_health_ratio
+                if bright_height > 0:
+                    window.ctx.scissor = (int(tyre_icon_x - 8), int(tyre_icon_y - 8), int(icon_size), int(bright_height))
+                    arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=255)
+                    window.ctx.scissor = None
+                    
+                try:
+                    life_display = str(int(current_life)) if pd.notna(current_life) else "0"
+                except (ValueError, TypeError):
+                    life_display = "0"
+                arcade.Text(
+                    life_display,
+                    tyre_icon_x + 8,
+                    tyre_icon_y - 8,
+                    arcade.color.WHITE,
+                    8,
+                    bold=True,
+                    anchor_x="center",
+                    anchor_y="center"
+                ).draw()
 
                 # DRS Indicator
                 drs_val = pos.get("drs", 0)
@@ -739,6 +778,7 @@ class DriverInfoComponent(BaseComponent):
         self.left = left
         self.width = width
         self.min_top = min_top
+        self.degradation_integrator = None
 
     def draw(self, window):
         # Support multiple selection via window.selected_drivers
@@ -849,6 +889,52 @@ class DriverInfoComponent(BaseComponent):
         arcade.Text(gap_ahead, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
         cursor_y -= 22
         arcade.Text(gap_behind, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
+        
+        if self.degradation_integrator and hasattr(window, 'frames'):
+            try:
+                idx = min(int(window.frame_index), window.n_frames - 1)
+                frame = window.frames[idx]
+                health_data = self.degradation_integrator.get_health_for_frame(code, frame)
+                
+                if health_data:
+                    cursor_y -= 28  # Space before health bar
+                    
+                    # Draw tyre health bar
+                    bar_params = format_tyre_health_bar(health_data['health'], width=180, height=14)
+                    bar_x = left + 15
+                    bar_y = cursor_y
+                    
+                    # Background bar (dark gray)
+                    arcade.draw_rect_filled(
+                        arcade.XYWH(bar_x + bar_params['width']/2, bar_y, 
+                                   bar_params['width'], bar_params['height']),
+                        (50, 50, 50)
+                    )
+                    
+                    # Health fill bar (colored)
+                    if bar_params['fill_width'] > 0:
+                        arcade.draw_rect_filled(
+                            arcade.XYWH(bar_x + bar_params['fill_width']/2, bar_y, 
+                                       bar_params['fill_width'], bar_params['height']),
+                            bar_params['color']
+                        )
+                    
+                    # Border
+                    arcade.draw_rect_outline(
+                        arcade.XYWH(bar_x + bar_params['width']/2, bar_y, 
+                                   bar_params['width'], bar_params['height']),
+                        arcade.color.WHITE, 1
+                    )
+                    
+                    cursor_y -= 18
+                    
+                    # Tyre info text
+                    tyre_text = format_degradation_text(health_data)
+                    arcade.Text(tyre_text, left_text_x, cursor_y, 
+                               arcade.color.LIGHT_GRAY, 10, anchor_y="center").draw()
+                    
+            except (KeyError, AttributeError, TypeError) as e:
+                print(f"Error displaying driver info: {e}")
 
         # Graphs
         thr, brk = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
