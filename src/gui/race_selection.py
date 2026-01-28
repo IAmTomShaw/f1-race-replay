@@ -11,6 +11,7 @@ import subprocess
 import tempfile
 import uuid
 from src.f1_data import get_race_weekends_by_year, load_session
+from datetime import datetime
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -40,7 +41,8 @@ class RaceSelectionWindow(QMainWindow):
         self.worker = None
         self.loading_session = False
         self.selected_session_title = None
-
+        self.current_year = datetime.now().year
+        self.current_date = datetime.now().date()
         self.setWindowTitle("F1 Race Replay - Session Selection")
         self._setup_ui()
         self.resize(1000, 700)
@@ -71,7 +73,7 @@ class RaceSelectionWindow(QMainWindow):
         year_layout = QHBoxLayout()
         year_label = QLabel("Select Year:")
         self.year_combo = QComboBox()
-        current_year = 2025  # Update as needed
+        current_year = self.current_year
         for year in range(2010, current_year + 1):
             self.year_combo.addItem(str(year))
         self.year_combo.setCurrentText(str(current_year))
@@ -156,13 +158,47 @@ class RaceSelectionWindow(QMainWindow):
 
         self.loading_session = False
 
+
+
     def on_race_clicked(self, item, column):
         ev = item.data(0, Qt.UserRole)
+
+        
         # ensure the sessions panel is visible when a race is selected
         try:
             self.session_panel.show()
         except Exception:
             pass
+        
+        # clear existing session widgets
+        for i in reversed(range(self.session_list_layout.count())):
+            w = self.session_list_layout.itemAt(i).widget()
+            if w:
+                w.setParent(None)
+              
+        try:
+
+            event_date_str = ev.get("date", "")
+            event_date = datetime.strptime(event_date_str, "%Y-%m-%d").date()
+            
+            
+            # If race hasn't happened yet
+            if event_date > self.current_date:
+                # Show message instead of session buttons
+                label = QLabel("⏳ Race yet to be held")
+                label.setAlignment(Qt.AlignCenter)
+                font = label.font()
+                font.setPointSize(12)
+                label.setFont(font)
+                label.setStyleSheet("color: gray; padding: 20px;")
+                self.session_list_layout.addWidget(label)
+                return  # Exit early, don't create session buttons
+                
+        except Exception as e:
+            print(f"Error parsing date: {e}")
+            # If date parsing fails, continue and show sessions anyway
+        
+        # Race has already happened - show session buttons
         # determine sessions to show
         ev_type = (ev.get('type') or '').lower()
         sessions = ["Qualifying", "Race"]
@@ -170,12 +206,6 @@ class RaceSelectionWindow(QMainWindow):
             sessions.insert(0, "Sprint Qualifying")
             # show sprint-related session
             sessions.insert(2, "Sprint")
-
-        # clear existing session widgets
-        for i in reversed(range(self.session_list_layout.count())):
-            w = self.session_list_layout.itemAt(i).widget()
-            if w:
-                w.setParent(None)
 
         # add buttons for each session (launch playback in separate process)
         for s in sessions:
