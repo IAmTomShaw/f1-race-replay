@@ -172,6 +172,8 @@ class F1RaceReplayWindow(arcade.Window):
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
+        # store previous leaderboard order for up/down arrows
+        self.last_leaderboard_order = None
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
@@ -501,6 +503,41 @@ class F1RaceReplayWindow(arcade.Window):
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
+        # A fixed reference speed for all gap calculations (200 km/h = 55.56 m/s)
+        REFERENCE_SPEED_MS = 55.56
+        leaderboard_gaps = {}
+        leaderboard_neighbor_gaps = {}
+
+        leader_progress_val = driver_list[0][3] if driver_list else None
+
+        if driver_list and leader_progress_val is not None:
+            # precompute gaps to leader (time) and interval gaps (dist+time)
+            for idx, (code, _, pos, progress_m) in enumerate(driver_list):
+                try:
+                    raw_to_leader = abs(leader_progress_val - (progress_m or 0.0))
+                    dist_to_leader = raw_to_leader / 10.0
+                    time_to_leader = dist_to_leader / REFERENCE_SPEED_MS
+                    leaderboard_gaps[code] = 0.0 if idx == 0 else time_to_leader
+                except Exception:
+                    leaderboard_gaps[code] = None
+
+                ahead_info = None
+                try:
+                    if idx > 0:
+                        code_ahead, _, _, progress_ahead = driver_list[idx - 1]
+                        raw = abs((progress_m or 0.0) - (progress_ahead or 0.0))
+                        dist_m = raw / 10.0
+                        time_s = dist_m / REFERENCE_SPEED_MS
+                        ahead_info = (code_ahead, dist_m, time_s)
+                except Exception:
+                    ahead_info = None
+
+                leaderboard_neighbor_gaps[code] = {"ahead": ahead_info}
+
+        self.leaderboard_gaps = leaderboard_gaps
+        self.leaderboard_neighbor_gaps = leaderboard_neighbor_gaps
+
+        self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)
         # expose rects for existing hit test compatibility if needed

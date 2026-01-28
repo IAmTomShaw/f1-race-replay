@@ -246,6 +246,12 @@ class LeaderboardComponent(BaseComponent):
         self.rects = []    # clickable rects per entry
         self.selected = []  # Changed to list for multiple selection
         self.row_height = 25
+        self.show_gaps = False
+        self.show_neighbor_gaps = False
+        self.gap_toggle_rect = None
+        self.neighbor_toggle_rect = None
+        # Reuse a single Text object for gap rendering to avoid reallocating each frame
+        self._gap_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, 12, anchor_x="right", anchor_y="top")
         self._tyre_textures = {}
         self._visible: bool = visible
         # Import the tyre textures from the images/tyres folder (all files)
@@ -288,6 +294,37 @@ class LeaderboardComponent(BaseComponent):
         self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
         arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        # sync with window state if present
+        self.show_gaps = getattr(window, "leaderboard_show_gaps", self.show_gaps)
+        self.show_neighbor_gaps = getattr(window, "leaderboard_show_neighbor_gaps", self.show_neighbor_gaps)
+
+        # If both were set externally, prefer neighbor (interval) gaps and clear leader gaps.
+        if self.show_gaps and self.show_neighbor_gaps:
+            self.show_gaps = False
+
+        # small radio btns to the right of the title: interval gaps and leader gaps
+        toggle_radius = 10
+        toggle_y = leaderboard_y - 15
+        gap_between_toggles = 30
+        
+        # interval radio-btn (I)
+        neighbor_x = self.x + self.width - gap_between_toggles - toggle_radius
+        self.neighbor_toggle_rect = (neighbor_x - toggle_radius, toggle_y - toggle_radius, neighbor_x + toggle_radius, toggle_y + toggle_radius)
+        nb_bg = (100, 100, 100) if not self.show_neighbor_gaps else (50, 150, 50)
+        arcade.draw_circle_filled(neighbor_x, toggle_y, toggle_radius, nb_bg)
+        nb_border = (150, 150, 150) if not self.show_neighbor_gaps else (80, 200, 80)
+        arcade.draw_circle_outline(neighbor_x, toggle_y, toggle_radius, nb_border, 2)
+        arcade.Text("I", neighbor_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
+
+        # leader radio-btn (L)
+        toggle_x = self.x + self.width - toggle_radius
+        self.gap_toggle_rect = (toggle_x - toggle_radius, toggle_y - toggle_radius, toggle_x + toggle_radius, toggle_y + toggle_radius)
+        lg_bg = (100, 100, 100) if not self.show_gaps else (50, 150, 50)
+        arcade.draw_circle_filled(toggle_x, toggle_y, toggle_radius, lg_bg)
+        lg_border = (150, 150, 150) if not self.show_gaps else (80, 200, 80)
+        arcade.draw_circle_outline(toggle_x, toggle_y, toggle_radius, lg_border, 2)
+        arcade.Text("L", toggle_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
+
         self.rects = []
 
         # Sort entries by lap number an distance progressed
@@ -321,7 +358,62 @@ class LeaderboardComponent(BaseComponent):
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
 
-             # Tyre Icons
+            # Gap display (if enabled)
+            if getattr(self, "show_neighbor_gaps", False):
+                neighbor_info = None
+                if hasattr(window, "leaderboard_neighbor_gaps"):
+                    neighbor_info = window.leaderboard_neighbor_gaps.get(code)
+
+                if i == 0:
+                    gap_text = "-"
+                else:
+                    if neighbor_info:
+                        if neighbor_info.get("ahead"):
+                            _, dist_m, time_s = neighbor_info.get("ahead")
+                            gap_text = f"+{time_s:.1f}s"
+                        else:
+                            gap_text = ""
+                    else:
+                        gap_text = ""
+
+            elif getattr(self, "show_gaps", False):
+                gap_text = ""
+                gap_val = None
+                # prefer window-provided precomputed gaps
+                if hasattr(window, "leaderboard_gaps"):
+                    gap_val = window.leaderboard_gaps.get(code)
+                if gap_val is None:
+                    gap_val = pos.get("gap") or pos.get("gap_to_leader")
+                if gap_val is None:
+                    gap_text = ""
+                else:
+                    try:
+                        # expect seconds (float)
+                        s = float(gap_val)
+                        # leader (zero) gets dash
+                        if abs(s) < 1e-6:
+                            gap_text = "-"
+                        else:
+                            sign = "+" if s > 0 else "-"
+                            gap_text = f"{sign}{abs(s):.1f}s"
+                    except Exception:
+                        gap_text = str(gap_val)
+
+                pass
+
+            # if either leader or neighbor gaps are enabled, draw the gap text
+            if getattr(self, "show_neighbor_gaps", False) or getattr(self, "show_gaps", False):
+                gap_x = right_x - 36
+                if 'gap_text' in locals() and gap_text:
+                    gap_color = arcade.color.BLACK if code in self.selected else arcade.color.LIGHT_GRAY
+                    # Update and draw the reusable gap Text object
+                    self._gap_text.text = gap_text
+                    self._gap_text.x = gap_x
+                    self._gap_text.y = top_y
+                    self._gap_text.color = gap_color
+                    self._gap_text.draw()
+
+            # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track
@@ -359,6 +451,35 @@ class LeaderboardComponent(BaseComponent):
                         arcade.color.YELLOW, 12, anchor_x="left", anchor_y="top").draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
+        # interval toggle (radio type)
+        if self.neighbor_toggle_rect:
+            n_left, n_bottom, n_right, n_top = self.neighbor_toggle_rect
+            if n_left <= x <= n_right and n_bottom <= y <= n_top:
+                if self.show_neighbor_gaps:
+                    # currently selected -> deselect
+                    self.show_neighbor_gaps = False
+                    setattr(window, "leaderboard_show_neighbor_gaps", False)
+                else:
+                    # select interval gaps and deselect leader gaps
+                    self.show_neighbor_gaps = True
+                    self.show_gaps = False
+                    setattr(window, "leaderboard_show_neighbor_gaps", True)
+                    setattr(window, "leaderboard_show_gaps", False)
+                return True
+        # leader toggle (radio type)
+        if self.gap_toggle_rect:
+            g_left, g_bottom, g_right, g_top = self.gap_toggle_rect
+            if g_left <= x <= g_right and g_bottom <= y <= g_top:
+                if self.show_gaps:
+                    self.show_gaps = False
+                    setattr(window, "leaderboard_show_gaps", False)
+                else:
+                    self.show_gaps = True
+                    self.show_neighbor_gaps = False
+                    setattr(window, "leaderboard_show_gaps", True)
+                    setattr(window, "leaderboard_show_neighbor_gaps", False)
+                return True
+
         for code, left, bottom, right, top in self.rects:
             if left <= x <= right and bottom <= y <= top:
                 # Detect multi-select modifiers
