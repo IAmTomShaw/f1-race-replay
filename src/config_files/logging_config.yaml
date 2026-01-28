@@ -1,0 +1,34 @@
+version: 1
+disable_existing_loggers: False
+formatters:
+  nodate:
+    format: "[%(levelname)s] - %(module)s - %(funcName)s - %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S%z"
+  withdate:
+    format: "%(asctime)s - [%(levelname)s] - %(module)s - %(funcName)s - %(message)s"
+    datefmt: "%Y-%m-%d %H:%M:%S%z"
+
+handlers:
+  stderr:
+    class: logging.StreamHandler
+    level: INFO
+    formatter: nodate
+    stream: ext://sys.stdout
+  file:
+    class: logging.handlers.RotatingFileHandler
+    level: DEBUG
+    formatter: withdate
+    filename: "logs/f1-race-replay.log"
+    maxBytes: 10485760 # 10MB
+    backupCount: 5
+  queue_handler:
+    class: logging.handlers.QueueHandler
+    handlers:
+      - stderr
+      - file
+    respect_handler_level: True
+loggers:
+  root:
+    level: DEBUG
+    handlers:
+      - queue_handler
