@@ -51,6 +51,9 @@ class QualifyingReplay(arcade.Window):
         self.g_min = 0
         self.g_max = 8
 
+        self.rpm_min = 0
+        self.rpm_max = 15000
+
         # cached arrays for fast indexing/interpolation when telemetry loaded
         self._times = None   # numpy array of frame times
         self._xs = None      # numpy array of telemetry x
@@ -224,25 +227,29 @@ class QualifyingReplay(arcade.Window):
                 chart_w = max(10, chart_right - chart_left)
                 chart_h = max(10, chart_top - chart_bottom)
 
-                # Divide chart area into 3 sub-areas:
-                # - Top 50% of the chart area: Speed
+                # Divide chart area into 4 sub-areas:
+                # - Top 25% of the chart area: Speed
                 # - Next 25%: Gears
+                # - Next 25%: RPM
                 # - Bottom 25%: Brake + Throttle
 
-                M = 30 # margin between charts
+                M = 25 # margin between charts
                 VP = 5 # vertical padding between charts
                 total_margin = 2 * M
                 effective_h = max(0, chart_h - total_margin)
 
-                speed_h = int(effective_h * 0.5)
+                speed_h = int(effective_h * 0.25)
                 gear_h = int(effective_h * 0.25)
-                ctrl_h = effective_h - speed_h - gear_h
+                rpm_h = int(effective_h * 0.25)
+                ctrl_h = effective_h - speed_h - gear_h - rpm_h
 
                 speed_top = chart_top
                 speed_bottom = speed_top - speed_h
                 gear_top = speed_bottom - M
                 gear_bottom = gear_top - gear_h
-                ctrl_top = gear_bottom - M
+                rpm_top = gear_bottom - M
+                rpm_bottom = rpm_top - rpm_h
+                ctrl_top = rpm_bottom - M
                 ctrl_bottom = ctrl_top - ctrl_h
 
                 map_top = ctrl_bottom - 8
@@ -256,17 +263,20 @@ class QualifyingReplay(arcade.Window):
 
                 speed_bg = arcade.XYWH(chart_left + chart_w * 0.5, speed_bottom + speed_h * 0.5, chart_w, speed_h)
                 gear_bg = arcade.XYWH(chart_left + chart_w * 0.5, gear_bottom + gear_h * 0.5, chart_w, gear_h)
+                rpm_bg = arcade.XYWH(chart_left + chart_w * 0.5, rpm_bottom + rpm_h * 0.5, chart_w, rpm_h)
                 ctrl_bg = arcade.XYWH(chart_left + chart_w * 0.5, ctrl_bottom + ctrl_h * 0.5, chart_w, ctrl_h)
 
                 arcade.draw_rect_filled(speed_bg, (40, 40, 40, 230))
                 arcade.draw_rect_filled(gear_bg, (40, 40, 40, 230))
+                arcade.draw_rect_filled(rpm_bg, (40, 40, 40, 230))
                 arcade.draw_rect_filled(ctrl_bg, (40, 40, 40, 230))
 
                 # Add Subtitles to the charts
 
-                arcade.Text("Speed (km/h)", chart_left + 10, speed_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
-                arcade.Text("Gear", chart_left + 10, gear_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
-                arcade.Text("Throttle / Brake (%)", chart_left + 10, ctrl_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
+                arcade.Text("Speed (km/h)", chart_left + 10, speed_top + 5, arcade.color.ANTI_FLASH_WHITE, 12).draw()
+                arcade.Text("Gear", chart_left + 10, gear_top + 5, arcade.color.ANTI_FLASH_WHITE, 12).draw()
+                arcade.Text("RPM", chart_left + 10, rpm_top + 5, arcade.color.ANTI_FLASH_WHITE, 12).draw()
+                arcade.Text("Throttle / Brake (%)", chart_left + 10, ctrl_top + 5, arcade.color.ANTI_FLASH_WHITE, 12).draw()
 
                 # DRS key at right of the speed subtitle (green square + label)
                 key_size = 12
@@ -332,12 +342,14 @@ class QualifyingReplay(arcade.Window):
                 draw_throttle = []
                 draw_brake = []
                 draw_gears = []
+                draw_rpms = []
                 
                 draw_comparison_pos = []
                 draw_comparison_speeds = []
                 draw_comparison_throttle = []
                 draw_comparison_brake = []
                 draw_comparison_gears = []
+                draw_comparison_rpms = []
                 # The speed chart background will have sections of it shaded green to indicate where DRS was active
 
                 # find the drs zones for this lap that the driver has already passed.
@@ -402,6 +414,8 @@ class QualifyingReplay(arcade.Window):
                     br = self._pick_telemetry_value(tel, "brake")
                     # gear
                     gr = self._pick_telemetry_value(tel, "gear")
+                    # rpm
+                    rpm = self._pick_telemetry_value(tel, "rpm")
 
                     draw_pos.append(float(d))
                     draw_speeds.append(float(s))
@@ -411,6 +425,7 @@ class QualifyingReplay(arcade.Window):
                     else:
                         draw_brake.append(float(br) if br is not None else None)
                     draw_gears.append(int(gr) if gr is not None else None)
+                    draw_rpms.append(int(rpm) if rpm is not None else None)
 
                     # Comparison Driver telemetry
 
@@ -425,6 +440,7 @@ class QualifyingReplay(arcade.Window):
                             c_th = self._pick_telemetry_value(frame_comparison_telemetry, "throttle")
                             c_br = self._pick_telemetry_value(frame_comparison_telemetry, "brake")
                             c_gr = self._pick_telemetry_value(frame_comparison_telemetry, "gear")
+                            c_rpm = self._pick_telemetry_value(frame_comparison_telemetry, "rpm")
                             draw_comparison_pos.append(float(c_d) if c_d is not None else None)
                             draw_comparison_speeds.append(float(c_s) if c_s is not None else None)
                             draw_comparison_throttle.append(float(c_th) if c_th is not None else None)
@@ -433,6 +449,7 @@ class QualifyingReplay(arcade.Window):
                             else:
                                 draw_comparison_brake.append(float(c_br) if c_br is not None else None)
                             draw_comparison_gears.append(int(c_gr) if c_gr is not None else None)
+                            draw_comparison_rpms.append(int(c_rpm) if c_rpm is not None else None)
 
                 if draw_comparison_pos and draw_comparison_speeds:
                     pts = []
@@ -469,7 +486,7 @@ class QualifyingReplay(arcade.Window):
                     except Exception as e:
                         print("Chart draw error (speed):", e)
 
-                # Draw gears in the middle sub-area
+                # Draw gears in the second sub-area
                 gear_pts = []
                 comparison_gear_pts = []
                 for d, g in zip(draw_pos, draw_gears):
@@ -507,6 +524,50 @@ class QualifyingReplay(arcade.Window):
                 except Exception as e:
                     print("Chart draw error (gear):", e)
 
+                # Draw RPM in the third sub-area
+                rpm_min = self.rpm_min
+                rpm_max = self.rpm_max
+
+                rpm_pts = []
+                comparison_rpm_pts = []
+                # Add driver's RPMs
+                for d, rpm in zip(draw_pos, draw_rpms):
+                    if rpm is None:
+                        continue
+                    nx = (d - full_d_min) / (full_d_max - full_d_min)
+                    xpix = chart_left + nx * chart_w
+                    ny = (rpm - rpm_min) / (rpm_max - rpm_min)
+                    ypix = rpm_bottom + VP + ny * (rpm_h - 2 * VP)
+                    rpm_pts.append((xpix, ypix))
+
+                # Add comparison driver's RPMs
+                for d, rpm in zip(draw_comparison_pos, draw_comparison_rpms):
+                    if rpm is None:
+                        continue
+                    nx = (d - full_d_min) / (full_d_max - full_d_min)
+                    xpix = chart_left + nx * chart_w
+                    ny = (rpm - rpm_min) / (rpm_max - rpm_min)
+                    ypix = rpm_bottom + VP + ny * (rpm_h - 2 * VP)
+                    comparison_rpm_pts.append((xpix, ypix))
+
+                try:
+                    if rpm_pts:
+                        arcade.draw_line_strip(rpm_pts, arcade.color.ANTI_FLASH_WHITE, 2)
+                        # Show current rpms
+                        current_rpm = draw_rpms[-1] if draw_rpms else 0
+                        arcade.Text(f"{current_rpm} RPM", rpm_pts[-1][0] + 10, rpm_pts[-1][1] + 5, arcade.color.ANTI_FLASH_WHITE, 12).draw()
+
+                    if comparison_rpm_pts:
+                        arcade.draw_line_strip(comparison_rpm_pts, arcade.color.YELLOW, 2)
+                        # Show comparison rpms
+                        current_rpm = draw_comparison_rpms[-1] if draw_comparison_rpms else 0
+                        arcade.Text(f"{current_rpm} RPM", comparison_rpm_pts[-1][0] + 10, comparison_rpm_pts[-1][1] - 15, arcade.color.YELLOW, 12).draw()
+
+                except Exception as e:
+                    print("Chart draw error (rpm):", e)
+
+
+                # Draw controls in the bottom sub-area
 
                 th_min = self.th_min
                 th_max = self.th_max
