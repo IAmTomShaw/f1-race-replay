@@ -4,6 +4,10 @@ from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
 import numpy as np
 import os
+from src.tyre_degradation_integration import (
+    format_tyre_health_bar, 
+    format_degradation_text
+)
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
   if degrees is None:
@@ -739,6 +743,7 @@ class DriverInfoComponent(BaseComponent):
         self.left = left
         self.width = width
         self.min_top = min_top
+        self.degradation_integrator = None
 
     def draw(self, window):
         # Support multiple selection via window.selected_drivers
@@ -849,6 +854,52 @@ class DriverInfoComponent(BaseComponent):
         arcade.Text(gap_ahead, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
         cursor_y -= 22
         arcade.Text(gap_behind, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
+        
+        if self.degradation_integrator and hasattr(window, 'frames'):
+            try:
+                idx = min(int(window.frame_index), window.n_frames - 1)
+                frame = window.frames[idx]
+                health_data = self.degradation_integrator.get_health_for_frame(code, frame)
+                
+                if health_data:
+                    cursor_y -= 28  # Space before health bar
+                    
+                    # Draw tyre health bar
+                    bar_params = format_tyre_health_bar(health_data['health'], width=180, height=14)
+                    bar_x = left + 15
+                    bar_y = cursor_y
+                    
+                    # Background bar (dark gray)
+                    arcade.draw_rect_filled(
+                        arcade.XYWH(bar_x + bar_params['width']/2, bar_y, 
+                                   bar_params['width'], bar_params['height']),
+                        (50, 50, 50)
+                    )
+                    
+                    # Health fill bar (colored)
+                    if bar_params['fill_width'] > 0:
+                        arcade.draw_rect_filled(
+                            arcade.XYWH(bar_x + bar_params['fill_width']/2, bar_y, 
+                                       bar_params['fill_width'], bar_params['height']),
+                            bar_params['color']
+                        )
+                    
+                    # Border
+                    arcade.draw_rect_outline(
+                        arcade.XYWH(bar_x + bar_params['width']/2, bar_y, 
+                                   bar_params['width'], bar_params['height']),
+                        arcade.color.WHITE, 1
+                    )
+                    
+                    cursor_y -= 18
+                    
+                    # Tyre info text
+                    tyre_text = format_degradation_text(health_data)
+                    arcade.Text(tyre_text, left_text_x, cursor_y, 
+                               arcade.color.LIGHT_GRAY, 10, anchor_y="center").draw()
+                    
+            except Exception as e:
+                pass 
 
         # Graphs
         thr, brk = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
