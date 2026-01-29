@@ -6,7 +6,8 @@ from src.ui_components import (
     LeaderboardComponent, 
     WeatherComponent, 
     LegendComponent, 
-    DriverInfoComponent, 
+    DriverInfoComponent,
+    CarTelemetryDiagramComponent,
     RaceProgressBarComponent,
     RaceControlsComponent,
     ControlsPopupComponent,
@@ -59,6 +60,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
+        self.car_telemetry_comp = CarTelemetryDiagramComponent(width=340, height=420)
         self.controls_popup_comp = ControlsPopupComponent()
 
         self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
@@ -512,6 +514,9 @@ class F1RaceReplayWindow(arcade.Window):
         # Selected driver info component
         self.driver_info_comp.draw(self)
         
+        # Car Telemetry Diagram (shows when driver selected and T pressed)
+        self.car_telemetry_comp.draw(self)
+        
         # Race Progress Bar with event markers (DNF, flags, leader changes)
         self.progress_bar_comp.draw(self)
         
@@ -612,6 +617,11 @@ class F1RaceReplayWindow(arcade.Window):
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
+        elif symbol == arcade.key.T:
+            # Toggle car telemetry diagram (only if driver is selected)
+            selected = getattr(self, "selected_drivers", []) or ([self.selected_driver] if self.selected_driver else [])
+            if selected:
+                self.car_telemetry_comp.toggle_visibility()
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -634,6 +644,8 @@ class F1RaceReplayWindow(arcade.Window):
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.car_telemetry_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
             return
