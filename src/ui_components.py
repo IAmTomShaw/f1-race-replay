@@ -1210,7 +1210,7 @@ class CarTelemetryDiagramComponent(BaseComponent):
 
 
 class ControlsPopupComponent(BaseComponent):
-    def __init__(self, width: int = 420, height: int = 260, header_font_size: int = 18, body_font_size: int = 16):
+    def __init__(self, width: int = 420, height: int = 285, header_font_size: int = 18, body_font_size: int = 16):
         
         self.width = width
         self.height = height
@@ -1289,6 +1289,7 @@ class ControlsPopupComponent(BaseComponent):
             "[D]    Toggle DRS Zones",
             "[B]    Toggle Progress Bar",
             "[L]    Toggle Driver Labels",
+            "[T]    Telemetry Display (select driver first)",
             "[H]    Toggle Help Popup",
         ]
         
