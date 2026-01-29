@@ -1,6 +1,7 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog
+    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog,
+    QDialog, QDialogButtonBox, QGroupBox
 )
 from PySide6.QtWidgets import QProgressDialog
 from PySide6.QtCore import QThread, Signal, Qt, QTimer
@@ -34,6 +35,165 @@ class FetchScheduleWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+
+class ComparisonDialog(QDialog):
+    """Dialog for selecting two races to compare"""
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Compare Two Races")
+        self.resize(600, 400)
+        
+        # Store selected events
+        self.race_a = None
+        self.race_b = None
+        
+        self._setup_ui()
+    
+    def _setup_ui(self):
+        layout = QVBoxLayout()
+        self.setLayout(layout)
+        
+        # Instructions
+        instruction = QLabel("Select two races to compare:")
+        instruction.setWordWrap(True)
+        layout.addWidget(instruction)
+        
+        # Race A selection
+        race_a_group = QGroupBox("Race A (Primary)")
+        race_a_layout = QVBoxLayout()
+        race_a_group.setLayout(race_a_layout)
+        
+        year_a_layout = QHBoxLayout()
+        year_a_layout.addWidget(QLabel("Year:"))
+        self.year_a_combo = QComboBox()
+        current_year = 2025
+        for year in range(2018, current_year + 1):
+            self.year_a_combo.addItem(str(year))
+        self.year_a_combo.setCurrentText(str(current_year))
+        self.year_a_combo.currentTextChanged.connect(lambda: self.load_schedule_for_race('a'))
+        year_a_layout.addWidget(self.year_a_combo)
+        year_a_layout.addStretch()
+        race_a_layout.addLayout(year_a_layout)
+        
+        self.schedule_a_tree = QTreeWidget()
+        self.schedule_a_tree.setHeaderLabels(["Round", "Event", "Date"])
+        self.schedule_a_tree.setRootIsDecorated(False)
+        self.schedule_a_tree.setMaximumHeight(150)
+        self.schedule_a_tree.itemClicked.connect(lambda item, col: self.on_race_selected(item, 'a'))
+        race_a_layout.addWidget(self.schedule_a_tree)
+        
+        self.race_a_label = QLabel("No race selected")
+        self.race_a_label.setStyleSheet("color: gray; font-style: italic;")
+        race_a_layout.addWidget(self.race_a_label)
+        
+        layout.addWidget(race_a_group)
+        
+        # Race B selection
+        race_b_group = QGroupBox("Race B (Comparison)")
+        race_b_layout = QVBoxLayout()
+        race_b_group.setLayout(race_b_layout)
+        
+        year_b_layout = QHBoxLayout()
+        year_b_layout.addWidget(QLabel("Year:"))
+        self.year_b_combo = QComboBox()
+        for year in range(2018, current_year + 1):
+            self.year_b_combo.addItem(str(year))
+        self.year_b_combo.setCurrentText(str(current_year - 1))
+        self.year_b_combo.currentTextChanged.connect(lambda: self.load_schedule_for_race('b'))
+        year_b_layout.addWidget(self.year_b_combo)
+        year_b_layout.addStretch()
+        race_b_layout.addLayout(year_b_layout)
+        
+        self.schedule_b_tree = QTreeWidget()
+        self.schedule_b_tree.setHeaderLabels(["Round", "Event", "Date"])
+        self.schedule_b_tree.setRootIsDecorated(False)
+        self.schedule_b_tree.setMaximumHeight(150)
+        self.schedule_b_tree.itemClicked.connect(lambda item, col: self.on_race_selected(item, 'b'))
+        race_b_layout.addWidget(self.schedule_b_tree)
+        
+        self.race_b_label = QLabel("No race selected")
+        self.race_b_label.setStyleSheet("color: gray; font-style: italic;")
+        race_b_layout.addWidget(self.race_b_label)
+        
+        layout.addWidget(race_b_group)
+        
+        # Buttons
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
+        self.ok_button = button_box.button(QDialogButtonBox.Ok)
+        self.ok_button.setText("Compare Races")
+        self.ok_button.setEnabled(False)
+        layout.addWidget(button_box)
+        
+        # Load initial schedules
+        self.load_schedule_for_race('a')
+        self.load_schedule_for_race('b')
+    
+    def load_schedule_for_race(self, race_label):
+        """Load schedule for race A or B"""
+        year_combo = self.year_a_combo if race_label == 'a' else self.year_b_combo
+        tree = self.schedule_a_tree if race_label == 'a' else self.schedule_b_tree
+        
+        year = int(year_combo.currentText())
+        tree.clear()
+        
+        worker = FetchScheduleWorker(year)
+        worker.result.connect(lambda events: self.populate_schedule(events, race_label))
+        worker.start()
+        
+        # Store worker reference
+        if race_label == 'a':
+            self._worker_a = worker
+        else:
+            self._worker_b = worker
+    
+    def populate_schedule(self, events, race_label):
+        """Populate schedule tree for race A or B"""
+        tree = self.schedule_a_tree if race_label == 'a' else self.schedule_b_tree
+        
+        for event in events:
+            round_str = str(event.get("round_number", ""))
+            name = str(event.get("event_name", ""))
+            date = str(event.get("date", ""))
+            
+            item = QTreeWidgetItem([round_str, name, date])
+            item.setData(0, Qt.UserRole, event)
+            tree.addTopLevelItem(item)
+        
+        tree.resizeColumnToContents(0)
+        tree.resizeColumnToContents(1)
+    
+    def on_race_selected(self, item, race_label):
+        """Handle race selection"""
+        event = item.data(0, Qt.UserRole)
+        label = self.race_a_label if race_label == 'a' else self.race_b_label
+        
+        year_combo = self.year_a_combo if race_label == 'a' else self.year_b_combo
+        year = int(year_combo.currentText())
+        
+        display_text = f"{event.get('event_name', '')} ({year})"
+        label.setText(display_text)
+        label.setStyleSheet("color: green; font-weight: bold;")
+        
+        if race_label == 'a':
+            self.race_a = {
+                'year': year,
+                'round': event.get('round_number'),
+                'event': event
+            }
+        else:
+            self.race_b = {
+                'year': year,
+                'round': event.get('round_number'),
+                'event': event
+            }
+        
+        # Enable OK button if both races selected
+        if self.race_a and self.race_b:
+            self.ok_button.setEnabled(True)
+
+
 class RaceSelectionWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -54,7 +214,7 @@ class RaceSelectionWindow(QMainWindow):
         main_layout = QVBoxLayout()
         central_widget.setLayout(main_layout)
 
-        # Header (title)
+        # Header (title + compare button)
         header_layout = QHBoxLayout()
         header_label = QLabel("F1 Race Replay 🏎️")
         font = header_label.font()
@@ -65,6 +225,24 @@ class RaceSelectionWindow(QMainWindow):
         
         header_layout.addWidget(header_label)
         header_layout.addStretch()
+        
+        # Add Compare Races button
+        compare_btn = QPushButton("⚡ Compare Races")
+        compare_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff1801;
+                color: white;
+                font-weight: bold;
+                padding: 8px 16px;
+                border-radius: 4px;
+            }
+            QPushButton:hover {
+                background-color: #cc1301;
+            }
+        """)
+        compare_btn.clicked.connect(self.open_comparison_dialog)
+        header_layout.addWidget(compare_btn)
+        
         main_layout.addLayout(header_layout)
 
         # Year selection
@@ -120,6 +298,50 @@ class RaceSelectionWindow(QMainWindow):
         # hide sessions panel until a weekend is selected
         self.session_panel.hide()
         self.load_schedule(str(current_year))
+    
+    def open_comparison_dialog(self):
+        """Open dialog to select two races for comparison"""
+        dialog = ComparisonDialog(self)
+        
+        if dialog.exec() == QDialog.Accepted:
+            if dialog.race_a and dialog.race_b:
+                self.launch_comparison(dialog.race_a, dialog.race_b)
+    
+    def launch_comparison(self, race_a, race_b):
+        """Launch comparison viewer for two selected races"""
+        main_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'main.py'))
+        
+        cmd = [
+            sys.executable, main_path,
+            "--compare",
+            "--year", str(race_a['year']),
+            "--round", str(race_a['round']),
+            "--year-b", str(race_b['year']),
+            "--round-b", str(race_b['round'])
+        ]
+        
+        # Show loading dialog
+        dlg = QProgressDialog("Loading races for comparison...", None, 0, 0, self)
+        dlg.setWindowTitle("Loading Comparison")
+        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.setCancelButton(None)
+        dlg.setMinimumDuration(0)
+        dlg.setRange(0, 0)
+        dlg.show()
+        QApplication.processEvents()
+        
+        try:
+            proc = subprocess.Popen(cmd)
+            
+            # Close dialog after a short delay (comparison loads in separate process)
+            QTimer.singleShot(2000, dlg.close)
+            
+            # Keep reference
+            self._compare_proc = proc
+            
+        except Exception as exc:
+            dlg.close()
+            QMessageBox.critical(self, "Comparison Error", f"Failed to start comparison:\n{exc}")
         
     def load_schedule(self, year):
         if self.loading_session:
@@ -135,6 +357,7 @@ class RaceSelectionWindow(QMainWindow):
         self.worker.result.connect(self.populate_schedule)
         self.worker.error.connect(self.show_error)
         self.worker.start()
+        
     def populate_schedule(self, events):
         for event in events:
             # Ensure all columns are strings (QTreeWidgetItem expects text)
@@ -321,7 +544,7 @@ class RaceSelectionWindow(QMainWindow):
         # Keep a reference so it doesn't get GC'd
         self._session_worker = worker
         worker.start()
+        
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
-        
