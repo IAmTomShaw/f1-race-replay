@@ -897,9 +897,21 @@ class CarTelemetryDiagramComponent(BaseComponent):
         self._throttle_history = []
         self._brake_history = []
         
-        # Load car silhouette texture
-        car_texture_path = os.path.join("resources", "f1_car_topdown.png")
-        self._car_texture = arcade.load_texture(car_texture_path) if os.path.exists(car_texture_path) else None
+        # Load tyre-specific car textures
+        self._car_textures = {}
+        tyre_files = {
+            0: "f1_car_soft.png",      # SOFT (red)
+            1: "f1_car_medium.png",    # MEDIUM (yellow)
+            2: "f1_car_hard.png",      # HARD (white)
+            3: "f1_car_intermediate.png",  # INTERMEDIATE (green)
+            4: "f1_car_wet.png",       # WET (blue)
+        }
+        for compound_id, filename in tyre_files.items():
+            path = os.path.join("resources", filename)
+            if os.path.exists(path):
+                self._car_textures[compound_id] = arcade.load_texture(path)
+        # Fallback texture (use medium as default)
+        self._car_texture_default = self._car_textures.get(1, None)
         self._car_size = (110, 110)  # Square aspect ratio matching source image
         
         # Cached text objects for performance
@@ -990,11 +1002,9 @@ class CarTelemetryDiagramComponent(BaseComponent):
         # --- Draw car outline (simplified top-down view) ---
         car_cx = center_x
         car_cy = center_y + 30  # Offset up to make room for trace
-        self._draw_car_outline(car_cx, car_cy, team_color)
-        
-        # --- Draw tyre indicators at wheel positions ---
-        tyre_compound = int(driver_pos.get('tyre', 0))
-        self._draw_tyre_indicators(car_cx, car_cy, tyre_compound)
+        tyre_compound = int(driver_pos.get('tyre', 1))  # Default to medium (1) if not set
+        self._draw_car_outline(car_cx, car_cy, team_color, tyre_compound)
+        # Tyres are now integrated into the car image, no separate indicators needed
         
         # --- DRS indicator above car ---
         drs_val = driver_pos.get('drs', 0)
@@ -1055,13 +1065,15 @@ class CarTelemetryDiagramComponent(BaseComponent):
         self._label_text.y = trace_bottom - 10
         self._label_text.draw()
     
-    def _draw_car_outline(self, cx: float, cy: float, team_color: tuple):
-        """Draw the F1 car silhouette using a loaded texture image."""
-        if self._car_texture:
+    def _draw_car_outline(self, cx: float, cy: float, team_color: tuple, tyre_compound: int = 1):
+        """Draw the F1 car silhouette using a loaded texture for the tyre compound."""
+        # Get the texture for the current tyre compound
+        texture = self._car_textures.get(tyre_compound, self._car_texture_default)
+        if texture:
             # Draw the car texture centered at (cx, cy)
             car_w, car_h = self._car_size
             rect = arcade.XYWH(cx, cy, car_w, car_h)
-            arcade.draw_texture_rect(rect=rect, texture=self._car_texture, angle=0, alpha=255)
+            arcade.draw_texture_rect(rect=rect, texture=texture, angle=0, alpha=255)
         else:
             # Fallback: draw a simple rectangle if texture not loaded
             arcade.draw_rect_outline(arcade.XYWH(cx, cy, 60, 100), (180, 180, 180), 2)
