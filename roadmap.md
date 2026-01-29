@@ -9,7 +9,7 @@ I want this project to be the hands-down best way for data-loving F1 fans to exp
 ## Primary Goals
 
 - **GUI Menu System:** Implement a user-friendly graphical interface to navigate through the different race weekends, sessions and available formats for reviewing data. ([@IAmTomShaw](https://github.com/IAmTomShaw) is currently working on this)
-- **Race Insight Charts:** Develop a suite of interactive charts and visualizations that provide deep insights into how the race or session progressed. Looking at things like track evolution, tyre strategies, pit stops, and driver performance over time, allowing users to understand more about the session.
+- **Race Insight Charts:** ✅ **COMPLETED** - Develop a suite of interactive charts and visualizations that provide deep insights into how the race or session progressed. Includes track evolution, tyre strategies, pit stops, driver performance, sector comparisons, and gap analysis.
 - **Practice Sessions:** Expand support to include practice sessions (FP1, FP2, FP3). I think this needs a combination of the telemetry analysis that is using for the Qualifying feature, mixed with the track position replay that is used for the race replay. I'm not sure how this is exactly going to work yet, but it's definitely needed. Maybe looking at the different runs that drivers do during practice, and comparing their lap times and tyre usage.
 
 ## Performance Enchancements & User Experience Improvements
