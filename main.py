@@ -1,6 +1,6 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
-
+from src.interfaces.track_battle import run_track_battle
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 from src.cli.race_selection import cli_load
@@ -11,33 +11,44 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
-  print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
+    # Enable cache for fastf1
+    enable_cache()
 
-  # Enable cache for fastf1
-  enable_cache()
+    # Check for track battle mode
+    if "--track-battle" in sys.argv:
+        if "--driver1" in sys.argv and "--driver2" in sys.argv:
+            driver1_idx = sys.argv.index("--driver1") + 1
+            driver2_idx = sys.argv.index("--driver2") + 1
+            driver1 = sys.argv[driver1_idx].upper()
+            driver2 = sys.argv[driver2_idx].upper()
 
-  if session_type == 'Q' or session_type == 'SQ':
+            run_track_battle(session, driver1, driver2,
+                             playback_speed=playback_speed)
+        else:
+            print("Error: --track-battle requires --driver1 and --driver2 arguments")
+            print(
+                "Example: python main.py --year 2024 --round 6 --track-battle --driver1 VER --driver2 LEC")
+        return
 
-    # Get the drivers who participated and their lap times
+    if session_type == 'Q' or session_type == 'SQ':
 
-    qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+        # Get the drivers who participated and their lap times
 
-    # Run the arcade screen showing qualifying results
+        qualifying_session_data = get_quali_telemetry(
+            session, session_type=session_type)
 
-    title = f"{session.event['EventName']} - {'Sprint Qualifying' if session_type == 'SQ' else 'Qualifying Results'}"
-    
-    run_qualifying_replay(
-      session=session,
-      data=qualifying_session_data,
-      title=title,
-      ready_file=ready_file,
-    )
+        title = f"{session.event['EventName']} - {'Sprint Qualifying' if session_type == 'SQ' else 'Qualifying Results'}"
 
-  else:
+        run_qualifying_replay(
+          session=session,
+          data=qualifying_session_data,
+          title=title,
+          ready_file=ready_file,
+        )
 
-    # Get the drivers who participated in the race
+    else:
 
-    race_telemetry = get_race_telemetry(session, session_type=session_type)
+        # Get the drivers who participated in the race
 
     # Get example lap for track layout
     # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
@@ -66,9 +77,13 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
             print("Error: No valid laps found in session")
             return
 
-    drivers = session.drivers
+        example_lap = session.laps.pick_fastest().get_telemetry()
 
-    # Get circuit rotation
+        drivers = session.drivers
+
+        # Get circuit rotation
+
+        circuit_rotation = get_circuit_rotation(session)
 
     circuit_rotation = get_circuit_rotation(session)
     
@@ -83,7 +98,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         'total_laps': race_telemetry['total_laps']
     }
 
-    # Run the arcade replay
+        # Check for optional chart flag
+        chart = "--chart" in sys.argv
 
     run_arcade_replay(
       frames=race_telemetry['frames'],
@@ -109,17 +125,17 @@ if __name__ == "__main__":
     cli_load()
     sys.exit(0)
 
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
+    if "--year" in sys.argv:
+        year_index = sys.argv.index("--year") + 1
+        year = int(sys.argv[year_index])
+    else:
+        year = 2025  # Default year
 
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
+    if "--round" in sys.argv:
+        round_index = sys.argv.index("--round") + 1
+        round_number = int(sys.argv[round_index])
+    else:
+        round_number = 12  # Default round number
 
   if "--list-rounds" in sys.argv:
     list_rounds(year)
