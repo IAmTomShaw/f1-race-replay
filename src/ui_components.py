@@ -1028,29 +1028,41 @@ class ControlsPopupComponent(BaseComponent):
         self._header_text.draw()
 
 
-        lines = [
-            " ",
-            "[SPACE] Pause/Resume",
-            "← / →  Jump back/forward",
-            "↑ / ↓  Speed +/-",
-            "[1-4]  Set speed: 0.5x / 1x / 2x / 4x",
-            "[R]    Restart",
-            "[D]    Toggle DRS Zones",
-            "[B]    Toggle Progress Bar",
-            "[L]    Toggle Driver Labels",
-            "[H]    Toggle Help Popup",
+        controls = [
+            ("SPACE", "Pause/Resume"),
+            ("← / →", "Jump back/forward"),
+            ("↑ / ↓", "Speed +/-"),
+            ("1-4", "Set speed: 0.5x / 1x / 2x / 4x"),
+            ("R", "Restart"),
+            ("D", "Toggle DRS Zones"),
+            ("B", "Toggle Progress Bar"),
+            ("L", "Toggle Driver Labels"),
+            ("H", "Toggle Help Popup"),
         ]
-        
+
         line_spacing = max(18, int(self.body_font_size + 8))
-        y = header_cy - 20
-        for l in lines:
+        left_x = cx - self.width / 2 + 16
+        desc_x = cx - self.width / 2 + 100  # Fixed position for descriptions
+        y = header_cy - 35  # More space below header
+
+        for key, desc in controls:
+            # Draw key
             self._body_text.font_size = self.body_font_size
-            self._body_text.bold = False
-            self._body_text.color = arcade.color.LIGHT_GRAY
-            self._body_text.text = l
-            self._body_text.x = cx - self.width / 2 + 16
+            self._body_text.bold = True
+            self._body_text.color = arcade.color.WHITE
+            self._body_text.text = key
+            self._body_text.x = left_x
             self._body_text.y = y
             self._body_text.draw()
+
+            # Draw description
+            self._body_text.bold = False
+            self._body_text.color = arcade.color.LIGHT_GRAY
+            self._body_text.text = desc
+            self._body_text.x = desc_x
+            self._body_text.y = y
+            self._body_text.draw()
+
             y -= line_spacing
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
