@@ -103,6 +103,11 @@ class RaceSelectionWindow(QMainWindow):
         header_lbl.setFont(hdr_font)
         self.session_panel_layout.addWidget(header_lbl)
 
+        # Checkbox for Telemetry Mode
+        from PySide6.QtWidgets import QCheckBox
+        self.telemetry_check = QCheckBox("Enable Telemetry Monitor (Dual Window)")
+        self.session_panel_layout.addWidget(self.telemetry_check)
+
         # placeholder spacer
         self.session_list_container = QWidget()
         self.session_list_layout = QVBoxLayout()
@@ -217,6 +222,9 @@ class RaceSelectionWindow(QMainWindow):
             cmd += ["--round", str(round_no)]
         if flag:
             cmd.append(flag)
+
+        if self.telemetry_check.isChecked():
+            cmd.append("--monitor")
 
         # Show a modal loading dialog and load the session in a background thread.
         dlg = QProgressDialog("Loading session data...", None, 0, 0, self)

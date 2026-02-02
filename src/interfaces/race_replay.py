@@ -18,6 +18,7 @@ from src.ui_components import (
 )
 from src.ui_components import RaceControlPanel
 from .analyzer_ui import AdvancedAnalyzer
+from src.lib.sync import TelemetrySender
 
 
 SCREEN_WIDTH = 1280
@@ -67,7 +68,7 @@ class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None, use_custom_hud=False):
+                 session_info=None, use_custom_hud=False, telemetry_window=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -90,6 +91,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.use_custom_hud_enabled = use_custom_hud # From your Race Select menu
         self.analyzer_ui = AdvancedAnalyzer(self)
         self.use_custom_hud_enabled = False
+        self.telemetry_window = telemetry_window  # Reference to the telemetry window if provided
+        self.sender = TelemetrySender()
         
 
         # Rotation (degrees) to apply to the whole circuit around its centre
@@ -545,6 +548,7 @@ class F1RaceReplayWindow(arcade.Window):
 
 
     def on_draw(self):
+        arcade.set_window(self)
         self.clear()
 
         # 1. Draw Background
@@ -758,6 +762,14 @@ class F1RaceReplayWindow(arcade.Window):
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
 
+        # SYNC TELEMETRY WINDOW
+        if self.telemetry_window:
+            self.telemetry_window.update_cursor(self.frame_index)
+
+        current_driver = self.selected_driver if hasattr(self, "selected_driver") else None
+        self.sender.send_update(self.frame_index, current_driver)
+            
+
     def on_key_press(self, symbol: int, modifiers: int):
         # Allow ESC to close window at any time
         if symbol == arcade.key.ESCAPE:
@@ -857,23 +869,32 @@ class F1RaceReplayWindow(arcade.Window):
     
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
-        # 1. Let the UI Manager try to 'grab' a widget first
+        # 1. UI Manager
         if self.ui_manager.on_mouse_press(x, y, button, modifiers):
             return
 
-        # 2. If no UI widget was clicked, run your existing component logic
+        # 2. Components
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
             return
-        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
-            return
         if self.legend_comp.on_mouse_press(self, x, y, button, modifiers):
             return
             
+        # 3. Leaderboard - FIX: Sync Telemetry BEFORE returning!
+        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
+            # If a driver was selected, sync it immediately
+            if self.telemetry_window and self.selected_driver:
+                self.telemetry_window.set_driver(self.selected_driver)
+            return
+
+        # 4. Clear selection if clicked elsewhere
         self.selected_driver = None
+        if self.telemetry_window:
+            self.telemetry_window.set_driver(None)
+
 
     def on_mouse_drag(self, x: float, y: float, dx: float, dy: float, buttons: int, modifiers: int):
         # This is the 'engine' that moves the box while you hold the mouse
