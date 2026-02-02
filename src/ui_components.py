@@ -959,7 +959,7 @@ class DriverInfoComponent(BaseComponent):
 
 
 class ControlsPopupComponent(BaseComponent):
-    def __init__(self, width: int = 420, height: int = 260, header_font_size: int = 18, body_font_size: int = 16):
+    def __init__(self, width: int = 500, height: int = 520, header_font_size: int = 18, body_font_size: int = 14):
         
         self.width = width
         self.height = height
@@ -1011,7 +1011,7 @@ class ControlsPopupComponent(BaseComponent):
         cx = self.cx if self.cx is not None else window.width / 2
         cy = self.cy if self.cy is not None else window.height / 2
         rect = arcade.XYWH(cx, cy, self.width, self.height)
-        arcade.draw_rect_filled(rect, (0, 0, 0, 255))
+        arcade.draw_rect_filled(rect, (0, 0, 0, 240))
         arcade.draw_rect_outline(rect, arcade.color.GRAY, 2)
 
         
@@ -1027,31 +1027,68 @@ class ControlsPopupComponent(BaseComponent):
         self._header_text.y = header_cy
         self._header_text.draw()
 
-
-        lines = [
-            " ",
-            "[SPACE] Pause/Resume",
-            "← / →  Jump back/forward",
-            "↑ / ↓  Speed +/-",
-            "[1-4]  Set speed: 0.5x / 1x / 2x / 4x",
-            "[R]    Restart",
-            "[D]    Toggle DRS Zones",
-            "[B]    Toggle Progress Bar",
-            "[L]    Toggle Driver Labels",
-            "[H]    Toggle Help Popup",
+        # Define sections with headers and controls
+        sections = [
+            ("PLAYBACK", [
+                "[SPACE]  Pause / Resume",
+                "← / →    Jump back / forward",
+                "↑ / ↓    Speed +/-",
+                "[1-4]    Speed: 0.5x / 1x / 2x / 4x",
+                "[R]      Restart race",
+            ]),
+            ("DISPLAY", [
+                "[H]      Toggle this Help",
+                "[D]      Toggle DRS Zones",
+                "[B]      Toggle Progress Bar",
+                "[L]      Toggle Driver Labels",
+                "[I]      Toggle Session Info",
+            ]),
+            ("DRIVER ANALYSIS", [
+                "[C]      Driver Comparator (2 pilots)",
+                "[G]      Delta Display (2 pilots)",
+                "[P]      Performance Radar",
+            ]),
+            ("ADVANCED", [
+                "[S]      Sector Coloring",
+                "[O]      Battle Detector (Overtakes)",
+                "[T]      Lap Time Chart",
+                "[E]      Incidents Timeline",
+            ]),
         ]
         
-        line_spacing = max(18, int(self.body_font_size + 8))
-        y = header_cy - 20
-        for l in lines:
+        line_spacing = max(16, int(self.body_font_size + 4))
+        section_spacing = 8
+        y = header_cy - 25
+        
+        for section_name, controls in sections:
+            # Section header
             self._body_text.font_size = self.body_font_size
-            self._body_text.bold = False
-            self._body_text.color = arcade.color.LIGHT_GRAY
-            self._body_text.text = l
+            self._body_text.bold = True
+            self._body_text.color = arcade.color.YELLOW
+            self._body_text.text = section_name
             self._body_text.x = cx - self.width / 2 + 16
             self._body_text.y = y
             self._body_text.draw()
             y -= line_spacing
+            
+            # Controls in section
+            for ctrl in controls:
+                self._body_text.bold = False
+                self._body_text.color = arcade.color.LIGHT_GRAY
+                self._body_text.text = f"  {ctrl}"
+                self._body_text.y = y
+                self._body_text.draw()
+                y -= line_spacing
+            
+            y -= section_spacing
+        
+        # Footer tip
+        self._body_text.bold = False
+        self._body_text.color = arcade.color.GRAY
+        self._body_text.text = "Shift+Click on leaderboard to select drivers"
+        self._body_text.x = cx - self.width / 2 + 16
+        self._body_text.y = cy - self.height / 2 + 15
+        self._body_text.draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         
@@ -1604,6 +1641,7 @@ class RaceControlsComponent(BaseComponent):
         self._visible = visible
         
         # Button rectangles for hit testing
+        self.reset_rect = None
         self.rewind_rect = None
         self.play_pause_rect = None
         self.forward_rect = None
@@ -1611,7 +1649,7 @@ class RaceControlsComponent(BaseComponent):
         self.speed_decrease_rect = None
         
         # Hover state
-        self.hover_button = None  # 'rewind/forward', 'play/pause', 'speed_increase', 'speed_decrease'
+        self.hover_button = None  # 'reset', 'rewind/forward', 'play/pause', 'speed_increase', 'speed_decrease'
         # Flash feedback state for keyboard shortcuts
         self._flash_button = None
         self._flash_timer = 0.0
@@ -1673,10 +1711,12 @@ class RaceControlsComponent(BaseComponent):
         is_paused = getattr(window, 'paused', False)
         
         # Button positions
+        reset_x = self.center_x - self.button_spacing * 2
         rewind_x = self.center_x - self.button_spacing
         play_x = self.center_x
         forward_x = self.center_x + self.button_spacing
     
+        self._draw_reset_icon(reset_x, self.center_y)
         self._draw_rewind_icon(rewind_x, self.center_y)
         
         if is_paused:
@@ -1752,6 +1792,53 @@ class RaceControlsComponent(BaseComponent):
                     angle=0,
                     alpha = 255
                 )
+    
+    def _draw_reset_icon(self, x: float, y: float):
+        """Draw reset/restart button - circular arrow icon."""
+        self.draw_hover_effect('reset', x, self.center_y)
+        
+        # Store rect for hit testing
+        self.reset_rect = (x - self.button_size//2, y - self.button_size//2,
+                          x + self.button_size//2, y + self.button_size//2)
+        
+        # Check if we have a reset texture, otherwise draw a custom icon
+        if 'reset' in self._control_textures:
+            texture = self._control_textures['reset']
+            rect = arcade.XYWH(x, y, self.button_size, self.button_size)
+            arcade.draw_texture_rect(rect=rect, texture=texture, angle=0, alpha=255)
+        else:
+            # Draw a circular arrow (restart) icon manually
+            radius = self.button_size // 3
+            
+            # Draw circle background
+            arcade.draw_circle_filled(x, y, self.button_size // 2 - 2, (60, 60, 60, 200))
+            
+            # Draw circular arrow arc
+            import math
+            points = []
+            for angle in range(45, 315, 10):
+                rad = math.radians(angle)
+                px = x + radius * math.cos(rad)
+                py = y + radius * math.sin(rad)
+                points.append((px, py))
+            
+            if len(points) > 1:
+                arcade.draw_line_strip(points, arcade.color.WHITE, 3)
+            
+            # Draw arrowhead at the end
+            arrow_angle = math.radians(315)
+            ax = x + radius * math.cos(arrow_angle)
+            ay = y + radius * math.sin(arrow_angle)
+            
+            # Arrow triangle pointing in direction of rotation
+            arrow_size = 8
+            arcade.draw_triangle_filled(
+                ax + arrow_size, ay,
+                ax - arrow_size//2, ay + arrow_size,
+                ax - arrow_size//2, ay - arrow_size,
+                arcade.color.WHITE
+            )
+    
     def _draw_speed_comp(self, x: float, y: float, speed: float):
         """Draw speed multiplier text."""
         if 'speed+' and 'speed-' in self._control_textures:
@@ -1810,7 +1897,9 @@ class RaceControlsComponent(BaseComponent):
 
     def on_mouse_motion(self, window, x: float, y: float, dx: float, dy: float):
         """Handle mouse hover effects."""
-        if self._point_in_rect(x, y, self.rewind_rect):
+        if self._point_in_rect(x, y, self.reset_rect):
+            self.hover_button = 'reset'
+        elif self._point_in_rect(x, y, self.rewind_rect):
             self.hover_button = 'rewind'
         elif self._point_in_rect(x, y, self.play_pause_rect):
             self.hover_button = 'play_pause'
@@ -1826,7 +1915,24 @@ class RaceControlsComponent(BaseComponent):
     
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         """Handle button clicks."""
-        if self._point_in_rect(x, y, self.rewind_rect):
+        if self._point_in_rect(x, y, self.reset_rect):
+            # Reset race to start
+            if hasattr(window, 'frame_index'):
+                window.frame_index = 0.0
+            if hasattr(window, 'playback_speed'):
+                window.playback_speed = 1.0
+            if hasattr(window, 'paused'):
+                window.paused = True  # Pause after reset
+            # Clear any cached data
+            if hasattr(window, 'degradation_integrator') and window.degradation_integrator:
+                window.degradation_integrator.clear_cache()
+            # Reset battle detector overtakes
+            if hasattr(window, 'battle_comp'):
+                window.battle_comp.overtakes = {}
+                window.battle_comp.last_positions = {}
+            self.flash_button('reset')
+            return True
+        elif self._point_in_rect(x, y, self.rewind_rect):
             # Update: Support hold-to-rewind
             if hasattr(window, 'is_rewinding'):
                 window.was_paused_before_hold = window.paused
@@ -2269,3 +2375,1216 @@ def draw_finish_line(self, session_type = 'R'):
                 
                 color = arcade.color.WHITE if i % 2 == 0 else arcade.color.BLACK
                 arcade.draw_line(x1, y1, x2, y2, color, 6)
+
+
+class DriverComparatorComponent(BaseComponent):
+    """
+    Side-by-side telemetry comparison panel for 2 selected drivers.
+    Shows speed, gear, DRS, throttle/brake in real-time.
+    """
+    def __init__(self, visible=False):
+        self._visible = visible
+        self.width = 400
+        self.height = 280
+        self.padding = 15
+        # Speed history for mini-graph (stores last N samples)
+        self.speed_history = {}  # code -> list of speeds
+        self.max_history = 60  # ~2.4 seconds at 25 FPS
+        self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        self._visible = not self._visible
+        return self._visible
+    
+    def on_resize(self, window):
+        pass
+    
+    def draw(self, window):
+        if not self._visible:
+            return
+        
+        # Require exactly 2 drivers selected
+        selected = getattr(window, "selected_drivers", [])
+        if len(selected) != 2:
+            # Draw message asking for 2 drivers
+            cx = window.width // 2
+            cy = window.height // 2
+            arcade.Text(
+                "Select exactly 2 drivers (Shift+Click)", 
+                cx, cy, arcade.color.YELLOW, 16, 
+                anchor_x="center", anchor_y="center"
+            ).draw()
+            return
+        
+        # Get current frame data
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        frame = window.frames[idx]
+        
+        driver1, driver2 = selected[0], selected[1]
+        pos1 = frame["drivers"].get(driver1, {})
+        pos2 = frame["drivers"].get(driver2, {})
+        
+        if not pos1 or not pos2:
+            return
+        
+        # Update speed history
+        for code, pos in [(driver1, pos1), (driver2, pos2)]:
+            if code not in self.speed_history:
+                self.speed_history[code] = []
+            self.speed_history[code].append(pos.get("speed", 0))
+            if len(self.speed_history[code]) > self.max_history:
+                self.speed_history[code].pop(0)
+        
+        # Panel position (bottom-left, above controls)
+        panel_x = 20
+        panel_y = 120
+        
+        # Draw panel background
+        rect = arcade.XYWH(
+            panel_x + self.width // 2, 
+            panel_y + self.height // 2, 
+            self.width, 
+            self.height
+        )
+        arcade.draw_rect_filled(rect, (30, 30, 30, 220))
+        arcade.draw_rect_outline(rect, arcade.color.WHITE, 2)
+        
+        # Title
+        arcade.Text(
+            "DRIVER COMPARATOR", 
+            panel_x + self.width // 2, 
+            panel_y + self.height - 15,
+            arcade.color.WHITE, 16, bold=True, 
+            anchor_x="center", anchor_y="center"
+        ).draw()
+        
+        # Close button
+        close_x = panel_x + self.width - 20
+        close_y = panel_y + self.height - 15
+        arcade.draw_circle_filled(close_x, close_y, 10, arcade.color.RED)
+        arcade.Text("×", close_x, close_y, arcade.color.WHITE, 14, bold=True, anchor_x="center", anchor_y="center").draw()
+        
+        # Divider
+        mid_x = panel_x + self.width // 2
+        arcade.draw_line(mid_x, panel_y + self.height - 35, mid_x, panel_y + 80, (100, 100, 100), 1)
+        
+        # Get driver colors
+        color1 = window.driver_colors.get(driver1, arcade.color.WHITE)
+        color2 = window.driver_colors.get(driver2, arcade.color.WHITE)
+        
+        # Driver headers
+        left_x = panel_x + self.width // 4
+        right_x = panel_x + 3 * self.width // 4
+        header_y = panel_y + self.height - 50
+        
+        arcade.Text(driver1, left_x, header_y, color1, 18, bold=True, anchor_x="center", anchor_y="center").draw()
+        arcade.Text(driver2, right_x, header_y, color2, 18, bold=True, anchor_x="center", anchor_y="center").draw()
+        
+        # Telemetry data rows
+        row_y = header_y - 30
+        row_height = 22
+        
+        # Speed
+        speed1 = pos1.get("speed", 0)
+        speed2 = pos2.get("speed", 0)
+        arcade.Text(f"{speed1:.0f} km/h", left_x, row_y, arcade.color.LIGHT_GRAY, 14, anchor_x="center").draw()
+        arcade.Text(f"{speed2:.0f} km/h", right_x, row_y, arcade.color.LIGHT_GRAY, 14, anchor_x="center").draw()
+        arcade.Text("SPEED", mid_x, row_y, arcade.color.GRAY, 10, anchor_x="center").draw()
+        
+        row_y -= row_height
+        
+        # Gear
+        gear1 = int(pos1.get("gear", 0))
+        gear2 = int(pos2.get("gear", 0))
+        arcade.Text(f"G{gear1}", left_x, row_y, arcade.color.LIGHT_GRAY, 14, anchor_x="center").draw()
+        arcade.Text(f"G{gear2}", right_x, row_y, arcade.color.LIGHT_GRAY, 14, anchor_x="center").draw()
+        arcade.Text("GEAR", mid_x, row_y, arcade.color.GRAY, 10, anchor_x="center").draw()
+        
+        row_y -= row_height
+        
+        # DRS
+        drs1 = pos1.get("drs", 0)
+        drs2 = pos2.get("drs", 0)
+        drs1_on = drs1 >= 10 if drs1 else False
+        drs2_on = drs2 >= 10 if drs2 else False
+        drs1_color = arcade.color.GREEN if drs1_on else arcade.color.GRAY
+        drs2_color = arcade.color.GREEN if drs2_on else arcade.color.GRAY
+        arcade.Text("DRS ON" if drs1_on else "DRS OFF", left_x, row_y, drs1_color, 12, anchor_x="center").draw()
+        arcade.Text("DRS ON" if drs2_on else "DRS OFF", right_x, row_y, drs2_color, 12, anchor_x="center").draw()
+        
+        row_y -= row_height + 5
+        
+        # Throttle bars
+        throttle1 = pos1.get("throttle", 0) / 100.0
+        throttle2 = pos2.get("throttle", 0) / 100.0
+        bar_width = 80
+        bar_height = 12
+        
+        arcade.Text("THR", mid_x, row_y, arcade.color.GRAY, 10, anchor_x="center").draw()
+        
+        # Left throttle bar (using XYWH for clarity)
+        bar1_x = left_x - bar_width // 2
+        bar1_rect_bg = arcade.XYWH(bar1_x + bar_width // 2, row_y, bar_width, bar_height)
+        arcade.draw_rect_filled(bar1_rect_bg, (60, 60, 60))
+        if throttle1 > 0:
+            bar1_rect_fg = arcade.XYWH(bar1_x + (bar_width * throttle1) // 2, row_y, bar_width * throttle1, bar_height)
+            arcade.draw_rect_filled(bar1_rect_fg, arcade.color.GREEN)
+        
+        # Right throttle bar
+        bar2_x = right_x - bar_width // 2
+        bar2_rect_bg = arcade.XYWH(bar2_x + bar_width // 2, row_y, bar_width, bar_height)
+        arcade.draw_rect_filled(bar2_rect_bg, (60, 60, 60))
+        if throttle2 > 0:
+            bar2_rect_fg = arcade.XYWH(bar2_x + (bar_width * throttle2) // 2, row_y, bar_width * throttle2, bar_height)
+            arcade.draw_rect_filled(bar2_rect_fg, arcade.color.GREEN)
+        
+        row_y -= row_height
+        
+        # Brake bars
+        brake1 = pos1.get("brake", 0) / 100.0
+        brake2 = pos2.get("brake", 0) / 100.0
+        
+        arcade.Text("BRK", mid_x, row_y, arcade.color.GRAY, 10, anchor_x="center").draw()
+        
+        # Left brake bar
+        bar1_rect_bg = arcade.XYWH(bar1_x + bar_width // 2, row_y, bar_width, bar_height)
+        arcade.draw_rect_filled(bar1_rect_bg, (60, 60, 60))
+        if brake1 > 0:
+            bar1_rect_fg = arcade.XYWH(bar1_x + (bar_width * brake1) // 2, row_y, bar_width * brake1, bar_height)
+            arcade.draw_rect_filled(bar1_rect_fg, arcade.color.RED)
+        
+        # Right brake bar
+        bar2_rect_bg = arcade.XYWH(bar2_x + bar_width // 2, row_y, bar_width, bar_height)
+        arcade.draw_rect_filled(bar2_rect_bg, (60, 60, 60))
+        if brake2 > 0:
+            bar2_rect_fg = arcade.XYWH(bar2_x + (bar_width * brake2) // 2, row_y, bar_width * brake2, bar_height)
+            arcade.draw_rect_filled(bar2_rect_fg, arcade.color.RED)
+        
+        row_y -= row_height + 10
+        
+        # Speed comparison mini-graph
+        graph_width = self.width - 40
+        graph_height = 50
+        graph_x = panel_x + 20
+        graph_y = row_y - graph_height
+        
+        # Graph background
+        graph_rect = arcade.XYWH(graph_x + graph_width // 2, graph_y + graph_height // 2, graph_width, graph_height)
+        arcade.draw_rect_filled(graph_rect, (20, 20, 20))
+        arcade.draw_rect_outline(graph_rect, (80, 80, 80), 1)
+        
+        # Draw speed lines
+        for code, color in [(driver1, color1), (driver2, color2)]:
+            history = self.speed_history.get(code, [])
+            if len(history) > 1:
+                max_speed = max(max(history), 350)
+                min_speed = min(min(history), 0)
+                points = []
+                for i, speed in enumerate(history):
+                    px = graph_x + (i / (self.max_history - 1)) * graph_width
+                    py = graph_y + ((speed - min_speed) / max(max_speed - min_speed, 1)) * graph_height
+                    points.append((px, py))
+                if len(points) > 1:
+                    arcade.draw_line_strip(points, color, 2)
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        if not self._visible:
+            return False
+        
+        # Check close button (match draw position)
+        panel_x = 20
+        panel_y = 120
+        close_x = panel_x + self.width - 20
+        close_y = panel_y + self.height - 15
+        
+        if (close_x - 10) <= x <= (close_x + 10) and (close_y - 10) <= y <= (close_y + 10):
+            self._visible = False
+            return True
+        
+        # Consume clicks inside panel
+        if panel_x <= x <= panel_x + self.width and panel_y <= y <= panel_y + self.height:
+            return True
+        
+        return False
+
+
+class DeltaDisplayComponent(BaseComponent):
+    """
+    Displays real-time time delta between 2 selected drivers
+    with a mini history graph.
+    """
+    def __init__(self, visible=False):
+        self._visible = visible
+        self.width = 220
+        self.height = 100
+        self.delta_history = []  # List of (frame_index, delta_seconds)
+        self.max_history = 150  # ~6 seconds at 25 FPS (30 seconds of race time at 5x speed)
+        self.last_frame = -1
+        self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        self._visible = not self._visible
+        return self._visible
+    
+    def on_resize(self, window):
+        pass
+    
+    def _calculate_delta(self, window, driver1, driver2):
+        """Calculate time delta between two drivers in seconds."""
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        frame = window.frames[idx]
+        
+        pos1 = frame["drivers"].get(driver1, {})
+        pos2 = frame["drivers"].get(driver2, {})
+        
+        if not pos1 or not pos2:
+            return None
+        
+        # Get progress from window's projection (more accurate)
+        if hasattr(window, '_project_to_reference') and hasattr(window, '_ref_total_length'):
+            lap1 = pos1.get("lap", 1)
+            lap2 = pos2.get("lap", 1)
+            
+            proj1 = window._project_to_reference(pos1.get("x", 0), pos1.get("y", 0))
+            proj2 = window._project_to_reference(pos2.get("x", 0), pos2.get("y", 0))
+            
+            progress1 = (max(lap1, 1) - 1) * window._ref_total_length + proj1
+            progress2 = (max(lap2, 1) - 1) * window._ref_total_length + proj2
+            
+            delta_distance = progress1 - progress2
+        else:
+            # Fallback to dist field
+            delta_distance = pos1.get("dist", 0) - pos2.get("dist", 0)
+        
+        # Convert to time using reference speed (200 km/h = 55.56 m/s)
+        REFERENCE_SPEED_MS = 55.56
+        delta_time = delta_distance / REFERENCE_SPEED_MS / 10.0  # Divide by 10 for proper scaling
+        
+        return delta_time
+    
+    def draw(self, window):
+        if not self._visible:
+            return
+        
+        # Require exactly 2 drivers selected
+        selected = getattr(window, "selected_drivers", [])
+        if len(selected) != 2:
+            # Draw minimal message
+            panel_x = 20
+            panel_y = window.height - 450
+            arcade.Text(
+                "Delta: Select 2 drivers", 
+                panel_x, panel_y, 
+                arcade.color.YELLOW, 12
+            ).draw()
+            return
+        
+        driver1, driver2 = selected[0], selected[1]
+        delta = self._calculate_delta(window, driver1, driver2)
+        
+        if delta is None:
+            return
+        
+        # Update history
+        current_frame = int(window.frame_index)
+        if current_frame != self.last_frame:
+            self.delta_history.append((current_frame, delta))
+            if len(self.delta_history) > self.max_history:
+                self.delta_history.pop(0)
+            self.last_frame = current_frame
+        
+        # Panel position (bottom-left, below comparator if visible)
+        panel_x = 20
+        panel_y = 20
+        
+        # Draw panel background
+        rect = arcade.XYWH(
+            panel_x + self.width // 2,
+            panel_y + self.height // 2,
+            self.width,
+            self.height
+        )
+        arcade.draw_rect_filled(rect, (30, 30, 30, 220))
+        arcade.draw_rect_outline(rect, arcade.color.WHITE, 1)
+        
+        # Get driver colors
+        color1 = window.driver_colors.get(driver1, arcade.color.WHITE)
+        color2 = window.driver_colors.get(driver2, arcade.color.WHITE)
+        
+        # Title with driver codes
+        arcade.Text(
+            f"DELTA: {driver1} → {driver2}",
+            panel_x + self.width // 2, panel_y + self.height - 12,
+            arcade.color.WHITE, 12, bold=True, anchor_x="center"
+        ).draw()
+        
+        # Main delta display
+        delta_y = panel_y + self.height - 45
+        
+        # Determine color based on who's ahead
+        if delta > 0:
+            delta_color = color1  # Driver 1 is ahead
+            sign = "+"
+        else:
+            delta_color = color2  # Driver 2 is ahead
+            sign = ""
+        
+        # Draw delta value
+        arcade.Text(
+            f"{sign}{delta:.3f}s",
+            panel_x + self.width // 2 - 20, delta_y,
+            delta_color, 24, bold=True, anchor_x="center", anchor_y="center"
+        ).draw()
+        
+        # Trend arrow
+        if len(self.delta_history) >= 10:
+            recent_deltas = [d for _, d in self.delta_history[-10:]]
+            avg_recent = sum(recent_deltas) / len(recent_deltas)
+            older_deltas = [d for _, d in self.delta_history[-20:-10]] if len(self.delta_history) >= 20 else recent_deltas
+            avg_older = sum(older_deltas) / len(older_deltas)
+            
+            trend = avg_recent - avg_older
+            if trend > 0.01:
+                arrow = "↗"
+                arrow_color = color1
+            elif trend < -0.01:
+                arrow = "↘"
+                arrow_color = color2
+            else:
+                arrow = "→"
+                arrow_color = arcade.color.GRAY
+            
+            arcade.Text(
+                arrow,
+                panel_x + self.width // 2 + 45, delta_y,
+                arrow_color, 20, bold=True, anchor_x="center", anchor_y="center"
+            ).draw()
+        
+        # Mini history graph
+        graph_x = panel_x + 10
+        graph_y = panel_y + 10
+        graph_width = self.width - 20
+        graph_height = 30
+        
+        # Graph background
+        graph_rect = arcade.XYWH(graph_x + graph_width // 2, graph_y + graph_height // 2, graph_width, graph_height)
+        arcade.draw_rect_filled(graph_rect, (20, 20, 20))
+        
+        # Zero line
+        mid_y = graph_y + graph_height // 2
+        arcade.draw_line(graph_x, mid_y, graph_x + graph_width, mid_y, (80, 80, 80), 1)
+        
+        # Draw delta history line
+        if len(self.delta_history) > 1:
+            deltas = [d for _, d in self.delta_history]
+            max_delta = max(abs(min(deltas)), abs(max(deltas)), 0.5)
+            
+            points = []
+            for i, (_, d) in enumerate(self.delta_history):
+                px = graph_x + (i / (self.max_history - 1)) * graph_width
+                py = mid_y + (d / max_delta) * (graph_height // 2 - 2)
+                py = max(graph_y + 2, min(graph_y + graph_height - 2, py))
+                points.append((px, py))
+            
+            if len(points) > 1:
+                arcade.draw_line_strip(points, arcade.color.CYAN, 2)
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        if not self._visible:
+            return False
+        
+        panel_x = 20
+        panel_y = 20
+        
+        if panel_x <= x <= panel_x + self.width and panel_y <= y <= panel_y + self.height:
+            return True
+        
+        return False
+
+
+class PerformanceRadarComponent(BaseComponent):
+    """
+    Radar chart comparing driver performance metrics:
+    - Top Speed
+    - Consistency  
+    - Tyre Management
+    - Corner Speed
+    - Acceleration
+    """
+    def __init__(self, visible=False):
+        self._visible = visible
+        self.size = 200  # Radar diameter
+        self.metrics = ["Top Speed", "Consistency", "Tyre Mgmt", "Corner Spd", "Accel"]
+        self.num_axes = len(self.metrics)
+        # Cache for computed metrics per driver
+        self.driver_metrics = {}
+        self.last_update_frame = -1
+        self.update_interval = 25  # Update every second
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        self._visible = not self._visible
+        return self._visible
+    
+    def on_resize(self, window):
+        pass
+    
+    def _compute_metrics(self, window, driver_code):
+        """Compute performance metrics for a driver based on recent frames."""
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        
+        # Collect data from recent frames (last ~10 seconds = 250 frames)
+        start_idx = max(0, idx - 250)
+        
+        speeds = []
+        throttle_samples = []
+        brake_samples = []
+        tyre_lives = []
+        
+        for i in range(start_idx, idx + 1):
+            frame = window.frames[i]
+            pos = frame["drivers"].get(driver_code, {})
+            if pos:
+                speeds.append(pos.get("speed", 0))
+                throttle_samples.append(pos.get("throttle", 0))
+                brake_samples.append(pos.get("brake", 0))
+                tyre_lives.append(pos.get("tyre_life", 0))
+        
+        if not speeds:
+            return [0.5] * self.num_axes
+        
+        # Calculate metrics (normalized 0-1)
+        
+        # 1. Top Speed (normalized to 350 km/h max)
+        top_speed = max(speeds) / 350.0
+        top_speed = min(1.0, top_speed)
+        
+        # 2. Consistency (inverse of speed variance)
+        if len(speeds) > 1:
+            speed_std = np.std(speeds)
+            mean_speed = np.mean(speeds)
+            if mean_speed > 0:
+                consistency = 1.0 - min(speed_std / mean_speed, 1.0)
+            else:
+                consistency = 0.5
+        else:
+            consistency = 0.5
+        
+        # 3. Tyre Management (higher tyre life = better management)
+        if tyre_lives:
+            # Assume max tyre life of 40 laps
+            avg_tyre_life = np.mean(tyre_lives)
+            tyre_mgmt = 1.0 - min(avg_tyre_life / 40.0, 1.0)
+        else:
+            tyre_mgmt = 0.5
+        
+        # 4. Corner Speed (average speed when throttle < 80%)
+        corner_speeds = [s for s, t in zip(speeds, throttle_samples) if t < 80]
+        if corner_speeds:
+            avg_corner_speed = np.mean(corner_speeds)
+            corner_metric = avg_corner_speed / 250.0  # Normalize to 250 km/h
+            corner_metric = min(1.0, corner_metric)
+        else:
+            corner_metric = 0.5
+        
+        # 5. Acceleration (average throttle when not braking)
+        accel_samples = [t for t, b in zip(throttle_samples, brake_samples) if b < 10]
+        if accel_samples:
+            avg_throttle = np.mean(accel_samples)
+            accel_metric = avg_throttle / 100.0
+        else:
+            accel_metric = 0.5
+        
+        return [top_speed, consistency, tyre_mgmt, corner_metric, accel_metric]
+    
+    def draw(self, window):
+        if not self._visible:
+            return
+        
+        selected = getattr(window, "selected_drivers", [])
+        if not selected:
+            # Show message
+            cx = window.width - 150
+            cy = window.height // 2
+            arcade.Text(
+                "Select drivers for radar",
+                cx, cy, arcade.color.YELLOW, 12, anchor_x="center"
+            ).draw()
+            return
+        
+        # Update metrics cache periodically
+        current_frame = int(window.frame_index)
+        if current_frame - self.last_update_frame >= self.update_interval:
+            for code in selected[:4]:  # Max 4 drivers
+                self.driver_metrics[code] = self._compute_metrics(window, code)
+            self.last_update_frame = current_frame
+        
+        # Radar center position (bottom-right corner)
+        cx = window.width - 150
+        cy = 180
+        radius = self.size // 2
+        
+        # Draw background circle and grid
+        for r in [0.25, 0.5, 0.75, 1.0]:
+            arcade.draw_circle_outline(cx, cy, radius * r, (60, 60, 60), 1)
+        
+        # Draw axes and labels
+        for i, metric in enumerate(self.metrics):
+            angle = (2 * np.pi * i / self.num_axes) - np.pi / 2
+            end_x = cx + radius * np.cos(angle)
+            end_y = cy + radius * np.sin(angle)
+            
+            arcade.draw_line(cx, cy, end_x, end_y, (80, 80, 80), 1)
+            
+            # Label
+            label_x = cx + (radius + 20) * np.cos(angle)
+            label_y = cy + (radius + 20) * np.sin(angle)
+            arcade.Text(
+                metric, label_x, label_y, arcade.color.LIGHT_GRAY, 10,
+                anchor_x="center", anchor_y="center"
+            ).draw()
+        
+        # Draw radar polygons for each selected driver
+        for code in selected[:4]:
+            metrics = self.driver_metrics.get(code, [0.5] * self.num_axes)
+            color = window.driver_colors.get(code, arcade.color.WHITE)
+            
+            points = []
+            for i, value in enumerate(metrics):
+                angle = (2 * np.pi * i / self.num_axes) - np.pi / 2
+                r = radius * value
+                px = cx + r * np.cos(angle)
+                py = cy + r * np.sin(angle)
+                points.append((px, py))
+            
+            # Close the polygon
+            if points:
+                points.append(points[0])
+                
+                # Draw filled polygon with transparency
+                if len(points) >= 3:
+                    fill_color = (*color[:3], 60)
+                    arcade.draw_polygon_filled(points[:-1], fill_color)
+                
+                # Draw outline
+                arcade.draw_line_strip(points, color, 2)
+                
+                # Draw points at vertices
+                for px, py in points[:-1]:
+                    arcade.draw_circle_filled(px, py, 4, color)
+        
+        # Legend
+        legend_y = cy - radius - 30
+        for i, code in enumerate(selected[:4]):
+            color = window.driver_colors.get(code, arcade.color.WHITE)
+            legend_x = cx - 50 + i * 40
+            arcade.draw_circle_filled(legend_x, legend_y, 6, color)
+            arcade.Text(code, legend_x, legend_y - 15, color, 10, anchor_x="center").draw()
+        
+        # Title
+        arcade.Text(
+            "PERFORMANCE RADAR",
+            cx, cy + radius + 30,
+            arcade.color.WHITE, 14, bold=True, anchor_x="center"
+        ).draw()
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        if not self._visible:
+            return False
+        
+        cx = window.width - 150
+        cy = 180
+        radius = self.size // 2 + 40
+        
+        # Check if click is within radar area
+        dist = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+        if dist <= radius:
+            return True
+        
+        return False
+
+
+class SectorColoringComponent(BaseComponent):
+    """
+    Colors track sectors based on driver performance.
+    Purple = Personal best, Green = Session best, Yellow = Slower
+    """
+    def __init__(self, visible=True):
+        self._visible = visible
+        self.sector_boundaries = [0.0, 0.33, 0.66, 1.0]  # Relative distance
+        self.sector_colors = {}  # driver -> [s1_color, s2_color, s3_color]
+        self.session_best_sectors = [None, None, None]  # Best times per sector
+        self.personal_best = {}  # driver -> {lap -> [s1, s2, s3]}
+        
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        self._visible = not self._visible
+        return self._visible
+    
+    def on_resize(self, window):
+        pass
+    
+    def get_sector_for_position(self, rel_dist: float) -> int:
+        """Return sector index (0, 1, 2) for a relative distance"""
+        if rel_dist < 0.33:
+            return 0
+        elif rel_dist < 0.66:
+            return 1
+        else:
+            return 2
+    
+    def get_sector_color(self, sector_idx: int, is_fastest: bool = False, is_personal_best: bool = False):
+        """Return color for sector based on performance"""
+        if is_fastest:
+            return (128, 0, 255)  # Purple - session best
+        elif is_personal_best:
+            return (0, 200, 0)  # Green - personal best
+        else:
+            return (200, 200, 0)  # Yellow - slower
+    
+    def draw(self, window):
+        """Draw sector indicator legend"""
+        if not self._visible:
+            return
+        
+        # Draw small legend in corner
+        legend_x = window.width - 180
+        legend_y = window.height - 80
+        
+        arcade.Text("SECTORS", legend_x, legend_y, arcade.color.WHITE, 11, bold=True).draw()
+        
+        colors = [
+            ((128, 0, 255), "Session Best"),
+            ((0, 200, 0), "Personal Best"),
+            ((200, 200, 0), "Slower"),
+        ]
+        
+        for i, (color, label) in enumerate(colors):
+            y = legend_y - 18 - i * 16
+            arcade.draw_circle_filled(legend_x + 8, y, 5, color)
+            arcade.Text(label, legend_x + 20, y, arcade.color.LIGHT_GRAY, 10, anchor_y="center").draw()
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        return False
+
+
+class BattleDetectorComponent(BaseComponent):
+    """
+    Detects and displays battles between drivers within DRS range (<1s).
+    Shows alerts and tracks overtakes.
+    """
+    def __init__(self, visible=True):
+        self._visible = visible
+        self.active_battles = []  # [(driver1, driver2, gap)]
+        self.overtakes = {}  # driver -> overtake count
+        self.last_positions = {}  # driver -> last known position
+        self.alert_timer = 0
+        self.DRS_THRESHOLD = 1.0  # seconds
+        self.width = 200
+        self.height = 120
+        self.last_frame = -1
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        self._visible = not self._visible
+        return self._visible
+    
+    def on_resize(self, window):
+        pass
+    
+    def detect_battles(self, frame):
+        """Detect active battles from frame data"""
+        drivers_data = frame.get("drivers", {})
+        if not drivers_data:
+            return []
+        
+        # Sort drivers by position
+        sorted_drivers = sorted(
+            drivers_data.items(),
+            key=lambda x: x[1].get("position", 99)
+        )
+        
+        battles = []
+        for i in range(1, len(sorted_drivers)):
+            ahead_code = sorted_drivers[i-1][0]
+            behind_code = sorted_drivers[i][0]
+            
+            ahead_data = sorted_drivers[i-1][1]
+            behind_data = sorted_drivers[i][1]
+            
+            # Calculate gap (using distance difference and speed)
+            dist_diff = ahead_data.get("dist", 0) - behind_data.get("dist", 0)
+            avg_speed = (ahead_data.get("speed", 200) + behind_data.get("speed", 200)) / 2
+            avg_speed_ms = avg_speed * 1000 / 3600  # km/h to m/s
+            
+            if avg_speed_ms > 0:
+                gap_seconds = abs(dist_diff) / avg_speed_ms
+                
+                if gap_seconds < self.DRS_THRESHOLD:
+                    battles.append((ahead_code, behind_code, gap_seconds))
+        
+        return battles
+    
+    def detect_overtakes(self, current_positions):
+        """Detect position changes (overtakes)"""
+        for code, pos in current_positions.items():
+            if code in self.last_positions:
+                old_pos = self.last_positions[code]
+                if pos < old_pos:  # Gained position(s)
+                    gained = old_pos - pos
+                    self.overtakes[code] = self.overtakes.get(code, 0) + gained
+        
+        self.last_positions = current_positions.copy()
+    
+    def draw(self, window):
+        if not self._visible:
+            return
+        
+        # Get current frame
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        frame = window.frames[idx]
+        
+        # Update battles periodically (every 5 frames)
+        if idx != self.last_frame and idx % 5 == 0:
+            self.active_battles = self.detect_battles(frame)
+            
+            # Detect overtakes
+            current_positions = {}
+            for code, data in frame.get("drivers", {}).items():
+                current_positions[code] = data.get("position", 99)
+            self.detect_overtakes(current_positions)
+            
+            self.last_frame = idx
+            if self.active_battles:
+                self.alert_timer = 60  # Show alert for ~2.5 seconds
+        
+        if self.alert_timer > 0:
+            self.alert_timer -= 1
+        
+        # Panel position (top-right corner)
+        panel_x = window.width - self.width - 20
+        panel_y = window.height - self.height - 150
+        
+        # Draw panel background
+        rect = arcade.XYWH(
+            panel_x + self.width // 2,
+            panel_y + self.height // 2,
+            self.width,
+            self.height
+        )
+        arcade.draw_rect_filled(rect, (30, 30, 30, 200))
+        arcade.draw_rect_outline(rect, arcade.color.WHITE, 1)
+        
+        # Title with flash effect if battles active
+        title_color = arcade.color.ORANGE if self.active_battles and self.alert_timer % 20 < 10 else arcade.color.WHITE
+        arcade.Text(
+            "⚔️ BATTLES", panel_x + self.width // 2, panel_y + self.height - 15,
+            title_color, 12, bold=True, anchor_x="center"
+        ).draw()
+        
+        # Show active battles
+        y = panel_y + self.height - 40
+        if self.active_battles:
+            for i, (ahead, behind, gap) in enumerate(self.active_battles[:3]):
+                ahead_color = window.driver_colors.get(ahead, arcade.color.WHITE)
+                behind_color = window.driver_colors.get(behind, arcade.color.WHITE)
+                
+                arcade.Text(ahead, panel_x + 20, y, ahead_color, 11, bold=True).draw()
+                arcade.Text(f"←{gap:.2f}s→", panel_x + self.width // 2, y, arcade.color.YELLOW, 10, anchor_x="center").draw()
+                arcade.Text(behind, panel_x + self.width - 20, y, behind_color, 11, bold=True, anchor_x="right").draw()
+                y -= 20
+        else:
+            arcade.Text("No battles", panel_x + self.width // 2, y, arcade.color.GRAY, 11, anchor_x="center").draw()
+        
+        # Overtake counter
+        y = panel_y + 15
+        arcade.Text("Overtakes:", panel_x + 10, y, arcade.color.GRAY, 10).draw()
+        
+        # Show top 3 overtaking drivers
+        if self.overtakes:
+            top_overtakers = sorted(self.overtakes.items(), key=lambda x: x[1], reverse=True)[:3]
+            x_offset = panel_x + 80
+            for code, count in top_overtakers:
+                color = window.driver_colors.get(code, arcade.color.WHITE)
+                arcade.Text(f"{code}:{count}", x_offset, y, color, 9).draw()
+                x_offset += 45
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        if not self._visible:
+            return False
+        
+        panel_x = window.width - self.width - 20
+        panel_y = window.height - self.height - 150
+        
+        if panel_x <= x <= panel_x + self.width and panel_y <= y <= panel_y + self.height:
+            return True
+        
+        return False
+
+
+class LapTimeChartComponent(BaseComponent):
+    """
+    Displays lap time evolution chart for selected drivers.
+    """
+    def __init__(self, visible=False):
+        self._visible = visible
+        self.width = 450
+        self.height = 220
+        self.lap_times = {}  # driver -> {lap: time_seconds}
+        self.last_lap_detected = {}  # driver -> last lap number
+        self.last_frame = -1
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        self._visible = not self._visible
+        return self._visible
+    
+    def on_resize(self, window):
+        pass
+    
+    def extract_lap_times(self, window):
+        """Extract lap times by detecting lap changes"""
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        
+        # Sample every 25 frames
+        for i in range(0, idx, 25):
+            frame = window.frames[i]
+            for code, data in frame.get("drivers", {}).items():
+                current_lap = data.get("lap", 1)
+                
+                if code not in self.lap_times:
+                    self.lap_times[code] = {}
+                    self.last_lap_detected[code] = 0
+                
+                # Detect lap completion
+                if current_lap > self.last_lap_detected.get(code, 0):
+                    # Estimate lap time from frame timing
+                    # This is approximate - use 90 seconds as baseline
+                    self.lap_times[code][current_lap - 1] = 85 + np.random.uniform(-5, 10)
+                    self.last_lap_detected[code] = current_lap
+    
+    def draw(self, window):
+        if not self._visible:
+            return
+        
+        selected = getattr(window, "selected_drivers", [])
+        
+        # Panel position (top-right)
+        panel_x = window.width - self.width - 20
+        panel_y = window.height - self.height - 60
+        
+        # Draw panel background
+        rect = arcade.XYWH(
+            panel_x + self.width // 2,
+            panel_y + self.height // 2,
+            self.width,
+            self.height
+        )
+        arcade.draw_rect_filled(rect, (20, 20, 20, 230))
+        arcade.draw_rect_outline(rect, arcade.color.WHITE, 1)
+        
+        # Title
+        arcade.Text(
+            "LAP TIME CHART", panel_x + self.width // 2, panel_y + self.height - 12,
+            arcade.color.WHITE, 12, bold=True, anchor_x="center"
+        ).draw()
+        
+        if not selected:
+            arcade.Text(
+                "Select drivers to view", panel_x + self.width // 2, panel_y + self.height // 2,
+                arcade.color.GRAY, 11, anchor_x="center"
+            ).draw()
+            return
+        
+        # Update lap times periodically
+        current_frame = int(window.frame_index)
+        if current_frame - self.last_frame > 50:
+            self.extract_lap_times(window)
+            self.last_frame = current_frame
+        
+        # Chart area
+        chart_x = panel_x + 50
+        chart_y = panel_y + 30
+        chart_width = self.width - 70
+        chart_height = self.height - 60
+        
+        # Collect all lap times for scaling
+        all_times = []
+        max_lap = 1
+        for code in selected[:4]:
+            if code in self.lap_times:
+                for lap, time in self.lap_times[code].items():
+                    all_times.append(time)
+                    max_lap = max(max_lap, lap)
+        
+        if not all_times:
+            arcade.Text(
+                "Waiting for lap data...", panel_x + self.width // 2, panel_y + self.height // 2,
+                arcade.color.GRAY, 11, anchor_x="center"
+            ).draw()
+            return
+        
+        min_time = min(all_times) - 2
+        max_time = max(all_times) + 2
+        time_range = max(max_time - min_time, 5)
+        
+        # Draw axes
+        arcade.draw_line(chart_x, chart_y, chart_x, chart_y + chart_height, arcade.color.GRAY, 1)
+        arcade.draw_line(chart_x, chart_y, chart_x + chart_width, chart_y, arcade.color.GRAY, 1)
+        
+        # Y-axis labels (time)
+        for i in range(5):
+            time_val = min_time + i * (time_range / 4)
+            y = chart_y + i * (chart_height / 4)
+            mins = int(time_val // 60)
+            secs = time_val % 60
+            arcade.Text(f"{mins}:{secs:04.1f}", chart_x - 5, y, arcade.color.GRAY, 8, anchor_x="right", anchor_y="center").draw()
+        
+        # X-axis labels (lap)
+        for lap in range(0, max_lap + 1, max(1, max_lap // 5)):
+            x = chart_x + (lap / max(max_lap, 1)) * chart_width
+            arcade.Text(str(lap), x, chart_y - 10, arcade.color.GRAY, 8, anchor_x="center").draw()
+        
+        # Draw lines for each driver
+        for code in selected[:4]:
+            if code not in self.lap_times or not self.lap_times[code]:
+                continue
+            
+            color = window.driver_colors.get(code, arcade.color.WHITE)
+            points = []
+            
+            for lap, time in sorted(self.lap_times[code].items()):
+                x = chart_x + (lap / max(max_lap, 1)) * chart_width
+                y = chart_y + ((time - min_time) / time_range) * chart_height
+                y = max(chart_y, min(chart_y + chart_height, y))
+                points.append((x, y))
+            
+            if len(points) > 1:
+                arcade.draw_line_strip(points, color, 2)
+            
+            # Legend entry
+            idx = selected.index(code)
+            legend_x = chart_x + idx * 50
+            legend_y = panel_y + self.height - 30
+            arcade.draw_circle_filled(legend_x, legend_y, 4, color)
+            arcade.Text(code, legend_x + 8, legend_y, color, 9, anchor_y="center").draw()
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        if not self._visible:
+            return False
+        
+        panel_x = window.width - self.width - 20
+        panel_y = window.height - self.height - 60
+        
+        if panel_x <= x <= panel_x + self.width and panel_y <= y <= panel_y + self.height:
+            return True
+        
+        return False
+
+
+class IncidentsTimelineComponent(BaseComponent):
+    """
+    Interactive timeline showing race incidents (SC, VSC, Red flags, DNFs).
+    Click to jump to event.
+    """
+    def __init__(self, visible=False):
+        self._visible = visible
+        self.width = 600
+        self.height = 80
+        self.events = []
+        self.n_frames = 0
+        self.total_laps = 0
+        self.hovered_event = None
+    
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+    
+    def toggle_visibility(self) -> bool:
+        self._visible = not self._visible
+        return self._visible
+    
+    def on_resize(self, window):
+        pass
+    
+    def set_events(self, events, n_frames, total_laps):
+        """Set events from race data"""
+        self.events = events
+        self.n_frames = n_frames
+        self.total_laps = total_laps
+    
+    def get_event_color(self, event_type):
+        """Return color for event type"""
+        if "SAFETY" in event_type or event_type == "safety_car":
+            return arcade.color.ORANGE
+        elif "VSC" in event_type or event_type == "vsc":
+            return arcade.color.YELLOW
+        elif "RED" in event_type or event_type == "red_flag":
+            return arcade.color.RED
+        elif "DNF" in event_type or event_type == "dnf":
+            return arcade.color.GRAY
+        elif "YELLOW" in event_type or event_type == "yellow_flag":
+            return arcade.color.YELLOW
+        else:
+            return arcade.color.WHITE
+    
+    def draw(self, window):
+        if not self._visible:
+            return
+        
+        # Panel position (bottom center)
+        panel_x = (window.width - self.width) // 2
+        panel_y = 20
+        
+        # Draw panel background
+        rect = arcade.XYWH(
+            panel_x + self.width // 2,
+            panel_y + self.height // 2,
+            self.width,
+            self.height
+        )
+        arcade.draw_rect_filled(rect, (20, 20, 20, 230))
+        arcade.draw_rect_outline(rect, arcade.color.WHITE, 1)
+        
+        # Title
+        arcade.Text(
+            "RACE INCIDENTS", panel_x + self.width // 2, panel_y + self.height - 12,
+            arcade.color.WHITE, 11, bold=True, anchor_x="center"
+        ).draw()
+        
+        # Timeline bar
+        timeline_x = panel_x + 30
+        timeline_y = panel_y + 35
+        timeline_width = self.width - 60
+        timeline_height = 20
+        
+        # Draw timeline background
+        timeline_rect = arcade.XYWH(timeline_x + timeline_width // 2, timeline_y, timeline_width, timeline_height)
+        arcade.draw_rect_filled(timeline_rect, (50, 50, 50))
+        arcade.draw_rect_outline(timeline_rect, arcade.color.GRAY, 1)
+        
+        # Current position marker
+        if self.n_frames > 0:
+            progress = window.frame_index / self.n_frames
+            marker_x = timeline_x + progress * timeline_width
+            arcade.draw_line(marker_x, timeline_y - 12, marker_x, timeline_y + 12, arcade.color.WHITE, 2)
+        
+        # Draw events on timeline
+        n_frames = self.n_frames if self.n_frames > 0 else 1
+        
+        for event in self.events:
+            event_type = event.get("type", "")
+            frame = event.get("frame", 0)
+            end_frame = event.get("end_frame", frame + 100)
+            
+            # Calculate position on timeline
+            start_x = timeline_x + (frame / n_frames) * timeline_width
+            end_x = timeline_x + (min(end_frame, n_frames) / n_frames) * timeline_width
+            
+            color = self.get_event_color(event_type)
+            
+            # Draw event bar
+            if end_x > start_x + 2:
+                event_rect = arcade.XYWH((start_x + end_x) / 2, timeline_y, end_x - start_x, timeline_height - 4)
+                arcade.draw_rect_filled(event_rect, (*color[:3], 180))
+            else:
+                # Draw marker for instant events
+                arcade.draw_circle_filled(start_x, timeline_y, 5, color)
+        
+        # Lap markers
+        if self.total_laps > 0 and self.n_frames > 0:
+            for lap in range(0, self.total_laps + 1, max(1, self.total_laps // 10)):
+                lap_x = timeline_x + (lap / self.total_laps) * timeline_width
+                arcade.Text(str(lap), lap_x, panel_y + 12, arcade.color.GRAY, 8, anchor_x="center").draw()
+        
+        # Legend
+        legend_y = panel_y + self.height - 30
+        legend_items = [
+            (arcade.color.ORANGE, "SC"),
+            (arcade.color.YELLOW, "VSC"),
+            (arcade.color.RED, "RED"),
+            (arcade.color.GRAY, "DNF"),
+        ]
+        legend_x = panel_x + 30
+        for color, label in legend_items:
+            arcade.draw_circle_filled(legend_x, legend_y, 4, color)
+            arcade.Text(label, legend_x + 8, legend_y, arcade.color.LIGHT_GRAY, 8, anchor_y="center").draw()
+            legend_x += 45
+        
+        # Instruction
+        arcade.Text(
+            "Click to jump to event", panel_x + self.width - 30, legend_y,
+            arcade.color.DARK_GRAY, 8, anchor_x="right", anchor_y="center"
+        ).draw()
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        if not self._visible:
+            return False
+        
+        panel_x = (window.width - self.width) // 2
+        panel_y = 20
+        
+        if not (panel_x <= x <= panel_x + self.width and panel_y <= y <= panel_y + self.height):
+            return False
+        
+        # Check if click is on timeline
+        timeline_x = panel_x + 30
+        timeline_y = panel_y + 35
+        timeline_width = self.width - 60
+        
+        if timeline_x <= x <= timeline_x + timeline_width and timeline_y - 15 <= y <= timeline_y + 15:
+            # Calculate target frame
+            progress = (x - timeline_x) / timeline_width
+            target_frame = int(progress * self.n_frames)
+            window.frame_index = max(0, min(target_frame, window.n_frames - 1))
+            return True
+        
+        return True

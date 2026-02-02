@@ -13,7 +13,14 @@ from src.ui_components import (
     SessionInfoComponent,
     extract_race_events,
     build_track_from_example_lap,
-    draw_finish_line
+    draw_finish_line,
+    DriverComparatorComponent,
+    DeltaDisplayComponent,
+    PerformanceRadarComponent,
+    SectorColoringComponent,
+    BattleDetectorComponent,
+    LapTimeChartComponent,
+    IncidentsTimelineComponent
 )
 from src.tyre_degradation_integration import TyreDegradationIntegrator
 
@@ -115,6 +122,17 @@ class F1RaceReplayWindow(arcade.Window):
                 date=session_info.get('date', ''),
                 total_laps=total_laps
             )
+        
+        # Driver analysis components (new features)
+        self.comparator_comp = DriverComparatorComponent(visible=False)
+        self.delta_comp = DeltaDisplayComponent(visible=False)
+        self.radar_comp = PerformanceRadarComponent(visible=False)
+        
+        # Advanced race features (new)
+        self.sector_comp = SectorColoringComponent(visible=False)
+        self.battle_comp = BattleDetectorComponent(visible=False)
+        self.laptime_chart_comp = LapTimeChartComponent(visible=False)
+        self.incidents_comp = IncidentsTimelineComponent(visible=False)
 
         self.is_rewinding = False
         self.is_forwarding = False
@@ -127,6 +145,9 @@ class F1RaceReplayWindow(arcade.Window):
             total_laps=total_laps or 0,
             events=race_events
         )
+        
+        # Set events for incidents timeline
+        self.incidents_comp.set_events(race_events, len(frames), total_laps or 0)
 
         # Build track geometry (Raw World Coordinates)
         (self.plot_x_ref, self.plot_y_ref,
@@ -583,6 +604,17 @@ class F1RaceReplayWindow(arcade.Window):
         # Draw Controls popup box
         self.controls_popup_comp.draw(self)
         
+        # Draw new driver analysis components
+        self.comparator_comp.draw(self)
+        self.delta_comp.draw(self)
+        self.radar_comp.draw(self)
+        
+        # Draw advanced race features
+        self.sector_comp.draw(self)
+        self.battle_comp.draw(self)
+        self.laptime_chart_comp.draw(self)
+        self.incidents_comp.draw(self)
+        
         # Draw tooltips and overlays on top of everything
         self.progress_bar_comp.draw_overlays(self)
                     
@@ -674,6 +706,20 @@ class F1RaceReplayWindow(arcade.Window):
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
+        elif symbol == arcade.key.C:
+            self.comparator_comp.toggle_visibility() # toggle driver comparator
+        elif symbol == arcade.key.G:
+            self.delta_comp.toggle_visibility() # toggle delta display
+        elif symbol == arcade.key.P:
+            self.radar_comp.toggle_visibility() # toggle performance radar
+        elif symbol == arcade.key.S:
+            self.sector_comp.toggle_visibility() # toggle sector coloring
+        elif symbol == arcade.key.O:
+            self.battle_comp.toggle_visibility() # toggle battle detector
+        elif symbol == arcade.key.T:
+            self.laptime_chart_comp.toggle_visibility() # toggle lap time chart
+        elif symbol == arcade.key.E:
+            self.incidents_comp.toggle_visibility() # toggle incidents timeline
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -692,6 +738,20 @@ class F1RaceReplayWindow(arcade.Window):
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.comparator_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.delta_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.radar_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.sector_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.battle_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.laptime_chart_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.incidents_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
             return
