@@ -247,19 +247,30 @@ class LeaderboardComponent(BaseComponent):
     def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True):
         self.x = x
         self.width = width
-        self.entries = []  # list of tuples (code, color, pos, progress_m)
-        self.rects = []    # clickable rects per entry
-        self.selected = []  # Changed to list for multiple selection
-        self.row_height = 25
+        
+        # Styling
+        self.bg_color = (15, 15, 20, 240)       
+        self.header_color = (30, 30, 35, 255)   
+        self.border_color = (60, 60, 70)        
+        self.text_white = (255, 255, 255, 255)
+        self.text_gray = (180, 180, 190, 255)
+        
+        self.entries = [] 
+        self.rects = []    
+        self.selected = []  
+        self.row_height = 28
+        
+        # --- FIX: Default to Interval (Neighbor) Gaps ---
         self.show_gaps = False
-        self.show_neighbor_gaps = False
+        self.show_neighbor_gaps = True 
+        
         self.gap_toggle_rect = None
         self.neighbor_toggle_rect = None
-        # Reuse a single Text object for gap rendering to avoid reallocating each frame
-        self._gap_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, 12, anchor_x="right", anchor_y="top")
+        self._gap_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, 12, anchor_x="right", anchor_y="center")
         self._tyre_textures = {}
         self._visible: bool = visible
-        # Import the tyre textures from the images/tyres folder (all files)
+        
+        # Load textures
         tyres_folder = os.path.join("images", "tyres")
         if os.path.exists(tyres_folder):
             for filename in os.listdir(tyres_folder):
@@ -269,274 +280,208 @@ class LeaderboardComponent(BaseComponent):
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
 
     @property
-    def visible(self) -> bool:
-        return self._visible
-    
+    def visible(self) -> bool: return self._visible
     @visible.setter
-    def visible(self, value: bool):
-        self._visible = value
-    
+    def visible(self, value: bool): self._visible = value
     def toggle_visibility(self) -> bool:
-        """
-        Toggle the visibility of the leaderboard
-        """
         self._visible = not self._visible
         return self._visible
-    
-    def set_visible(self):
-        """
-        Set visibility of leaderboard to True
-        """
-        self._visible = True
+    def set_visible(self): self._visible = True
 
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
-        # entries sorted as expected
         self.entries = entries
+
     def draw(self, window):
-        # Skip rendering entirely if hidden
-        if not self._visible:
-            return
-        self.selected = getattr(window, "selected_drivers", [])
-        leaderboard_y = window.height - 40
-        arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
-        # sync with window state if present
-        self.show_gaps = getattr(window, "leaderboard_show_gaps", self.show_gaps)
-        self.show_neighbor_gaps = getattr(window, "leaderboard_show_neighbor_gaps", self.show_neighbor_gaps)
-
-        # If both were set externally, prefer neighbor (interval) gaps and clear leader gaps.
-        if self.show_gaps and self.show_neighbor_gaps:
-            self.show_gaps = False
-
-        # small radio btns to the right of the title: interval gaps and leader gaps
-        toggle_radius = 10
-        toggle_y = leaderboard_y - 15
-        gap_between_toggles = 30
+        if not self._visible: return
         
-        # interval radio-btn (I)
-        neighbor_x = self.x + self.width - gap_between_toggles - toggle_radius
-        self.neighbor_toggle_rect = (neighbor_x - toggle_radius, toggle_y - toggle_radius, neighbor_x + toggle_radius, toggle_y + toggle_radius)
-        nb_bg = (100, 100, 100) if not self.show_neighbor_gaps else (50, 150, 50)
-        arcade.draw_circle_filled(neighbor_x, toggle_y, toggle_radius, nb_bg)
-        nb_border = (150, 150, 150) if not self.show_neighbor_gaps else (80, 200, 80)
-        arcade.draw_circle_outline(neighbor_x, toggle_y, toggle_radius, nb_border, 2)
-        arcade.Text("I", neighbor_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
+        self.selected = getattr(window, "selected_drivers", [])
+        
+        # Sync Toggles (Preserve user choice if they clicked, otherwise keep default)
+        # We only override if the window has explicit state set, otherwise we use our __init__ default
+        if hasattr(window, "leaderboard_show_gaps"):
+            self.show_gaps = window.leaderboard_show_gaps
+        if hasattr(window, "leaderboard_show_neighbor_gaps"):
+            self.show_neighbor_gaps = window.leaderboard_show_neighbor_gaps
+            
+        if self.show_gaps and self.show_neighbor_gaps: self.show_gaps = False
 
-        # leader radio-btn (L)
-        toggle_x = self.x + self.width - toggle_radius
-        self.gap_toggle_rect = (toggle_x - toggle_radius, toggle_y - toggle_radius, toggle_x + toggle_radius, toggle_y + toggle_radius)
+        # --- FIX: Optimize Space (Move Up) ---
+        # Header is ~90px. Start at 100 to tuck it right underneath.
+        leaderboard_y = window.height - 100
+        
+        # --- 1. Background ---
+        total_height = (20 * self.row_height) + 40
+        bottom_y = leaderboard_y - total_height
+        
+        arcade.draw_rect_filled(
+            arcade.XYWH(self.x + self.width/2, (leaderboard_y + bottom_y)/2, self.width, leaderboard_y - bottom_y),
+            self.bg_color
+        )
+        arcade.draw_rect_outline(
+            arcade.XYWH(self.x + self.width/2, (leaderboard_y + bottom_y)/2, self.width, leaderboard_y - bottom_y),
+            self.border_color, 2
+        )
+
+        # --- 2. Header Row ---
+        header_height = 30
+        header_cy = leaderboard_y - (header_height / 2)
+        
+        arcade.draw_rect_filled(
+            arcade.XYWH(self.x + self.width/2, header_cy, self.width, header_height),
+            self.header_color
+        )
+        
+        # --- FIX: Add Labels POS / DRIVER / GAP ---
+        arcade.Text("POS", self.x + 10, header_cy, self.text_gray, 9, anchor_x="left", anchor_y="center", bold=True).draw()
+        arcade.Text("DRIVER", self.x + 45, header_cy, self.text_gray, 9, anchor_x="left", anchor_y="center", bold=True)
+        arcade.Text("GAP", self.x + self.width - 55, header_cy, self.text_gray, 9, anchor_x="right", anchor_y="center", bold=True)
+        
+        # Toggles (I / L)
+        toggle_radius = 9
+        gap_between_toggles = 25
+        
+        # Interval (I)
+        neighbor_x = self.x + self.width - gap_between_toggles - toggle_radius - 5
+        self.neighbor_toggle_rect = (neighbor_x - toggle_radius, header_cy - toggle_radius, neighbor_x + toggle_radius, header_cy + toggle_radius)
+        nb_bg = (100, 100, 100) if not self.show_neighbor_gaps else (50, 150, 50)
+        arcade.draw_circle_filled(neighbor_x, header_cy, toggle_radius, nb_bg)
+        arcade.Text("I", neighbor_x, header_cy, arcade.color.WHITE, 9, anchor_x="center", anchor_y="center", bold=True).draw()
+
+        # Leader (L)
+        toggle_x = self.x + self.width - toggle_radius - 5
+        self.gap_toggle_rect = (toggle_x - toggle_radius, header_cy - toggle_radius, toggle_x + toggle_radius, header_cy + toggle_radius)
         lg_bg = (100, 100, 100) if not self.show_gaps else (50, 150, 50)
-        arcade.draw_circle_filled(toggle_x, toggle_y, toggle_radius, lg_bg)
-        lg_border = (150, 150, 150) if not self.show_gaps else (80, 200, 80)
-        arcade.draw_circle_outline(toggle_x, toggle_y, toggle_radius, lg_border, 2)
-        arcade.Text("L", toggle_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
+        arcade.draw_circle_filled(toggle_x, header_cy, toggle_radius, lg_bg)
+        arcade.Text("L", toggle_x, header_cy, arcade.color.WHITE, 9, anchor_x="center", anchor_y="center", bold=True).draw()
 
         self.rects = []
 
-        # Sort entries by lap number an distance progressed
-        # If any of the entries have lap > 1, then sort
-
+        # Sort Logic
         if any(e[2].get("lap", 0) > 1 for e in self.entries):
-            new_entries = sorted(
-                self.entries,
-                key=lambda e: (
-                    -e[2].get("lap", 0),  # Descending lap number
-                    -e[2].get("dist")                 # Descending distance progressed
-                )
-            )
+            new_entries = sorted(self.entries, key=lambda e: (-e[2].get("lap", 0), -e[2].get("dist")))
         else:
             new_entries = self.entries
 
+        # --- 3. Draw Rows ---
+        start_y = leaderboard_y - header_height
+        
         for i, (code, color, pos, progress_m) in enumerate(new_entries):
             current_pos = i + 1
-            top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
-            bottom_y = top_y - self.row_height
+            row_y = start_y - (i * self.row_height)
+            center_y = row_y - (self.row_height / 2)
+            row_bottom = row_y - self.row_height
+            
             left_x = self.x
             right_x = self.x + self.width
-            self.rects.append((code, left_x, bottom_y, right_x, top_y))
+            self.rects.append((code, left_x, row_bottom, right_x, row_y))
 
+            # Highlight Selection
             if code in self.selected:
-                rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
-                arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
-                text_color = arcade.color.BLACK
-            else:
-                text_color = color
-            text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
-            arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+                arcade.draw_rect_filled(
+                    arcade.XYWH((left_x + right_x)/2, center_y, self.width, self.row_height),
+                    (255, 255, 255, 40)
+                )
 
-            # Gap display (if enabled)
-            if getattr(self, "show_neighbor_gaps", False):
-                neighbor_info = None
-                if hasattr(window, "leaderboard_neighbor_gaps"):
-                    neighbor_info = window.leaderboard_neighbor_gaps.get(code)
+            # A. Position
+            arcade.draw_text(f"{current_pos}", self.x + 15, center_y, self.text_white, 12, anchor_x="center", anchor_y="center", bold=False)
 
-                if i == 0:
-                    gap_text = "-"
-                else:
-                    if neighbor_info:
-                        if neighbor_info.get("ahead"):
-                            _, dist_m, time_s = neighbor_info.get("ahead")
-                            gap_text = f"+{time_s:.1f}s"
-                        else:
-                            gap_text = ""
-                    else:
-                        gap_text = ""
+            # B. Team Color Bar
+            arcade.draw_rect_filled(
+                arcade.XYWH(self.x + 32, center_y, 4, self.row_height - 8),
+                color
+            )
 
-            elif getattr(self, "show_gaps", False):
-                gap_text = ""
-                gap_val = None
-                # prefer window-provided precomputed gaps
-                if hasattr(window, "leaderboard_gaps"):
-                    gap_val = window.leaderboard_gaps.get(code)
-                if gap_val is None:
-                    gap_val = pos.get("gap") or pos.get("gap_to_leader")
-                if gap_val is None:
-                    gap_text = ""
-                else:
-                    try:
-                        # expect seconds (float)
-                        s = float(gap_val)
-                        # leader (zero) gets dash
-                        if abs(s) < 1e-6:
-                            gap_text = "-"
-                        else:
-                            sign = "+" if s > 0 else "-"
-                            gap_text = f"{sign}{abs(s):.1f}s"
-                    except Exception:
-                        gap_text = str(gap_val)
+            # C. Driver Code
+            status = "OUT" if pos.get("rel_dist", 0) == 1 else code
+            arcade.draw_text(status, self.x + 45, center_y, self.text_white, 12, anchor_x="left", anchor_y="center", bold=True)
 
-                pass
+            # D. Gap Logic
+            gap_text = ""
+            if self.show_neighbor_gaps:
+                neighbor_info = getattr(window, "leaderboard_neighbor_gaps", {}).get(code)
+                if i == 0: gap_text = "-"
+                elif neighbor_info and neighbor_info.get("ahead"):
+                    _, _, time_s = neighbor_info.get("ahead")
+                    gap_text = f"+{time_s:.1f}s"
+            elif self.show_gaps:
+                gap_val = getattr(window, "leaderboard_gaps", {}).get(code)
+                if gap_val is None: gap_val = pos.get("gap")
+                try:
+                    s = float(gap_val)
+                    if abs(s) < 1e-6: gap_text = "-"
+                    else: gap_text = f"+{abs(s):.1f}s"
+                except: gap_text = ""
+            
+            # Draw Gap
+            if gap_text:
+                arcade.draw_text(gap_text, self.x + 160, center_y, self.text_gray, 11, anchor_x="right", anchor_y="center")
 
-            # if either leader or neighbor gaps are enabled, draw the gap text
-            if getattr(self, "show_neighbor_gaps", False) or getattr(self, "show_gaps", False):
-                gap_x = right_x - 36
-                if 'gap_text' in locals() and gap_text:
-                    gap_color = arcade.color.BLACK if code in self.selected else arcade.color.LIGHT_GRAY
-                    # Update and draw the reusable gap Text object
-                    self._gap_text.text = gap_text
-                    self._gap_text.x = gap_x
-                    self._gap_text.y = top_y
-                    self._gap_text.color = gap_color
-                    self._gap_text.draw()
-
-            # Tyre Icons
+            # E. Tyre Icon & Health
             tyre_val = pos.get("tyre", "?")
             tyre_texture = self._tyre_textures.get(str(tyre_val).upper())
             if tyre_texture:
-                # position tyre icon inside the leaderboard area so it doesn't collide with track
-                tyre_icon_x = left_x + self.width - 10
-                tyre_icon_y = top_y - 12
-                icon_size = 16
-                rect = arcade.XYWH(tyre_icon_x, tyre_icon_y, icon_size, icon_size)
-
-                current_life = pos.get("tyre_life", 0)
+                icon_x = self.x + self.width - 20
                 tyre_health_ratio = 1.0
                 if window.degradation_integrator:
                     idx = min(int(window.frame_index), len(window.frames) - 1)
                     health_data = window.degradation_integrator.get_health_for_frame(code, window.frames[idx])
                     if health_data:
                         tyre_health_ratio = health_data['health'] / 100.0
-                else:
-                    max_tyre_life = getattr(window, "max_tyre_life", {})
-                    try:
-                        tyre_key = int(tyre_val)
-                    except (TypeError, ValueError):
-                        max_life = 30
-                    else:
-                        max_life = max_tyre_life.get(tyre_key, 30)
-                    if max_life > 0:
-                        tyre_health_ratio = max(0.0, min(1.0, 1.0 - (current_life / max_life)))
-                    else:
-                        tyre_health_ratio = 1.0
 
-                arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=80)
-                bright_height = icon_size * tyre_health_ratio
-                if bright_height > 0:
-                    window.ctx.scissor = (int(tyre_icon_x - 8), int(tyre_icon_y - 8), int(icon_size), int(bright_height))
-                    arcade.draw_texture_rect(rect=rect, texture=tyre_texture, alpha=255)
-                    window.ctx.scissor = None
-                    
-                try:
-                    life_display = str(int(current_life)) if pd.notna(current_life) else "0"
-                except (ValueError, TypeError):
-                    life_display = "0"
-                arcade.Text(
-                    life_display,
-                    tyre_icon_x + 8,
-                    tyre_icon_y - 8,
-                    arcade.color.WHITE,
-                    8,
-                    bold=True,
-                    anchor_x="center",
-                    anchor_y="center"
-                ).draw()
-
-                # DRS Indicator
-                drs_val = pos.get("drs", 0)
-                # DRS is active if value >= 10
-                is_drs_on = drs_val and int(drs_val) >= 10
-                drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
+                arcade.draw_texture_rect(
+                    texture=tyre_texture,
+                    rect=arcade.XYWH(icon_x, center_y, 16, 16),
+                    alpha=80
+                )
                 
-                # Position dot to the left of the tyre icon
-                # tyre_icon_x is the center of the tyre icon
-                drs_dot_x = tyre_icon_x - icon_size - 4 
-                drs_dot_y = tyre_icon_y
+                bright_height = 16 * tyre_health_ratio
+                if bright_height > 0:
+                    window.ctx.scissor = (int(icon_x - 8), int(center_y - 8), 16, int(bright_height))
+                    arcade.draw_texture_rect(
+                        texture=tyre_texture,
+                        rect=arcade.XYWH(icon_x, center_y, 16, 16),
+                        alpha=255
+                    )
+                    window.ctx.scissor = None
 
-                arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
-
-        # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
-        if new_entries[0][2].get("lap", 0) == 1:
-            arcade.Text("May be inaccurate during Lap 1",
-                        self.x, leaderboard_y - 30 - (len(new_entries) * self.row_height) - 20,
-                        arcade.color.YELLOW, 12, anchor_x="left", anchor_y="top").draw()
+                drs_val = pos.get("drs", 0)
+                is_drs_on = drs_val and int(drs_val) >= 10
+                drs_color = arcade.color.GREEN if is_drs_on else (80, 80, 80)
+                arcade.draw_circle_filled(icon_x - 14, center_y, 3, drs_color)
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
-        # interval toggle (radio type)
+        # Toggles
         if self.neighbor_toggle_rect:
-            n_left, n_bottom, n_right, n_top = self.neighbor_toggle_rect
-            if n_left <= x <= n_right and n_bottom <= y <= n_top:
-                if self.show_neighbor_gaps:
-                    # currently selected -> deselect
-                    self.show_neighbor_gaps = False
-                    setattr(window, "leaderboard_show_neighbor_gaps", False)
-                else:
-                    # select interval gaps and deselect leader gaps
-                    self.show_neighbor_gaps = True
+            if self.neighbor_toggle_rect[0] <= x <= self.neighbor_toggle_rect[2] and self.neighbor_toggle_rect[1] <= y <= self.neighbor_toggle_rect[3]:
+                state = not self.show_neighbor_gaps
+                setattr(window, "leaderboard_show_neighbor_gaps", state)
+                self.show_neighbor_gaps = state
+                if state: 
                     self.show_gaps = False
-                    setattr(window, "leaderboard_show_neighbor_gaps", True)
                     setattr(window, "leaderboard_show_gaps", False)
                 return True
-        # leader toggle (radio type)
+                
         if self.gap_toggle_rect:
-            g_left, g_bottom, g_right, g_top = self.gap_toggle_rect
-            if g_left <= x <= g_right and g_bottom <= y <= g_top:
-                if self.show_gaps:
-                    self.show_gaps = False
-                    setattr(window, "leaderboard_show_gaps", False)
-                else:
-                    self.show_gaps = True
+            if self.gap_toggle_rect[0] <= x <= self.gap_toggle_rect[2] and self.gap_toggle_rect[1] <= y <= self.gap_toggle_rect[3]:
+                state = not self.show_gaps
+                setattr(window, "leaderboard_show_gaps", state)
+                self.show_gaps = state
+                if state: 
                     self.show_neighbor_gaps = False
-                    setattr(window, "leaderboard_show_gaps", True)
                     setattr(window, "leaderboard_show_neighbor_gaps", False)
                 return True
 
+        # Selection
         for code, left, bottom, right, top in self.rects:
             if left <= x <= right and bottom <= y <= top:
-                # Detect multi-select modifiers
                 is_multi = (modifiers & arcade.key.MOD_SHIFT)
-
                 if is_multi:
-                    if code in self.selected:
-                        self.selected.remove(code)
-                    else:
-                        self.selected.append(code)
+                    if code in self.selected: self.selected.remove(code)
+                    else: self.selected.append(code)
                 else:
-                    # Single click: clear others and toggle selection
-                    if len(self.selected) == 1 and self.selected[0] == code:
-                        self.selected = []
-                    else:
-                        self.selected = [code]
-
-                # Propagate both list and single reference for compatibility
+                    if len(self.selected) == 1 and self.selected[0] == code: self.selected = []
+                    else: self.selected = [code]
+                
                 window.selected_drivers = self.selected
                 window.selected_driver = self.selected[-1] if self.selected else None
                 return True
@@ -781,27 +726,25 @@ class DriverInfoComponent(BaseComponent):
         self.degradation_integrator = None
 
     def draw(self, window):
-        # Support multiple selection via window.selected_drivers
         codes = getattr(window, "selected_drivers", [])
         if not codes:
-            # Fallback to single selection compatibility
             single = getattr(window, "selected_driver", None)
             codes = [single] if single else []
 
-        if not codes or not window.frames:
-            return
+        if not codes or not window.frames: return
 
         idx = min(int(window.frame_index), window.n_frames - 1)
         frame = window.frames[idx]
 
         box_width, box_height, gap = self.width, 210, 10
-        weather_bottom = getattr(window, "weather_bottom", None)
-        current_top = weather_bottom - 20 if weather_bottom else window.height - 200
+        
+        # --- FIX: Start higher up (ignore old weather padding) ---
+        # The header is ~90px tall, so we start at height - 100
+        current_top = window.height - 100
 
         for code in codes:
             if code not in frame["drivers"]: continue
             if current_top - box_height < self.min_top: break
-
             driver_pos = frame["drivers"][code]
             center_y = current_top - (box_height / 2)
             self._draw_info_box(window, code, driver_pos, center_y, box_width, box_height)
@@ -810,81 +753,59 @@ class DriverInfoComponent(BaseComponent):
     def _draw_info_box(self, window, code, driver_pos, center_y, box_width, box_height):
         center_x = self.left + box_width / 2
         top, bottom = center_y + box_height / 2, center_y - box_height / 2
-        left, right = center_x - box_width / 2, center_x + box_width / 2
-
+        
         rect = arcade.XYWH(center_x, center_y, box_width, box_height)
         arcade.draw_rect_filled(rect, (0, 0, 0, 200))
-
         team_color = window.driver_colors.get(code, arcade.color.GRAY)
         arcade.draw_rect_outline(rect, team_color, 2)
 
         header_height = 30
         header_cy = top - (header_height / 2)
         arcade.draw_rect_filled(arcade.XYWH(center_x, header_cy, box_width, header_height), team_color)
-        arcade.Text(f"Driver: {code}", left + 10, header_cy, arcade.color.BLACK, 14, anchor_y="center",
-                    bold=True).draw()
+        arcade.Text(f"Driver: {code}", self.left + 10, header_cy, arcade.color.BLACK, 14, anchor_y="center", bold=True).draw()
 
-        cursor_y, row_gap = top - header_height - 25, 25
-        left_text_x = left + 15
+        cursor_y = top - header_height - 25
+        left_text_x = self.left + 15
+        row_gap = 25
 
-        # Telemetry Text
         speed = driver_pos.get('speed', 0)
-        arcade.Text(f"Speed: {speed:.0f} km/h", left + 15, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
+        arcade.Text(f"Speed: {speed:.0f} km/h", left_text_x, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
         cursor_y -= row_gap
-        arcade.Text(f"Gear: {driver_pos.get('gear', '-')}", left + 15, cursor_y, arcade.color.WHITE, 12,
-                    anchor_y="center").draw()
+        arcade.Text(f"Gear: {driver_pos.get('gear', '-')}", left_text_x, cursor_y, arcade.color.WHITE, 12, anchor_y="center").draw()
         cursor_y -= row_gap
 
         drs_val = driver_pos.get('drs', 0)
-        drs_str, drs_color = ("DRS: ON", arcade.color.GREEN) if drs_val in [10, 12, 14] else \
-            ("DRS: AVAIL", arcade.color.YELLOW) if drs_val == 8 else ("DRS: OFF", arcade.color.GRAY)
-        arcade.Text(drs_str, left + 15, cursor_y, drs_color, 12, anchor_y="center", bold=True).draw()
+        drs_str, drs_color = ("DRS: ON", arcade.color.GREEN) if drs_val in [10, 12, 14] else ("DRS: AVAIL", arcade.color.YELLOW) if drs_val == 8 else ("DRS: OFF", arcade.color.GRAY)
+        arcade.Text(drs_str, left_text_x, cursor_y, drs_color, 12, anchor_y="center", bold=True).draw()
         cursor_y -= row_gap
 
-        # Gaps (Calculated from Leaderboard)
+        # Gaps
         gap_ahead, gap_behind = "Ahead: N/A", "Behind: N/A"
-        lb = getattr(window, "leaderboard", None) or \
-             getattr(window, "leaderboard_ui", None) or \
-             getattr(window, "leaderboard_comp", None)
-
-        if not lb and hasattr(window, "ui_components"):
-            for comp in window.ui_components:
-                if isinstance(comp, LeaderboardComponent):
-                    lb = comp
-                    break
-
-        # A fixed reference speed for all gap calculations (200 km/h = 55.56 m/s)
+        lb = getattr(window, "leaderboard_comp", None)
         REFERENCE_SPEED_MS = 55.56
 
         def calculate_gap(pos1, pos2):
-            # Calculate gap between two positions consistently
             raw_dist = abs(pos1 - pos2)
-            dist = raw_dist / 10.0  # Convert to meters
+            dist = raw_dist / 10.0
             time = dist / REFERENCE_SPEED_MS
             return dist, time
 
         if lb and hasattr(lb, "entries") and lb.entries:
             try:
                 idx = next(i for i, e in enumerate(lb.entries) if e[0] == code)
-
-                if idx > 0:  # Car Ahead
+                if idx > 0:
                     code_ahead = lb.entries[idx - 1][0]
                     curr_pos = lb.entries[idx][3]
                     ahead_pos = lb.entries[idx - 1][3]
-
                     dist, time = calculate_gap(curr_pos, ahead_pos)
-                    gap_ahead = f"Ahead ({code_ahead}): +{time:.2f}s ({dist:.1f}m)"
-
-                if idx < len(lb.entries) - 1:  # Car Behind
+                    gap_ahead = f"Ahead: +{time:.2f}s ({dist:.0f}m)"
+                if idx < len(lb.entries) - 1:
                     code_behind = lb.entries[idx + 1][0]
                     curr_pos = lb.entries[idx][3]
                     behind_pos = lb.entries[idx + 1][3]
-
                     dist, time = calculate_gap(curr_pos, behind_pos)
-                    gap_behind = f"Behind ({code_behind}): -{time:.2f}s ({dist:.1f}m)"
-
-            except (StopIteration, IndexError):
-                pass
+                    gap_behind = f"Behind: -{time:.2f}s ({dist:.0f}m)"
+            except (StopIteration, IndexError): pass
 
         arcade.Text(gap_ahead, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
         cursor_y -= 22
@@ -895,66 +816,33 @@ class DriverInfoComponent(BaseComponent):
                 idx = min(int(window.frame_index), window.n_frames - 1)
                 frame = window.frames[idx]
                 health_data = self.degradation_integrator.get_health_for_frame(code, frame)
-                
                 if health_data:
-                    cursor_y -= 28  # Space before health bar
-                    
-                    # Draw tyre health bar
+                    cursor_y -= 28 
                     bar_params = format_tyre_health_bar(health_data['health'], width=180, height=14)
-                    bar_x = left + 15
+                    bar_x = self.left + 15
                     bar_y = cursor_y
                     
-                    # Background bar (dark gray)
-                    arcade.draw_rect_filled(
-                        arcade.XYWH(bar_x + bar_params['width']/2, bar_y, 
-                                   bar_params['width'], bar_params['height']),
-                        (50, 50, 50)
-                    )
-                    
-                    # Health fill bar (colored)
+                    arcade.draw_rect_filled(arcade.XYWH(bar_x + bar_params['width']/2, bar_y, bar_params['width'], bar_params['height']), (50, 50, 50))
                     if bar_params['fill_width'] > 0:
-                        arcade.draw_rect_filled(
-                            arcade.XYWH(bar_x + bar_params['fill_width']/2, bar_y, 
-                                       bar_params['fill_width'], bar_params['height']),
-                            bar_params['color']
-                        )
-                    
-                    # Border
-                    arcade.draw_rect_outline(
-                        arcade.XYWH(bar_x + bar_params['width']/2, bar_y, 
-                                   bar_params['width'], bar_params['height']),
-                        arcade.color.WHITE, 1
-                    )
-                    
+                        arcade.draw_rect_filled(arcade.XYWH(bar_x + bar_params['fill_width']/2, bar_y, bar_params['fill_width'], bar_params['height']), bar_params['color'])
+                    arcade.draw_rect_outline(arcade.XYWH(bar_x + bar_params['width']/2, bar_y, bar_params['width'], bar_params['height']), arcade.color.WHITE, 1)
                     cursor_y -= 18
-                    
-                    # Tyre info text
                     tyre_text = format_degradation_text(health_data)
-                    arcade.Text(tyre_text, left_text_x, cursor_y, 
-                               arcade.color.LIGHT_GRAY, 10, anchor_y="center").draw()
-                    
-            except (KeyError, AttributeError, TypeError) as e:
-                print(f"Error displaying driver info: {e}")
+                    arcade.Text(tyre_text, left_text_x, cursor_y, arcade.color.LIGHT_GRAY, 10, anchor_y="center").draw()
+            except Exception as e: print(f"Error displaying driver info: {e}")
 
-        # Graphs
+        # Throttle/Brake Graphs
         thr, brk = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
         t_r, b_r = max(0.0, min(1.0, thr / 100.0)), max(0.0, min(1.0, brk / 100.0 if brk > 1.0 else brk))
         bar_w, bar_h, b_y = 20, 80, bottom + 35
-        r_center = right - 50
+        r_center = self.left + box_width - 50
 
-        # Throttle
         arcade.Text("THR", r_center - 15, b_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
         arcade.draw_rect_filled(arcade.XYWH(r_center - 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
-        if t_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center - 15, b_y + (bar_h * t_r) / 2, bar_w, bar_h * t_r),
-                                            arcade.color.GREEN)
-        # Brake
+        if t_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center - 15, b_y + (bar_h * t_r) / 2, bar_w, bar_h * t_r), arcade.color.GREEN)
         arcade.Text("BRK", r_center + 15, b_y - 20, arcade.color.WHITE, 10, anchor_x="center").draw()
         arcade.draw_rect_filled(arcade.XYWH(r_center + 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
-        if b_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center + 15, b_y + (bar_h * b_r) / 2, bar_w, bar_h * b_r),
-                                            arcade.color.RED)
-
-    def _get_driver_color(self, window, code):
-        return window.driver_colors.get(code, arcade.color.GRAY)
+        if b_r > 0: arcade.draw_rect_filled(arcade.XYWH(r_center + 15, b_y + (bar_h * b_r) / 2, bar_w, bar_h * b_r), arcade.color.RED)
 
 
 
