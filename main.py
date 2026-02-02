@@ -1,26 +1,18 @@
+import sys
+import os
+import subprocess # Needed to spawn the second window
+import arcade
+
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
-
 from src.interfaces.qualifying import run_qualifying_replay
-import sys
 from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None):
-  print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
-  session = load_session(year, round_number, session_type)
-
-  print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
-
-  # Enable cache for fastf1
-  enable_cache()
-
-  if session_type == 'Q' or session_type == 'SQ':
-
-    # Get the drivers who participated and their lap times
-
-    qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+# Import the new runner function for the telemetry window
+# (Make sure you added 'def run_telemetry_monitor' to src/interfaces/telemetry_window.py)
+from src.interfaces.telemetry_window import run_telemetry_monitor
 
     # Run the arcade screen showing qualifying results
 
@@ -103,53 +95,59 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
 
 if __name__ == "__main__":
 
-  if "--cli" in sys.argv:
-    # Run the CLI
+    if "--cli" in sys.argv:
+        # Run the CLI
+        cli_load()
+        sys.exit(0)
 
-    cli_load()
-    sys.exit(0)
+    if "--year" in sys.argv:
+        try:
+            year_index = sys.argv.index("--year") + 1
+            year = int(sys.argv[year_index])
+        except (ValueError, IndexError):
+            year = 2025
+    else:
+        year = 2025  # Default year
 
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = 2025  # Default year
+    if "--round" in sys.argv:
+        try:
+            round_index = sys.argv.index("--round") + 1
+            round_number = int(sys.argv[round_index])
+        except (ValueError, IndexError):
+            round_number = 12
+    else:
+        round_number = 12  # Default round number
 
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
+    if "--list-rounds" in sys.argv:
+        list_rounds(year)
+    elif "--list-sprints" in sys.argv:
+        list_sprints(year)
+    else:
+        playback_speed = 1
 
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
-  else:
-    playback_speed = 1
+    if "--viewer" in sys.argv:
+    
+        visible_hud = True
+        if "--no-hud" in sys.argv:
+            visible_hud = False
 
-  if "--viewer" in sys.argv:
-  
-    visible_hud = True
-    if "--no-hud" in sys.argv:
-      visible_hud = False
+        # Session type selection
+        session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
 
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+        # Optional ready-file path used when spawned from the GUI to signal ready state
+        ready_file = None
+        if "--ready-file" in sys.argv:
+            idx = sys.argv.index("--ready-file") + 1
+            if idx < len(sys.argv):
+                ready_file = sys.argv[idx]
 
-    # Optional ready-file path used when spawned from the GUI to signal ready state
-    ready_file = None
-    if "--ready-file" in sys.argv:
-      idx = sys.argv.index("--ready-file") + 1
-      if idx < len(sys.argv):
-        ready_file = sys.argv[idx]
+        # NOTE: "--monitor" and "--telemetry-child" are checked inside main()
+        # utilizing sys.argv directly.
+        main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+        sys.exit(0)
 
-    main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
-    sys.exit(0)
-
-  # Run the GUI
-
-  app = QApplication(sys.argv)
-  win = RaceSelectionWindow()
-  win.show()
-  sys.exit(app.exec())
+    # Run the GUI
+    app = QApplication(sys.argv)
+    win = RaceSelectionWindow()
+    win.show()
+    sys.exit(app.exec())

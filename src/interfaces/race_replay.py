@@ -1,5 +1,6 @@
 import os
 import arcade
+import arcade.gui
 import numpy as np
 from src.f1_data import FPS
 from src.ui_components import (
@@ -23,6 +24,44 @@ SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Race Replay"
 PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
 
+
+
+
+
+class MovableSection(arcade.gui.UIDraggableMixin, arcade.gui.UIWidget):
+    def __init__(self, component, x, y, width, height, **kwargs):
+        # Initialize the base UIWidget with the correct size and position
+        super().__init__(x=x, y=y, width=width, height=height, **kwargs)
+        self.component = component
+        self.is_editing = False 
+
+    def on_draw(self):
+        # Sync the leaderboard's coordinates to this widget's current x, y
+        # We use self.y as the 'top' of the leaderboard
+        self.component.x = self.x
+        self.component.y = self.y 
+        
+        # Draw the actual dashboard data
+        self.component.draw(arcade.get_window())
+
+        # If we are in Edit Mode, draw a bright cyan box so we can see the grab area
+        if self.is_editing:
+            # In Arcade 3.0, draw_rect_outline uses a center-based rect (XYWH)
+            # We center the outline on the widget
+            rect = arcade.XYWH(
+                self.x + self.width / 2, 
+                self.y - self.height / 2, 
+                self.width, 
+                self.height
+            )
+            arcade.draw_rect_outline(rect, arcade.color.CYAN, 2)
+            
+            # Label the box
+            arcade.draw_text("GRAB HERE", self.x + 5, self.y - 15, arcade.color.CYAN, 8)
+
+
+
+
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
@@ -43,6 +82,16 @@ class F1RaceReplayWindow(arcade.Window):
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+        self.ui_manager = arcade.gui.UIManager()
+        self.ui_manager.enable()
+        self.use_custom_dashboard = False
+        self.edit_mode = False
+        self.use_custom_hud_enabled = use_custom_hud # From your Race Select menu
+        self.analyzer_ui = AdvancedAnalyzer(self)
+        self.use_custom_hud_enabled = False
+        self.telemetry_window = telemetry_window  # Reference to the telemetry window if provided
+        self.sender = TelemetrySender()
+        
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -57,10 +106,11 @@ class F1RaceReplayWindow(arcade.Window):
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
-        self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
+        self.race_control_ui = RaceControlPanel(x=50, y=self.height - 150)
+        self.session_info = session_info
 
         self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
@@ -85,6 +135,9 @@ class F1RaceReplayWindow(arcade.Window):
                 self.degradation_integrator = None
         else:
             print("Note: Session not provided, tyre degradation disabled")
+
+
+        
 
 
         # Progress bar component with race event markers
@@ -197,6 +250,20 @@ class F1RaceReplayWindow(arcade.Window):
         # store previous leaderboard order for up/down arrows
         self.last_leaderboard_order = None
 
+        self.movable_leaderboard = MovableSection(
+            component=self.leaderboard_comp,
+            x=500, # Initial X
+            y=500, # Initial Y
+            width=230, 
+            height=400
+        )
+
+        self.movable_leaderboard.visible = False
+        self.ui_manager.add(self.movable_leaderboard)
+        
+
+
+
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
         t_new = np.linspace(0, 1, interp_points)
@@ -297,7 +364,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
+        for c in (self.leaderboard_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
             c.on_resize(self)
         
         # update persistent text positions
@@ -335,10 +402,177 @@ class F1RaceReplayWindow(arcade.Window):
         idx = int((deg_norm / 22.5) + 0.5) % len(dirs)
         return dirs[idx]
 
+
+
+
+    def draw_dashboard_header(self, session_info, current_lap, total_laps, race_time_str, weather_data):
+        """
+        Header with Red Flag Placeholder, Circuit Name, and Weather Gauges.
+        """
+        header_height = 90
+        top_y = self.height
+        bottom_y = self.height - header_height
+        center_x = self.width // 2 
+        
+        # --- 1. Background ---
+        arcade.draw_lrbt_rectangle_filled(
+            left=0, right=self.width,
+            top=top_y, bottom=bottom_y,
+            color=(10, 10, 12, 255)
+        )
+        arcade.draw_line(0, bottom_y, self.width, bottom_y, (60, 60, 70), 2)
+
+        # --- 2. Flag Placeholder (Red Box) ---
+        # Position: Left side, vertically centered in header
+        flag_width = 60
+        flag_height = 40
+        flag_x = 50  # Center X of the flag
+        base_y = bottom_y + (header_height / 2) # Center Y of the header
+
+        # DRAW THE RED PLACEHOLDER
+        arcade.draw_rect_filled(
+            arcade.XYWH(flag_x, base_y, flag_width, flag_height), 
+            arcade.color.RED_DEVIL
+        )
+
+        # --- 3. Event & Circuit Info ---
+        # Text starts to the right of the flag
+        text_x = flag_x + (flag_width / 2) + 15 
+
+        # A. Grand Prix Name (Large)
+        e_name = session_info.get('event_name', 'Grand Prix')
+        arcade.draw_text(e_name, text_x, base_y + 12, arcade.color.WHITE, 20, bold=True, anchor_y="bottom")
+        
+        # B. Circuit Name (Medium)
+        c_name = session_info.get('circuit_name', 'Monaco') 
+        arcade.draw_text(c_name, text_x, base_y + 2, arcade.color.GRAY, 12, bold=True, anchor_y="center")
+        
+        # C. Race Timer (Small)
+        arcade.draw_text(race_time_str, text_x, base_y - 18, arcade.color.LIGHT_GRAY, 14, bold=True, anchor_y="top")
+
+        # --- 4. Weather Gauges (Centered) ---
+        track_temp = float(weather_data.get('TrackTemp', weather_data.get('track_temp', 0)))
+        air_temp = float(weather_data.get('AirTemp', weather_data.get('air_temp', 0)))
+        humidity = float(weather_data.get('Humidity', weather_data.get('humidity', 0)))
+        wind_speed = float(weather_data.get('WindSpeed', weather_data.get('wind_speed', 0)))
+        rainfall = int(weather_data.get('Rainfall', weather_data.get('rainfall', 0)))
+
+        start_gauge_x = center_x - 160
+        spacing = 70
+
+        self.draw_gauge(start_gauge_x, base_y, track_temp, 60, "TRC", (255, 60, 0), "{:.1f}")
+        self.draw_gauge(start_gauge_x + spacing, base_y, air_temp, 40, "AIR", (100, 255, 50), "{:.1f}")
+        self.draw_gauge(start_gauge_x + spacing*2, base_y, humidity, 100, "HUM", (50, 150, 255), "{:.1f}")
+        self.draw_gauge(start_gauge_x + spacing*3, base_y, wind_speed, 15, "WIND", (200, 200, 200), "{:.1f}")
+        
+        rain_color = (0, 100, 255) if rainfall > 0 else (80, 80, 80)
+        rain_label = "YES" if rainfall > 0 else "NO"
+        self.draw_gauge(start_gauge_x + spacing*4, base_y, 1 if rainfall > 0 else 0, 1, "RAIN", rain_color, rain_label, is_binary=True)
+        
+        # --- 5. Lap Counter (Right) ---
+        arcade.draw_text("LAP", self.width - 160, base_y + 12, arcade.color.GRAY, 12, anchor_x="right", bold=True)
+        lap_str = f"{int(current_lap)} / {total_laps}"
+        arcade.draw_text(lap_str, self.width - 30, base_y - 12, arcade.color.WHITE, 30, bold=True, anchor_x="right")
+
+        
+
+    def draw_track_status_indicator(self, status_code):
+        """
+        Draws a sleek status bar just below the main header.
+        Codes: 1=Green, 2=Yellow, 4=SC, 5=Red, 6/7=VSC
+        """
+        # 1. Define Visuals based on Status Code
+        if status_code == "1":
+            color = (0, 200, 50) # Green
+            text = "TRACK CLEAR"
+        elif status_code == "2":
+            color = (255, 200, 0) # Yellow
+            text = "YELLOW FLAG"
+        elif status_code == "4":
+            color = (255, 120, 0) # Orange
+            text = "SAFETY CAR"
+        elif status_code == "5":
+            color = (200, 0, 0) # Red
+            text = "RED FLAG"
+        elif status_code in ["6", "7"]:
+            color = (255, 160, 50) # Light Orange
+            text = "VIRTUAL SAFETY CAR"
+        else:
+            color = (0, 200, 50) # Default Green
+            text = "TRACK CLEAR"
+
+        # 2. Position Code
+        header_height = 90
+        bar_height = 24
+        bar_width = 200
+        
+        # Position: Centered X, Just below header (Y)
+        center_x = self.width // 2
+        # self.height is top. Minus header. Minus half bar height. Minus 1px padding.
+        center_y = self.height - header_height - (bar_height / 2) - 1 
+
+        # 3. Draw Background Box (Rounded)
+        arcade.draw_rect_filled(
+            arcade.XYWH(center_x, center_y, bar_width, bar_height),
+            color
+        )
+        
+        # Optional: Add a thin dark border for contrast
+        arcade.draw_rect_outline(
+            arcade.XYWH(center_x, center_y, bar_width, bar_height),
+            (20, 20, 20), 2
+        )
+
+        # 4. Draw Text
+        arcade.draw_text(
+            text, 
+            center_x, 
+            center_y - 5, # slight offset for vertical centering
+            arcade.color.BLACK if status_code != "5" else arcade.color.WHITE, 
+            12, 
+            bold=True, 
+            anchor_x="center"
+        )
+
+
+    def draw_gauge(self, x, y, value, max_val, label, color, fmt="{}", is_binary=False):
+        """Helper to draw circular gauges with flexible formatting."""
+        radius = 24 # Slightly smaller to fit 5 gauges
+        
+        # Background ring
+        arcade.draw_circle_outline(x, y, radius, (40, 40, 40), 3)
+        
+        # Value Arc
+        if is_binary:
+            # Full circle filled for binary (Rain)
+            if value > 0:
+                arcade.draw_circle_outline(x, y, radius, color, 3)
+        else:
+            # Standard Gauge
+            start_angle = -90
+            pct = max(0.0, min(1.0, float(value) / max_val))
+            arcade.draw_arc_outline(x, y, radius*2, radius*2, color, start_angle, start_angle + (pct * 360), 3)
+        
+        # Text Value
+        if is_binary:
+            val_text = fmt # "YES" or "NO" passed in fmt
+            font_size = 10
+        else:
+            val_text = fmt.format(value)
+            font_size = 12
+
+        arcade.draw_text(val_text, x, y, arcade.color.WHITE, font_size, bold=True, anchor_x="center", anchor_y="center")
+        arcade.draw_text(label, x, y - radius - 10, color, 9, anchor_x="center", bold=True)
+
+
+
+
+
     def on_draw(self):
+        arcade.set_window(self)
         self.clear()
 
-        # 1. Draw Background (stretched to fit new window size)
+        # 1. Draw Background
         if self.bg_texture:
             arcade.draw_lrbt_rectangle_textured(
                 left=0, right=self.width,
@@ -346,65 +580,47 @@ class F1RaceReplayWindow(arcade.Window):
                 texture=self.bg_texture
             )
 
-        # 2. Draw Track (using pre-calculated screen points)
+        # 2. Frame and Track Setup
         idx = min(int(self.frame_index), self.n_frames - 1)
         frame = self.frames[idx]
-        current_time = frame["t"]
-        current_track_status = "GREEN"
+        current_time_val = frame["t"] 
+        
+        # Calculate Track Status
+        current_track_status = "1" 
         for status in self.track_statuses:
-            if status['start_time'] <= current_time and (status['end_time'] is None or current_time < status['end_time']):
+            if status['start_time'] <= current_time_val and (status['end_time'] is None or current_time_val < status['end_time']):
                 current_track_status = status['status']
                 break
 
-        # Map track status -> colour (R,G,B)
+        # Track Colors logic
         STATUS_COLORS = {
-            "GREEN": (150, 150, 150),    # normal grey
-            "YELLOW": (220, 180,   0),   # caution
-            "RED": (200,  30,  30),      # red-flag
-            "VSC": (200, 130,  50),      # virtual safety car / amber-brown
-            "SC": (180, 100,  30),       # safety car (darker brown)
+            "GREEN": (150, 150, 150), "YELLOW": (220, 180, 0),
+            "RED": (200, 30, 30), "VSC": (200, 130, 50), "SC": (180, 100, 30),
         }
-        track_color = STATUS_COLORS.get("GREEN", (150, 150, 150))
-
-        if current_track_status == "2":
-            track_color = STATUS_COLORS.get("YELLOW")
-        elif current_track_status == "4":
-            track_color = STATUS_COLORS.get("SC")
-        elif current_track_status == "5":
-            track_color = STATUS_COLORS.get("RED")
-        elif current_track_status == "6" or current_track_status == "7":
-            track_color = STATUS_COLORS.get("VSC")
+        track_color = STATUS_COLORS.get("GREEN")
+        if current_track_status == "2": track_color = STATUS_COLORS.get("YELLOW")
+        elif current_track_status == "4": track_color = STATUS_COLORS.get("SC")
+        elif current_track_status == "5": track_color = STATUS_COLORS.get("RED")
+        elif current_track_status in ["6", "7"]: track_color = STATUS_COLORS.get("VSC")
             
         if len(self.screen_inner_points) > 1:
             arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
         if len(self.screen_outer_points) > 1:
             arcade.draw_line_strip(self.screen_outer_points, track_color, 4)
         
-        # 2.5 Draw DRS Zones (green segments on outer track edge)
+        # Draw DRS Zones and Finish Line
         if hasattr(self, 'drs_zones') and self.drs_zones and self.toggle_drs_zones:
-            drs_color = (0, 255, 0)  # Bright green for DRS zones
-            
-            for _, zone in enumerate(self.drs_zones):
-                start_idx = zone["start"]["index"]
-                end_idx = zone["end"]["index"]
-                
-                # Extract the outer track points for this DRS zone segment
-                drs_outer_points = []
-                for i in range(start_idx, min(end_idx + 1, len(self.x_outer))):
-                    x = self.x_outer.iloc[i]
-                    y = self.y_outer.iloc[i]
-                    sx, sy = self.world_to_screen(x, y)
-                    drs_outer_points.append((sx, sy))
-                
-                # Draw the DRS zone segment
-                if len(drs_outer_points) > 1:
-                    arcade.draw_line_strip(drs_outer_points, drs_color, 6)
-
+            drs_color = (0, 255, 0)
+            for zone in self.drs_zones:
+                drs_points = []
+                for i in range(zone["start"]["index"], min(zone["end"]["index"] + 1, len(self.x_outer))):
+                    sx, sy = self.world_to_screen(self.x_outer.iloc[i], self.y_outer.iloc[i])
+                    drs_points.append((sx, sy))
+                if len(drs_points) > 1:
+                    arcade.draw_line_strip(drs_points, drs_color, 6)
         draw_finish_line(self)
+
         # 3. Draw Cars
-        frame = self.frames[idx]
-        
-        # Get selected drivers list safely
         selected_drivers = getattr(self, "selected_drivers", [])
         if not selected_drivers and getattr(self, "selected_driver", None):
             selected_drivers = [self.selected_driver]
@@ -412,20 +628,13 @@ class F1RaceReplayWindow(arcade.Window):
         for i, (code, pos) in enumerate(frame["drivers"].items()):
             sx, sy = self.world_to_screen(pos["x"], pos["y"])
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            
             is_selected = code in selected_drivers
             
             if self.show_driver_labels or is_selected:
-                # Find closest point index on reference track
-                r_dx = self._ref_xs - pos["x"]
-                r_dy = self._ref_ys - pos["y"]
-                idx = int(np.argmin(r_dx*r_dx + r_dy*r_dy))
+                r_dx, r_dy = self._ref_xs - pos["x"], self._ref_ys - pos["y"]
+                idx_ref = int(np.argmin(r_dx*r_dx + r_dy*r_dy))
+                nx, ny = self._ref_nx[idx_ref], self._ref_ny[idx_ref]
                 
-                # Get normal vector in world space
-                nx = self._ref_nx[idx]
-                ny = self._ref_ny[idx]
-                
-                # Rotate normal to screen space
                 if self._rot_rad:
                     snx = nx * self._cos_rot - ny * self._sin_rot
                     sny = nx * self._sin_rot + ny * self._cos_rot
@@ -433,40 +642,19 @@ class F1RaceReplayWindow(arcade.Window):
                     snx, sny = nx, ny
                 
                 offset_dist = 45 if i % 2 == 0 else 75
-                
-                lx = sx + snx * offset_dist
-                ly = sy + sny * offset_dist
-                
+                lx, ly = sx + snx * offset_dist, sy + sny * offset_dist
                 arcade.draw_line(sx, sy, lx, ly, color, 1)
-                
-                anchor_x = "left" if snx >= 0 else "right"
-                text_padding = 3 if snx >= 0 else -3
-                arcade.draw_text(code, lx + text_padding, ly, color, 10, anchor_x=anchor_x, anchor_y="center", bold=True)
-
+                anchor = "left" if snx >= 0 else "right"
+                arcade.draw_text(code, lx + (3 if snx >= 0 else -3), ly, color, 10, anchor_x=anchor, anchor_y="center", bold=True)
             arcade.draw_circle_filled(sx, sy, 6, color)
-        
-        # --- UI ELEMENTS (Dynamic Positioning) ---
-        
-        # Determine Leader info using projected along-track distance (more robust than dist)
-        # Use the progress metric in metres for each driver and use that to order the leaderboard.
+
+        # --- 4. LEADERBOARD DATA PREPARATION ---
         driver_progress = {}
         for code, pos in frame["drivers"].items():
-            # parse lap defensively
-            lap_raw = pos.get("lap", 1)
-            try:
-                lap = int(lap_raw)
-            except Exception:
-                lap = 1
+            lap = int(pos.get("lap", 1))
+            proj_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            driver_progress[code] = float((max(lap, 1) - 1) * self._ref_total_length + proj_m)
 
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
-
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
-
-            driver_progress[code] = progress_m
-
-        # Leader is the one with greatest progress_m
         if driver_progress:
             leader_code = max(driver_progress, key=lambda c: driver_progress[c])
             leader_lap = frame["drivers"][leader_code].get("lap", 1)
@@ -568,23 +756,103 @@ class F1RaceReplayWindow(arcade.Window):
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         self.legend_comp.draw(self)
         
-        # Selected driver info component
-        self.driver_info_comp.draw(self)
+        # --- NEW MERGED LOGIC: Advanced Gap Calculation (From Other User) ---
+        # We calculate specific gap times so the LeaderboardComponent can toggle between Interval/Leader
+        leaderboard_gaps = {}
+        leaderboard_neighbor_gaps = {}
         
-        # Race Progress Bar with event markers (DNF, flags, leader changes)
-        self.progress_bar_comp.draw(self)
-        
-        # Race playback control buttons
-        self.race_controls_comp.draw(self)
-        
-        # Session info banner (top of screen)
-        self.session_info_comp.draw(self)
+        leader_progress_val = raw_list[0][3] if raw_list else None
 
-        # Draw Controls popup box
-        self.controls_popup_comp.draw(self)
+        if raw_list and leader_progress_val is not None:
+            for idx, (code, _, pos, progress_m) in enumerate(raw_list):
+                # Gap to Leader
+                try:
+                    raw_to_leader = abs(leader_progress_val - (progress_m or 0.0))
+                    dist_to_leader = raw_to_leader / 10.0
+                    time_to_leader = dist_to_leader / REFERENCE_SPEED_MS
+                    leaderboard_gaps[code] = 0.0 if idx == 0 else time_to_leader
+                except Exception:
+                    leaderboard_gaps[code] = None
+
+                # Gap to Car Ahead (Neighbor)
+                ahead_info = None
+                try:
+                    if idx > 0:
+                        code_ahead, _, _, progress_ahead = raw_list[idx - 1]
+                        raw = abs((progress_m or 0.0) - (progress_ahead or 0.0))
+                        dist_m = raw / 10.0
+                        time_s = dist_m / REFERENCE_SPEED_MS
+                        ahead_info = (code_ahead, dist_m, time_s)
+                except Exception:
+                    ahead_info = None
+                leaderboard_neighbor_gaps[code] = {"ahead": ahead_info}
+
+        # Store these on the window so the component can access them
+        self.leaderboard_gaps = leaderboard_gaps
+        self.leaderboard_neighbor_gaps = leaderboard_neighbor_gaps
         
-        # Draw tooltips and overlays on top of everything
+        # Prepare final list for component
+        final_list = []
+        for i, (code, color, pos, progress) in enumerate(raw_list):
+            if i == 0:
+                gap_str = "Interval"
+            else:
+                dist_m = (raw_list[i-1][3] - progress) / 10.0
+                gap_str = f"+{(dist_m / REFERENCE_SPEED_MS):.2f}s"
+            final_list.append((code, color, pos, progress, gap_str))
+
+        self.leaderboard_comp.set_entries(final_list)
+        
+        # --- 5. DASHBOARD RENDERING ---
+        if self.visible_hud:
+            weather_info = frame.get("weather") if frame else {}
+            
+            # --- CUSTOM ANALYZER UI LOGIC (Your Feature) ---
+            self.analyzer_ui.update_data(frame, final_list)
+            
+            if self.analyzer_ui.visible:
+                self.analyzer_ui.draw()
+            else:
+                # Standard UI
+                if not self.use_custom_dashboard:
+                    self.leaderboard_comp.draw(self)
+                    self.driver_info_comp.draw(self)
+                else:
+                    self.ui_manager.draw()
+                
+                self.leaderboard_rects = self.leaderboard_comp.rects
+
+            # --- DRAW NEW HEADER (Your Feature) ---
+            m, s = divmod(int(current_time_val), 60)
+            h, m = divmod(m, 60)
+            time_str = f"{h:02d}:{m:02d}:{s:02d}"
+
+            s_info = getattr(self, 'session_info', {})
+
+            self.draw_dashboard_header(
+                session_info=s_info,
+                current_lap=leader_lap,
+                total_laps=self.total_laps,
+                race_time_str=time_str,
+                weather_data=weather_info
+            )
+            
+            # --- TRACK STATUS BAR (Your Feature) ---
+            self.draw_track_status_indicator(current_track_status)
+
+        # 6. Global Static Overlays
+        self.legend_comp.draw(self)
+        self.progress_bar_comp.draw(self)
+        self.race_controls_comp.draw(self)
+        self.controls_popup_comp.draw(self)
         self.progress_bar_comp.draw_overlays(self)
+
+    
+
+
+
+
+        
                     
     def on_update(self, delta_time: float):
         self.race_controls_comp.on_update(delta_time)
@@ -605,11 +873,25 @@ class F1RaceReplayWindow(arcade.Window):
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
 
+        # SYNC TELEMETRY WINDOW
+        if self.telemetry_window:
+            self.telemetry_window.update_cursor(self.frame_index)
+
+        current_driver = self.selected_driver if hasattr(self, "selected_driver") else None
+        self.sender.send_update(self.frame_index, current_driver)
+            
+
     def on_key_press(self, symbol: int, modifiers: int):
         # Allow ESC to close window at any time
         if symbol == arcade.key.ESCAPE:
             arcade.close_window()
             return
+        
+        if symbol == arcade.key.M:
+            self.analyzer_ui.visible = not self.analyzer_ui.visible
+            print(f"Custom UI Visible: {self.analyzer_ui.visible}")
+
+            
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
@@ -675,6 +957,21 @@ class F1RaceReplayWindow(arcade.Window):
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
 
+
+        if symbol == arcade.key.TAB:
+            self.use_custom_dashboard = not self.use_custom_dashboard
+            for widget in self.ui_manager.children:
+                if isinstance(widget, MovableSection):
+                    widget.visible = self.use_custom_dashboard
+        
+        # Toggle Edit Mode (Show borders for moving)
+        if symbol == arcade.key.E:
+            if self.use_custom_dashboard:
+                self.edit_mode = not self.edit_mode
+                for widget in self.ui_manager.children:
+                    if isinstance(widget, MovableSection):
+                        widget.is_editing = self.edit_mode
+
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
             self.is_forwarding = False
@@ -683,28 +980,52 @@ class F1RaceReplayWindow(arcade.Window):
             self.is_rewinding = False
             self.paused = self.was_paused_before_hold
 
-    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
-        if self.is_forwarding or self.is_rewinding:
-            self.is_forwarding = False
-            self.is_rewinding = False
-            self.paused = self.was_paused_before_hold
+    
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
-        # forward to components; stop at first that handled it
+        # 1. UI Manager
+        if self.ui_manager.on_mouse_press(x, y, button, modifiers):
+            return
+
+        # 2. Components
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
             return
-        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
-            return
         if self.legend_comp.on_mouse_press(self, x, y, button, modifiers):
             return
-        # default: clear selection if clicked elsewhere
+            
+        # 3. Leaderboard - FIX: Sync Telemetry BEFORE returning!
+        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
+            # If a driver was selected, sync it immediately
+            if self.telemetry_window and self.selected_driver:
+                self.telemetry_window.set_driver(self.selected_driver)
+            return
+
+        # 4. Clear selection if clicked elsewhere
         self.selected_driver = None
-        
+        if self.telemetry_window:
+            self.telemetry_window.set_driver(None)
+
+
+    def on_mouse_drag(self, x: float, y: float, dx: float, dy: float, buttons: int, modifiers: int):
+        # This is the 'engine' that moves the box while you hold the mouse
+        self.ui_manager.on_mouse_drag(x, y, dx, dy, buttons, modifiers)
+
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+        # Notify the UI Manager that the drag is over
+        self.ui_manager.on_mouse_release(x, y, button, modifiers)
+
+        if self.is_forwarding or self.is_rewinding:
+            self.is_forwarding = False
+            self.is_rewinding = False
+            self.paused = self.was_paused_before_hold
+
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
-        """Handle mouse motion for hover effects on progress bar and controls."""
+        # Notify UI Manager (helps with hover/cursor states)
+        self.ui_manager.on_mouse_motion(x, y, dx, dy)
+        
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
