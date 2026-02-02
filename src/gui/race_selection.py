@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog
+    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog, QCheckBox
 )
 from PySide6.QtWidgets import QProgressDialog
 from PySide6.QtCore import QThread, Signal, Qt, QTimer
@@ -11,8 +11,6 @@ import subprocess
 import tempfile
 import uuid
 from src.f1_data import get_race_weekends_by_year, load_session
-from src.gui.settings_dialog import SettingsDialog
-
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -60,10 +58,6 @@ class RaceSelectionWindow(QMainWindow):
         header_layout = QHBoxLayout()
         header_label = QLabel("F1 Race Replay 🏎️")
         font = header_label.font()
-        settings_btn = QPushButton("⚙ Settings")
-        settings_btn.setCursor(Qt.PointingHandCursor)
-        settings_btn.setFixedHeight(32)
-        settings_btn.clicked.connect(self.open_settings)
         font.setPointSize(18)
         font.setBold(True)
         header_label.setFont(font)
@@ -71,7 +65,6 @@ class RaceSelectionWindow(QMainWindow):
         
         header_layout.addWidget(header_label)
         header_layout.addStretch()
-        header_layout.addWidget(settings_btn)
         main_layout.addLayout(header_layout)
 
         # Year selection
@@ -93,7 +86,7 @@ class RaceSelectionWindow(QMainWindow):
 
         # Schedule tree (left)
         self.schedule_tree = QTreeWidget()
-        self.schedule_tree.setHeaderLabels(["Round", "Event", "Country", "Start Date"])
+        self.schedule_tree.setHeaderLabels(["Round", "Event","Country", "Start Date"])
         self.schedule_tree.setRootIsDecorated(False)
         content_layout.addWidget(self.schedule_tree, 3)
         self.schedule_tree.setColumnWidth(2, 180)
@@ -110,10 +103,10 @@ class RaceSelectionWindow(QMainWindow):
         header_lbl.setFont(hdr_font)
         self.session_panel_layout.addWidget(header_lbl)
 
-        # Checkbox for Telemetry Mode
-        from PySide6.QtWidgets import QCheckBox
+        # --- RESTORED: Telemetry Checkbox ---
         self.telemetry_check = QCheckBox("Enable Telemetry Monitor (Dual Window)")
         self.session_panel_layout.addWidget(self.telemetry_check)
+        # ------------------------------------
 
         # placeholder spacer
         self.session_list_container = QWidget()
@@ -147,6 +140,7 @@ class RaceSelectionWindow(QMainWindow):
         self.worker.result.connect(self.populate_schedule)
         self.worker.error.connect(self.show_error)
         self.worker.start()
+
     def populate_schedule(self, events):
         for event in events:
             # Ensure all columns are strings (QTreeWidgetItem expects text)
@@ -159,7 +153,6 @@ class RaceSelectionWindow(QMainWindow):
             event_item.setData(0, Qt.UserRole, event)
             self.schedule_tree.addTopLevelItem(event_item)
 
-        # Make sure the round column is wide enough to be visible
         try:
             self.schedule_tree.resizeColumnToContents(0)
             self.schedule_tree.resizeColumnToContents(1)
@@ -176,9 +169,9 @@ class RaceSelectionWindow(QMainWindow):
         except Exception:
             pass
         # determine sessions to show
-        ev_type = (ev.get("type") or "").lower()
+        ev_type = (ev.get('type') or '').lower()
         sessions = ["Qualifying", "Race"]
-        if "sprint" in ev_type:
+        if 'sprint' in ev_type:
             sessions.insert(0, "Sprint Qualifying")
             # show sprint-related session
             sessions.insert(2, "Sprint")
@@ -192,18 +185,11 @@ class RaceSelectionWindow(QMainWindow):
         # add buttons for each session (launch playback in separate process)
         for s in sessions:
             btn = QPushButton(s)
-            btn.clicked.connect(
-                lambda _, sname=s, e=ev: self._on_session_button_clicked(e, sname)
-            )
+            btn.clicked.connect(lambda _, sname=s, e=ev: self._on_session_button_clicked(e, sname))
             self.session_list_layout.addWidget(btn)
 
     def _on_session_button_clicked(self, ev, session_label):
-        """Launch main.py in a separate process to run the selected session.
-
-        Uses the same CLI flags that `main.py` understands: `--qualifying`,
-        `--sprint-qualifying`, `--sprint`. Runs the command detached so the
-        Qt UI remains responsive.
-        """
+        """Launch main.py in a separate process to run the selected session."""
         try:
             year = int(self.year_combo.currentText())
         except Exception:
@@ -223,9 +209,7 @@ class RaceSelectionWindow(QMainWindow):
         elif session_label == "Sprint":
             flag = "--sprint"
 
-        main_path = os.path.normpath(
-            os.path.join(os.path.dirname(__file__), "..", "..", "main.py")
-        )
+        main_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'main.py'))
         cmd = [sys.executable, main_path, "--viewer"]
         if year is not None:
             cmd += ["--year", str(year)]
@@ -233,9 +217,11 @@ class RaceSelectionWindow(QMainWindow):
             cmd += ["--round", str(round_no)]
         if flag:
             cmd.append(flag)
-
+            
+        # --- RESTORED: Add Monitor Flag if Checked ---
         if self.telemetry_check.isChecked():
             cmd.append("--monitor")
+        # ---------------------------------------------
 
         # Show a modal loading dialog and load the session in a background thread.
         dlg = QProgressDialog("Loading session data...", None, 0, 0, self)
@@ -318,12 +304,10 @@ class RaceSelectionWindow(QMainWindow):
                         timer.stop()
                         QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
                 except Exception:
-                    # ignore transient file-system errors
                     pass
 
             timer.timeout.connect(_check_ready)
             timer.start(200)
-            # keep references
             self._play_proc = proc
             self._ready_timer = timer
 
@@ -337,13 +321,9 @@ class RaceSelectionWindow(QMainWindow):
         worker = FetchSessionWorker(year, round_no, session_code)
         worker.result.connect(_on_loaded)
         worker.error.connect(_on_error)
-        # Keep a reference so it doesn't get GC'd
         self._session_worker = worker
         worker.start()
+
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
-
-    def open_settings(self):
-        dialog = SettingsDialog(self)
-        dialog.exec()
