@@ -98,7 +98,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       circuit_rotation=circuit_rotation,
       visible_hud=visible_hud,
       ready_file=ready_file,
-      session_info=session_info
+      session_info=session_info,
+      session=session,
     )
 
 if __name__ == "__main__":
