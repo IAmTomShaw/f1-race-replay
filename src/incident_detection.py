@@ -77,15 +77,23 @@ class IncidentDetector:
                 continue
             
             positions = {}
+            # Build list of (driver_code, progress_score) for ranking
+            driver_progress_list = []
             for driver_code, (x, y, lap, gap) in frame['driver_positions'].items():
-                # Calculate position based on distance (higher = further ahead)
-                positions[driver_code] = frame.get('frame_number', frame_idx)
+                # Calculate progress metric: lap * 1000 + (1 - normalized_gap) gives priority to lap count
+                progress_score = lap * 1000.0 + (1.0 - min(gap, 1.0))
+                driver_progress_list.append((driver_code, progress_score))
+            
+            # Sort by progress score (descending) and assign integer positions
+            driver_progress_list.sort(key=lambda item: item[1], reverse=True)
+            for position, (driver_code, _) in enumerate(driver_progress_list, start=1):
+                positions[driver_code] = position
             
             position_history[frame_idx] = positions
         
         # Detect position changes
         frame_indices = sorted(position_history.keys())
-        check_interval = max(1, len(frame_indices) // 100)  # Check every ~100 frames
+        check_interval = max(1, len(frame_indices) // 100)  # Sample roughly 100 checks across the entire sequence
         
         for i in range(check_interval, len(frame_indices), check_interval):
             prev_frame_idx = frame_indices[i - check_interval]
@@ -118,12 +126,19 @@ class IncidentDetector:
                     if driver in driver_positions:
                         _, _, lap, _ = driver_positions[driver]
                         
-                        # Find who was overtaken
+                        # Find who was overtaken: identify drivers whose position worsened
                         overtaken = None
-                        if curr_pos > 0 and curr_pos < len(curr_ranking):
-                            overtaken = curr_ranking[curr_pos - 1]
+                        for other_driver in common_drivers:
+                            other_prev_pos = prev_ranking.index(other_driver) if other_driver in prev_ranking else -1
+                            other_curr_pos = curr_ranking.index(other_driver) if other_driver in curr_ranking else -1
+                            # Driver's position worsened if their rank got larger (worse)
+                            if other_prev_pos >= 0 and other_curr_pos >= 0 and other_curr_pos > other_prev_pos:
+                                # Check if this worsening is due to our driver passing
+                                if other_prev_pos < prev_pos and other_curr_pos >= curr_pos:
+                                    overtaken = other_driver
+                                    break
                         
-                        # Only record if gap was small (actual overtake)
+                        # Only record if we found who was overtaken (actual overtake)
                         if overtaken and overtaken in driver_positions:
                             incident = Incident(
                                 frame_number=frame.get('frame_number', curr_frame_idx),
@@ -193,7 +208,7 @@ class IncidentDetector:
         # Track speed drops to identify pit stops
         window_size = 10
         
-        for frame_idx in range(window_size, len(self.frames) - window_size):
+        for frame_idx in range(window_size, len(self.frames)):
             frame = self.frames[frame_idx]
             driver_speeds = frame.get('driver_speeds', {})
             

@@ -142,7 +142,7 @@ class TestIncidentDetector:
                 'time_seconds': float(i),
                 'drivers': {'VER': {'x': 100 + i, 'y': 100, 'lap': 10, 'dist': 1000}},
                 'driver_positions': {'VER': (100 + i, 100, 10, 0.0)},
-                'driver_speeds': {'VER': 300.0 if i < 20 else (300.0 - (i - 20) * 15)}
+                'driver_speeds': {'VER': 300.0 if i < 20 else max(0.0, 300.0 - (i - 20) * 15)}
             }
             frames.append(frame)
         

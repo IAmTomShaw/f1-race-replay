@@ -31,6 +31,7 @@ class IncidentsPanelComponent:
         self.incidents: List[Incident] = []
         self.filtered_incidents: List[Incident] = []
         self.selected_incident_idx = -1
+        self.scroll_offset = 0  # Track which incident is at top of visible list
         self.filter_type = None  # None = all, 'overtake', 'near_miss', 'pit_stop'
         
         # Visual params
@@ -53,6 +54,7 @@ class IncidentsPanelComponent:
         self.incidents = incidents
         self.filter_incidents()
         self.selected_incident_idx = -1
+        self.scroll_offset = 0  # Reset scroll when incidents change
         
     def filter_incidents(self):
         """Apply current filter to incidents"""
@@ -68,12 +70,14 @@ class IncidentsPanelComponent:
         self.filter_type = filters[(current_idx + 1) % len(filters)]
         self.filter_incidents()
         self.selected_incident_idx = min(self.selected_incident_idx, len(self.filtered_incidents) - 1)
+        self.scroll_offset = 0  # Reset scroll when filter changes
         
     def select_next_incident(self) -> Optional[int]:
         """Select next incident, return frame number or None"""
         if not self.filtered_incidents:
             return None
         self.selected_incident_idx = min(self.selected_incident_idx + 1, len(self.filtered_incidents) - 1)
+        self._update_scroll_offset()
         return self.filtered_incidents[self.selected_incident_idx].frame_number
     
     def select_prev_incident(self) -> Optional[int]:
@@ -81,7 +85,20 @@ class IncidentsPanelComponent:
         if not self.filtered_incidents:
             return None
         self.selected_incident_idx = max(self.selected_incident_idx - 1, 0)
+        self._update_scroll_offset()
         return self.filtered_incidents[self.selected_incident_idx].frame_number
+    
+    def _update_scroll_offset(self):
+        """Update scroll offset to keep selected incident visible"""
+        max_visible = (self.panel_height - self.header_height) // self.item_height
+        # If selected is before visible window, scroll to show it at top
+        if self.selected_incident_idx < self.scroll_offset:
+            self.scroll_offset = self.selected_incident_idx
+        # If selected is after visible window, scroll to show it at bottom
+        elif self.selected_incident_idx >= self.scroll_offset + max_visible:
+            self.scroll_offset = self.selected_incident_idx - max_visible + 1
+        # Clamp scroll offset to valid range
+        self.scroll_offset = max(0, min(self.scroll_offset, max(0, len(self.filtered_incidents) - max_visible)))
     
     def get_selected_incident(self) -> Optional[Incident]:
         """Get currently selected incident"""
@@ -92,6 +109,10 @@ class IncidentsPanelComponent:
     def toggle_visibility(self):
         """Toggle panel visibility"""
         self.visible = not self.visible
+    
+    def on_resize(self, window):
+        """Handle window resize - no-op but required for consistency with other components"""
+        pass
     
     def draw(self, viewport_width: float, viewport_height: float):
         """Draw the incidents panel"""
@@ -133,9 +154,14 @@ class IncidentsPanelComponent:
         start_y = self.top - self.header_height - 5
         max_visible = (self.panel_height - self.header_height) // self.item_height
         
-        for idx, incident in enumerate(self.filtered_incidents[:max_visible]):
-            y = start_y - (idx * self.item_height)
-            is_selected = (idx == self.selected_incident_idx)
+        # Clamp scroll offset to valid range
+        self.scroll_offset = max(0, min(self.scroll_offset, max(0, len(self.filtered_incidents) - max_visible)))
+        
+        for list_idx, incident in enumerate(self.filtered_incidents[self.scroll_offset:self.scroll_offset + max_visible]):
+            y = start_y - (list_idx * self.item_height)
+            # Check if this item is selected (compare absolute index)
+            absolute_idx = self.scroll_offset + list_idx
+            is_selected = (absolute_idx == self.selected_incident_idx)
             
             # Highlight selected incident
             if is_selected:

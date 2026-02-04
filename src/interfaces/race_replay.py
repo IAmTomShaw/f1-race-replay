@@ -213,6 +213,8 @@ class F1RaceReplayWindow(arcade.Window):
             print(f"✓ Detected {len(incidents)} incidents")
         except Exception as e:
             print(f"✗ Incident detection failed: {e}")
+            # Ensure panel is initialized with safe default even on failure
+            self.incidents_panel_comp.set_incidents([])
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
@@ -314,7 +316,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp, self.incidents_panel_comp):
             c.on_resize(self)
         
         # update persistent text positions
