@@ -1,14 +1,391 @@
+# ============================================================================
+# F1 Race Replay - Git Ignore File
+# ============================================================================
 
-venv/
+# ============================================================================
+# Python
+# ============================================================================
 
-output_animation.mp4
-.fastf1-cache
-still_frame.png
-
-.mypy_cache/
+# Byte-compiled / optimized / DLL files
 __pycache__/
+*.py[cod]
+*$py.class
 
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# PyInstaller
+*.manifest
+*.spec
+
+# Installer logs
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Unit test / coverage reports
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+.pytest_cache/
+cover/
+
+# Translations
+*.mo
+*.pot
+
+# Django stuff:
+*.log
+local_settings.py
+db.sqlite3
+db.sqlite3-journal
+
+# Flask stuff:
+instance/
+.webassets-cache
+
+# Scrapy stuff:
+.scrapy
+
+# Sphinx documentation
+docs/_build/
+
+# PyBuilder
+.pybuilder/
+target/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# IPython
+profile_default/
+ipython_config.py
+
+# pyenv
+.python-version
+
+# pipenv
+Pipfile.lock
+
+# poetry
+poetry.lock
+
+# pdm
+.pdm.toml
+
+# PEP 582
+__pypackages__/
+
+# Celery stuff
+celerybeat-schedule
+celerybeat.pid
+
+# SageMath parsed files
+*.sage.py
+
+# Environments
+.env
+.env.local
+.env.*.local
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Spyder project settings
+.spyderproject
+.spyproject
+
+# Rope project settings
+.ropeproject
+
+# mkdocs documentation
+/site
+
+# mypy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# ============================================================================
+# FastF1 / Race Data
+# ============================================================================
+
+# FastF1 cache directory
+.fastf1-cache/
+server/.fastf1-cache/
+
+# Computed telemetry data
 computed_data/
+server/computed_data/
+*.pkl
+*.pickle
 
+# Race data exports
+exports/
+*.csv
+*.json
+
+# ============================================================================
+# Node.js / React / Frontend
+# ============================================================================
+
+# Dependencies
+node_modules/
+client/node_modules/
+/.pnp
+.pnp.js
+
+# Testing
+/coverage
+
+# Production builds
+client/build/
+client/dist/
+
+# Misc
 .DS_Store
-.idea
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Vite
+client/.vite/
+.vite/
+
+# ============================================================================
+# IDE / Editor
+# ============================================================================
+
+# Visual Studio Code
+.vscode/
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+!.vscode/*.code-snippets
+*.code-workspace
+
+# Local History for Visual Studio Code
+.history/
+.ionide/
+
+# PyCharm
+.idea/
+*.iml
+*.iws
+.idea_modules/
+
+# Sublime Text
+*.sublime-workspace
+*.sublime-project
+
+# Vim
+*.swp
+*.swo
+*~
+.netrwhist
+
+# Emacs
+*~
+\#*\#
+.\#*
+
+# ============================================================================
+# Operating System
+# ============================================================================
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.DocumentRevisions-V100
+.fseventsd
+.Spotlight-V100
+.TemporaryItems
+.Trashes
+.VolumeIcon.icns
+.com.apple.timemachine.donotpresent
+
+# Windows
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+*.stackdump
+[Dd]esktop.ini
+$RECYCLE.BIN/
+*.lnk
+
+# Linux
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# ============================================================================
+# Logs
+# ============================================================================
+
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+lerna-debug.log*
+.pnpm-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# ============================================================================
+# Docker
+# ============================================================================
+
+# Docker volumes
+.docker/
+docker-compose.override.yml
+
+# ============================================================================
+# Temporary Files
+# ============================================================================
+
+# Temporary directories
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Backup files
+*.bak
+*.backup
+*.old
+
+# Archive files (optional - comment out if you want to keep these)
+# *.zip
+# *.tar
+# *.tar.gz
+# *.rar
+
+# ============================================================================
+# Project Specific
+# ============================================================================
+
+# Local configuration overrides
+config.local.py
+settings.local.py
+
+# Database files (if you add SQLite later)
+*.db
+*.sqlite
+*.sqlite3
+
+# SSL certificates (if any)
+*.pem
+*.key
+*.crt
+*.cert
+
+# Secrets and credentials
+secrets/
+credentials/
+*.secret
+
+# Large media files (optional)
+# videos/
+# *.mp4
+# *.avi
+# *.mov
+
+# Test output
+test-results/
+test-output/
+
+# Build artifacts
+*.pyc
+*.pyo
+*.whl
+
+# ============================================================================
+# Documentation (Generated)
+# ============================================================================
+
+# Auto-generated docs
+docs/_build/
+docs/.doctrees/
+
+# ============================================================================
+# Miscellaneous
+# ============================================================================
+
+# Session files
+.session
+.history
+
+# Lock files (keep package-lock.json for reproducible builds)
+# package-lock.json  # Uncomment if you don't want to track this
+
+# Yarn
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*
+
+# Turborepo
+.turbo/
+
+# Sentry
+.sentryclirc
