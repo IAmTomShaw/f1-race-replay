@@ -1,5 +1,6 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.arcade_replay import run_arcade_replay
+from src.gui.insights_window import InsightsWindow
 
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
@@ -146,6 +147,32 @@ if __name__ == "__main__":
 
     main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
     sys.exit(0)
+
+  if "--insights" in sys.argv:
+    # Open insights window directly
+    if "--year" not in sys.argv or "--round" not in sys.argv:
+      print("Error: --year and --round are required for insights")
+      sys.exit(1)
+    
+    from src.f1_data import load_session, enable_cache
+    enable_cache()
+    
+    session = load_session(year, round_number, 'R')
+    
+    # Get driver colors
+    driver_colors = {}
+    for driver in session.drivers:
+      try:
+        driver_info = session.get_driver(driver)
+        color = f"#{driver_info['TeamColor']}" if 'TeamColor' in driver_info else '#808080'
+        driver_colors[driver] = color
+      except:
+        driver_colors[driver] = '#808080'
+    
+    app = QApplication(sys.argv)
+    win = InsightsWindow(session, driver_colors)
+    win.show()
+    sys.exit(app.exec())
 
   # Run the GUI
 
