@@ -1,6 +1,7 @@
 import os
 import arcade
 import numpy as np
+from scipy.spatial import cKDTree
 from src.f1_data import FPS
 from src.ui_components import (
     LeaderboardComponent, 
@@ -151,6 +152,9 @@ class F1RaceReplayWindow(arcade.Window):
         self._ref_nx = -dy / norm
         self._ref_ny = dx / norm
 
+        # Build KD-Tree for fast closest-point lookup
+        self.track_tree = cKDTree(np.column_stack((self._ref_xs, self._ref_ys)))
+
         # Determine track winding using the shoelace formula to ensure normals point outwards.
         # A positive area indicates counter-clockwise winding (normals point Left=Inside, so we flip).
         # A negative area indicates clockwise winding (normals point Left=Outside, so we keep).
@@ -210,14 +214,13 @@ class F1RaceReplayWindow(arcade.Window):
         if self._ref_total_length == 0.0:
             return 0.0
 
-        # Vectorized nearest-point to dense polyline points (sufficient for our purposes)
-        dx = self._ref_xs - x
-        dy = self._ref_ys - y
-        d2 = dx * dx + dy * dy
-        idx = int(np.argmin(d2))
+        # Vectorized nearest-point lookup using KD-Tree (O(log N))
+        _, idx = self.track_tree.query([x, y])
+        idx = int(idx)
 
         # For a slightly better estimate, optionally project onto the adjacent segment
         if idx < len(self._ref_xs) - 1:
+
             x1, y1 = self._ref_xs[idx], self._ref_ys[idx]
             x2, y2 = self._ref_xs[idx+1], self._ref_ys[idx+1]
             vx, vy = x2 - x1, y2 - y1
@@ -418,13 +421,13 @@ class F1RaceReplayWindow(arcade.Window):
             is_selected = code in selected_drivers
             
             if self.show_driver_labels or is_selected:
-                # Find closest point index on reference track
-                r_dx = self._ref_xs - pos["x"]
-                r_dy = self._ref_ys - pos["y"]
-                idx = int(np.argmin(r_dx*r_dx + r_dy*r_dy))
+                # Find closest point index on reference track (Optimized KD-Tree)
+                _, idx = self.track_tree.query([pos["x"], pos["y"]])
+                idx = int(idx)
                 
                 # Get normal vector in world space
                 nx = self._ref_nx[idx]
+
                 ny = self._ref_ny[idx]
                 
                 # Rotate normal to screen space
@@ -527,39 +530,6 @@ class F1RaceReplayWindow(arcade.Window):
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
-        # A fixed reference speed for all gap calculations (200 km/h = 55.56 m/s)
-        REFERENCE_SPEED_MS = 55.56
-        leaderboard_gaps = {}
-        leaderboard_neighbor_gaps = {}
-
-        leader_progress_val = driver_list[0][3] if driver_list else None
-
-        if driver_list and leader_progress_val is not None:
-            # precompute gaps to leader (time) and interval gaps (dist+time)
-            for idx, (code, _, pos, progress_m) in enumerate(driver_list):
-                try:
-                    raw_to_leader = abs(leader_progress_val - (progress_m or 0.0))
-                    dist_to_leader = raw_to_leader / 10.0
-                    time_to_leader = dist_to_leader / REFERENCE_SPEED_MS
-                    leaderboard_gaps[code] = 0.0 if idx == 0 else time_to_leader
-                except Exception:
-                    leaderboard_gaps[code] = None
-
-                ahead_info = None
-                try:
-                    if idx > 0:
-                        code_ahead, _, _, progress_ahead = driver_list[idx - 1]
-                        raw = abs((progress_m or 0.0) - (progress_ahead or 0.0))
-                        dist_m = raw / 10.0
-                        time_s = dist_m / REFERENCE_SPEED_MS
-                        ahead_info = (code_ahead, dist_m, time_s)
-                except Exception:
-                    ahead_info = None
-
-                leaderboard_neighbor_gaps[code] = {"ahead": ahead_info}
-
-        self.leaderboard_gaps = leaderboard_gaps
-        self.leaderboard_neighbor_gaps = leaderboard_neighbor_gaps
 
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
