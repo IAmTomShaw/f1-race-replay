@@ -311,3 +311,51 @@ def _build_session_info(session, year: int, round: int) -> dict:
             "total_laps": None
         }
 
+@router.get("/frames/{year}/{round}")
+async def get_race_frames(
+    year: int = Path(..., ge=2018, le=2025),
+    round: int = Path(..., ge=1, le=24),
+    session_type: str = Query("R", regex="^(R|S)$"),
+    max_frames: int = Query(5000, ge=100, le=50000, description="Maximum frames to return")
+):
+    """
+    Get race frames for playback (limited to max_frames for performance)
+    """
+    try:
+        logger.info(f"Loading frames: {year} R{round} {session_type}, max={max_frames}")
+        
+        cached_data = cache.get(year, round, session_type)
+        
+        if not cached_data:
+            logger.info("No cache found, processing telemetry...")
+            session = load_session(year, round, session_type)
+            telemetry_data = get_race_telemetry(session, session_type)
+            cached_data = telemetry_data
+        
+        all_frames = cached_data.get("frames", [])
+        driver_colors = cached_data.get("driver_colors", {})
+        
+        # Sample frames if there are too many
+        if len(all_frames) > max_frames:
+            step = len(all_frames) / max_frames
+            sampled_frames = [all_frames[int(i * step)] for i in range(max_frames)]
+            logger.info(f"Sampled {len(sampled_frames)} frames from {len(all_frames)}")
+        else:
+            sampled_frames = all_frames
+        
+        logger.info(f"✅ Returning {len(sampled_frames)} frames")
+        
+        return {
+            "frames": sampled_frames,
+            "driver_colors": driver_colors,
+            "total_frames": len(all_frames),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error loading frames: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load frames: {str(e)}"
+        )
+    
+    

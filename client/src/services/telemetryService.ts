@@ -1,22 +1,8 @@
 import api from './api';
-import type { RawTelemetryData } from '../types/api.types';
+import type { RaceFramesResponse, RawTelemetryData } from '../types/api.types';
 import type { TrackDataResponse } from '../types/track-api.types';
 
 export const telemetryService = {
-  /**
-   * Get track shape data (lightweight - first lap only)
-   */
-  getTrackData: async (
-    year: number,
-    round: number,
-    sessionType: string = 'R'
-  ): Promise<TrackDataResponse> => {
-    const response = await api.get(`/api/telemetry/track/${year}/${round}`, {
-      params: { session_type: sessionType },
-    });
-    return response.data;
-  },
-
   /**
    * Get full race telemetry data (heavy - all laps)
    */
@@ -49,6 +35,32 @@ export const telemetryService = {
   ) => {
     const response = await api.get(`/api/sessions/info/${year}/${round}`, {
       params: { session_type: sessionType },
+    });
+    return response.data;
+  },
+
+  getTrackData: async (
+    year: number,
+    round: number,
+    sessionType: string = 'R'
+  ): Promise<TrackDataResponse> => {
+    const response = await api.get(`/api/telemetry/track/${year}/${round}`, {
+      params: { session_type: sessionType },
+    });
+    return response.data;
+  },
+
+  getRaceFrames: async (
+    year: number,
+    round: number,
+    sessionType: string = 'R',
+    maxFrames: number = 5000
+  ): Promise<RaceFramesResponse> => {
+    const response = await api.get(`/api/telemetry/frames/${year}/${round}`, {
+      params: { 
+        session_type: sessionType,
+        max_frames: maxFrames
+      },
     });
     return response.data;
   },

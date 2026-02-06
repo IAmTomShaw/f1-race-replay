@@ -53,3 +53,9 @@ export interface RawTelemetryData {
   total_laps: number;
   session_info: SessionInfo;
 }
+
+export interface RaceFramesResponse {
+  frames: Frame[];
+  driver_colors: Record<string, [number, number, number]>;
+  total_frames: number;
+}
