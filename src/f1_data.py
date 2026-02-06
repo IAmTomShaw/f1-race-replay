@@ -166,6 +166,63 @@ def get_driver_colors(session):
     return rgb_colors
 
 
+def extract_strategy_data(session):
+    """Extract per-driver tyre stint summaries from session laps.
+
+    Returns dict mapping driver code to list of stint dicts:
+    {'VER': [{'stint': 1, 'compound': 'MEDIUM', 'compound_int': 1,
+              'start_lap': 1, 'end_lap': 18, 'fresh': True}, ...], ...}
+    """
+    try:
+        laps = session.laps
+        if laps is None or laps.empty or 'Stint' not in laps.columns:
+            return {}
+
+        strategy = {}
+        for driver_num in session.drivers:
+            try:
+                code = session.get_driver(driver_num)["Abbreviation"]
+            except Exception:
+                continue
+
+            driver_laps = laps.pick_drivers(driver_num)
+            if driver_laps.empty:
+                continue
+
+            stints = []
+            for stint_num in sorted(driver_laps['Stint'].dropna().unique()):
+                stint_laps = driver_laps[driver_laps['Stint'] == stint_num]
+                if stint_laps.empty:
+                    continue
+
+                compound = str(stint_laps.iloc[0].get('Compound', 'UNKNOWN'))
+                compound_int = get_tyre_compound_int(compound) if compound != 'UNKNOWN' else -1
+                start_lap = int(stint_laps['LapNumber'].min())
+                end_lap = int(stint_laps['LapNumber'].max())
+
+                fresh = True
+                fresh_val = stint_laps.iloc[0].get('FreshTyre')
+                if pd.notna(fresh_val):
+                    fresh = bool(fresh_val)
+
+                stints.append({
+                    'stint': int(stint_num),
+                    'compound': compound,
+                    'compound_int': compound_int,
+                    'start_lap': start_lap,
+                    'end_lap': end_lap,
+                    'fresh': fresh,
+                })
+
+            if stints:
+                strategy[code] = stints
+
+        return strategy
+    except Exception as e:
+        print(f"Warning: Could not extract strategy data: {e}")
+        return {}
+
+
 def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
@@ -183,6 +240,9 @@ def get_race_telemetry(session, session_type="R"):
                 f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
             ) as f:
                 frames = pickle.load(f)
+                # Backfill strategy_data for caches created before this feature
+                if isinstance(frames, dict) and "strategy_data" not in frames:
+                    frames["strategy_data"] = extract_strategy_data(session)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
                 print("The replay should begin in a new window shortly!")
                 return frames
@@ -467,6 +527,8 @@ def get_race_telemetry(session, session_type="R"):
         os.makedirs("computed_data")
 
     # Save using pickle (10-100x faster than JSON)
+    strategy_data = extract_strategy_data(session)
+
     with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
         pickle.dump({
             "frames": frames,
@@ -474,6 +536,7 @@ def get_race_telemetry(session, session_type="R"):
             "track_statuses": formatted_track_statuses,
             "total_laps": int(max_lap_number),
             "max_tyre_life": max_tyre_life_map,
+            "strategy_data": strategy_data,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Saved Successfully!")
@@ -484,6 +547,7 @@ def get_race_telemetry(session, session_type="R"):
         "track_statuses": formatted_track_statuses,
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
+        "strategy_data": strategy_data,
     }
 
 

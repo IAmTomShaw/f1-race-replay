@@ -21,6 +21,22 @@ def _format_wind_direction(degrees: Optional[float]) -> str:
   idx = int((deg_norm / 22.5) + 0.5) % len(dirs)
   return dirs[idx]
 
+TYRE_COMPOUND_COLORS = {
+    0: (255, 51, 51),     # SOFT - Red
+    1: (255, 199, 0),     # MEDIUM - Yellow
+    2: (255, 255, 255),   # HARD - White
+    3: (57, 181, 74),     # INTERMEDIATE - Green
+    4: (0, 174, 239),     # WET - Blue
+}
+
+TYRE_COMPOUND_LABELS = {
+    0: "S",
+    1: "M",
+    2: "H",
+    3: "I",
+    4: "W",
+}
+
 class BaseComponent:
     def on_resize(self, window): pass
     def draw(self, window): pass
@@ -1011,6 +1027,7 @@ class ControlsPopupComponent(BaseComponent):
             ("B", "Toggle Progress Bar"),
             ("L", "Toggle Driver Labels"),
             ("H", "Toggle Help Popup"),
+            ("T", "Toggle Tyre Strategy"),
         ]
 
     def set_lines(self, lines: Optional[list[str]]):
@@ -2311,3 +2328,321 @@ def draw_finish_line(self, session_type = 'R'):
                 
                 color = arcade.color.WHITE if i % 2 == 0 else arcade.color.BLACK
                 arcade.draw_line(x1, y1, x2, y2, color, 6)
+
+
+class TyreStrategyTimelineComponent(BaseComponent):
+    """Bottom panel showing selected drivers' tyre strategies as horizontal bars."""
+
+    # Panel sits above the progress bar / controls area
+    _PANEL_BOTTOM = 140
+
+    def __init__(self, visible=False):
+        self._visible = visible
+        self._strategy_data = {}
+        self._driver_colors = {}
+        self._total_laps = 0
+
+        # Layout constants
+        self._row_height = 26
+        self._header_height = 36
+        self._padding = 12
+        self._code_width = 50
+
+        # Reusable text objects
+        self._title_text = arcade.Text(
+            "TYRE STRATEGY", 0, 0, arcade.color.WHITE, 13,
+            bold=True, anchor_x="left", anchor_y="center"
+        )
+        self._text = arcade.Text(
+            "", 0, 0, arcade.color.WHITE, 11,
+            anchor_x="left", anchor_y="center"
+        )
+        self._small_text = arcade.Text(
+            "", 0, 0, arcade.color.WHITE, 9,
+            anchor_x="center", anchor_y="center"
+        )
+        self._hint_text = arcade.Text(
+            "Select drivers from leaderboard to compare strategies",
+            0, 0, (140, 140, 140), 12, anchor_x="center", anchor_y="center"
+        )
+
+    @property
+    def visible(self):
+        return self._visible
+
+    @visible.setter
+    def visible(self, value):
+        self._visible = value
+
+    def toggle_visibility(self):
+        self._visible = not self._visible
+        return self._visible
+
+    def set_data(self, strategy_data, driver_colors, total_laps):
+        self._strategy_data = strategy_data or {}
+        self._driver_colors = driver_colors or {}
+        self._total_laps = total_laps or 0
+
+    def _get_selected_drivers(self, window):
+        """Get the list of selected drivers from the window."""
+        selected = getattr(window, 'selected_drivers', [])
+        if not selected:
+            single = getattr(window, 'selected_driver', None)
+            if single:
+                selected = [single]
+        # Filter to drivers that have strategy data
+        return [c for c in selected if c in self._strategy_data]
+
+    def _get_panel_layout(self, window, driver_count):
+        """Calculate panel dimensions anchored to bottom of screen."""
+        left_margin = getattr(window, 'left_ui_margin', 340)
+        right_margin = getattr(window, 'right_ui_margin', 260)
+
+        panel_left = left_margin
+        panel_right = window.width - right_margin
+        panel_width = panel_right - panel_left
+        if panel_width < 200:
+            panel_left = 40
+            panel_width = window.width - 80
+
+        panel_height = self._header_height + driver_count * self._row_height + self._padding
+        panel_bottom = self._PANEL_BOTTOM
+        panel_top = panel_bottom + panel_height
+
+        cx = panel_left + panel_width / 2
+        cy = panel_bottom + panel_height / 2
+        bar_width = panel_width - self._code_width - self._padding * 3
+
+        return {
+            'cx': cx, 'cy': cy,
+            'width': panel_width, 'height': panel_height,
+            'left': panel_left, 'top': panel_top,
+            'bottom': panel_bottom,
+            'bar_left': panel_left + self._padding + self._code_width,
+            'bar_width': bar_width,
+        }
+
+    def draw(self, window):
+        if not self._visible or not self._strategy_data or self._total_laps <= 0:
+            return
+
+        all_selected = self._get_selected_drivers(window)
+
+        # Show hint if no drivers selected
+        if not all_selected:
+            hint_y = self._PANEL_BOTTOM + 20
+            # Small hint background
+            hint_w = 420
+            hint_cx = window.width / 2
+            hint_rect = arcade.XYWH(hint_cx, hint_y, hint_w, 30)
+            arcade.draw_rect_filled(hint_rect, (15, 15, 20, 200))
+            arcade.draw_rect_outline(hint_rect, (60, 60, 60), 1)
+            self._hint_text.x = hint_cx
+            self._hint_text.y = hint_y
+            self._hint_text.draw()
+            return
+
+        # Cap at 5 visible rows to keep the panel compact
+        _MAX_ROWS = 5
+        overflow = max(0, len(all_selected) - _MAX_ROWS)
+        selected = all_selected[:_MAX_ROWS]
+
+        layout = self._get_panel_layout(window, len(selected))
+        if layout is None:
+            return
+
+        cx, cy = layout['cx'], layout['cy']
+        pw, ph = layout['width'], layout['height']
+        left, top = layout['left'], layout['top']
+        bar_left = layout['bar_left']
+        bar_width = layout['bar_width']
+
+        # Background panel (semi-transparent so track shows through)
+        rect = arcade.XYWH(cx, cy, pw, ph)
+        arcade.draw_rect_filled(rect, (15, 15, 20, 160))
+        arcade.draw_rect_outline(rect, (60, 60, 60), 1)
+
+        # Header - title on the left, legend on the right
+        header_y = top - self._header_height / 2
+        self._title_text.x = left + self._padding
+        self._title_text.y = header_y
+        self._title_text.draw()
+
+        # Fresh / Used legend (right-aligned, upper portion of header)
+        legend_y = header_y + 8
+        legend_right = left + pw - self._padding
+        swatch_size = 10
+        # "Used" swatch (darker) + label
+        used_swatch_x = legend_right - 28
+        arcade.draw_rect_filled(
+            arcade.XYWH(used_swatch_x, legend_y, swatch_size, swatch_size),
+            (int(255 * 0.65), int(51 * 0.65), int(51 * 0.65))
+        )
+        self._small_text.text = "Used"
+        self._small_text.x = used_swatch_x + 8
+        self._small_text.y = legend_y
+        self._small_text.color = (160, 160, 160)
+        self._small_text.font_size = 9
+        self._small_text.bold = False
+        self._small_text.anchor_x = "left"
+        self._small_text.draw()
+        # "New" swatch (bright) + label
+        new_swatch_x = used_swatch_x - 62
+        arcade.draw_rect_filled(
+            arcade.XYWH(new_swatch_x, legend_y, swatch_size, swatch_size),
+            (255, 51, 51)
+        )
+        self._small_text.text = "New"
+        self._small_text.x = new_swatch_x + 8
+        self._small_text.y = legend_y
+        self._small_text.draw()
+        self._small_text.anchor_x = "center"  # Reset default
+
+        # Lap axis along the top
+        axis_y = top - self._header_height + 2
+        arcade.draw_line(bar_left, axis_y, bar_left + bar_width, axis_y, (60, 60, 60), 1)
+
+        # Lap tick marks and labels
+        tick_interval = 5 if self._total_laps > 20 else (2 if self._total_laps > 8 else 1)
+        for lap in range(1, self._total_laps + 1):
+            if lap == 1 or lap == self._total_laps or lap % tick_interval == 0:
+                tick_x = bar_left + ((lap - 0.5) / self._total_laps) * bar_width
+                arcade.draw_line(tick_x, axis_y - 2, tick_x, axis_y + 2, (100, 100, 100), 1)
+                self._small_text.text = str(lap)
+                self._small_text.x = tick_x
+                self._small_text.y = axis_y + 9
+                self._small_text.color = (130, 130, 130)
+                self._small_text.font_size = 8
+                self._small_text.bold = False
+                self._small_text.anchor_x = "center"
+                self._small_text.draw()
+
+        # Get current frame for progressive reveal
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        current_frame = window.frames[idx] if window.frames else {}
+        frame_drivers = current_frame.get("drivers", {})
+        leader_lap = current_frame.get("lap", 0)
+
+        # Draw rows for selected drivers
+        rows_start_y = axis_y - 6
+
+        for i, code in enumerate(selected):
+            stints = self._strategy_data.get(code, [])
+            if not stints:
+                continue
+
+            driver_frame = frame_drivers.get(code, {})
+            driver_lap = int(driver_frame.get("lap", leader_lap))
+
+            row_y = rows_start_y - i * self._row_height - self._row_height / 2
+
+            # Team color stripe
+            team_color = self._driver_colors.get(code, (200, 200, 200))
+            stripe_rect = arcade.XYWH(left + self._padding + 4, row_y, 4, self._row_height - 4)
+            arcade.draw_rect_filled(stripe_rect, team_color)
+
+            # Driver code
+            self._text.text = code
+            self._text.x = left + self._padding + 12
+            self._text.y = row_y
+            self._text.color = team_color
+            self._text.font_size = 11
+            self._text.bold = True
+            self._text.draw()
+
+            # Stint bars - progressive reveal
+            degradation = getattr(window, 'degradation_integrator', None)
+
+            for stint in stints:
+                s_start = stint['start_lap']
+                s_end = stint['end_lap']
+                compound_int = stint['compound_int']
+                fresh = stint.get('fresh', True)
+
+                if s_start > driver_lap:
+                    break
+
+                visible_end = min(s_end, driver_lap)
+                x1 = bar_left + ((s_start - 1) / self._total_laps) * bar_width
+                x2 = bar_left + (visible_end / self._total_laps) * bar_width
+                stint_width = x2 - x1
+                if stint_width < 1:
+                    continue
+                stint_cx = (x1 + x2) / 2
+
+                base_color = TYRE_COMPOUND_COLORS.get(compound_int, (128, 128, 128))
+                if not fresh:
+                    base_color = tuple(int(c * 0.65) for c in base_color)
+
+                bar_h = self._row_height - 6
+                stint_rect = arcade.XYWH(stint_cx, row_y, stint_width, bar_h)
+                arcade.draw_rect_filled(stint_rect, (*base_color, 220))
+                arcade.draw_rect_outline(stint_rect, (40, 40, 40), 1)
+
+                # Build label: compound letter + tyre life %
+                label = TYRE_COMPOUND_LABELS.get(compound_int, "?")
+                health_pct = None
+                if degradation:
+                    try:
+                        health = degradation.get_tyre_health(code, visible_end, None)
+                        if health and health.get('health') is not None:
+                            health_pct = int(health['health'])
+                    except Exception:
+                        pass
+
+                if stint_width > 25:
+                    display = f"{label} {health_pct}%" if health_pct is not None and stint_width > 60 else label
+                    self._small_text.text = display
+                    self._small_text.x = stint_cx
+                    self._small_text.y = row_y
+                    if compound_int in (1, 2):
+                        self._small_text.color = (20, 20, 20)
+                    else:
+                        self._small_text.color = (255, 255, 255)
+                    self._small_text.font_size = 9
+                    self._small_text.bold = True
+                    self._small_text.anchor_x = "center"
+                    self._small_text.draw()
+
+        # Current lap indicator
+        if 0 < leader_lap <= self._total_laps:
+            indicator_x = bar_left + ((leader_lap - 0.5) / self._total_laps) * bar_width
+            indicator_top = rows_start_y
+            indicator_bottom = rows_start_y - len(selected) * self._row_height
+            arcade.draw_line(
+                indicator_x, indicator_top,
+                indicator_x, indicator_bottom,
+                (255, 255, 255, 160), 2
+            )
+
+        # Overflow note when more drivers selected than visible
+        if overflow > 0:
+            note_y = rows_start_y - len(selected) * self._row_height - 8
+            self._small_text.text = f"+{overflow} more selected"
+            self._small_text.x = left + pw / 2
+            self._small_text.y = note_y
+            self._small_text.color = (120, 120, 120)
+            self._small_text.font_size = 9
+            self._small_text.bold = False
+            self._small_text.anchor_x = "center"
+            self._small_text.draw()
+
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        if not self._visible:
+            return False
+
+        selected = self._get_selected_drivers(window)[:5]
+        if not selected:
+            return False
+
+        layout = self._get_panel_layout(window, len(selected))
+        if layout is None:
+            return False
+
+        cx, cy = layout['cx'], layout['cy']
+        pw, ph = layout['width'], layout['height']
+        half_w, half_h = pw / 2, ph / 2
+
+        if cx - half_w <= x <= cx + half_w and cy - half_h <= y <= cy + half_h:
+            return True  # Consume click inside panel
+        return False
