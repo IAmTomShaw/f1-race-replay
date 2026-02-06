@@ -4,14 +4,15 @@ import numpy as np
 from scipy.spatial import cKDTree
 from src.f1_data import FPS
 from src.ui_components import (
-    LeaderboardComponent, 
-    WeatherComponent, 
-    LegendComponent, 
-    DriverInfoComponent, 
+    LeaderboardComponent,
+    WeatherComponent,
+    LegendComponent,
+    DriverInfoComponent,
     RaceProgressBarComponent,
     RaceControlsComponent,
     ControlsPopupComponent,
     SessionInfoComponent,
+    TyreStrategyTimelineComponent,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
@@ -28,7 +29,7 @@ class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None, session=None):
+                 session_info=None, session=None, strategy_data=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -63,7 +64,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
 
-        self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
+        self.controls_popup_comp.set_size(340, 270) # width/height of the popup box
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
         self.degradation_integrator = None
         if session is not None:
@@ -115,6 +116,15 @@ class F1RaceReplayWindow(arcade.Window):
                 round_num=session_info.get('round'),
                 date=session_info.get('date', ''),
                 total_laps=total_laps
+            )
+
+        # Tyre strategy timeline component
+        self.tyre_strategy_comp = TyreStrategyTimelineComponent(visible=False)
+        if strategy_data:
+            self.tyre_strategy_comp.set_data(
+                strategy_data=strategy_data,
+                driver_colors=driver_colors or {},
+                total_laps=total_laps or 0,
             )
 
         self.is_rewinding = False
@@ -300,7 +310,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp, self.tyre_strategy_comp):
             c.on_resize(self)
         
         # update persistent text positions
@@ -550,6 +560,9 @@ class F1RaceReplayWindow(arcade.Window):
         # Session info banner (top of screen)
         self.session_info_comp.draw(self)
 
+        # Tyre strategy timeline overlay
+        self.tyre_strategy_comp.draw(self)
+
         # Draw Controls popup box
         self.controls_popup_comp.draw(self)
         
@@ -644,6 +657,8 @@ class F1RaceReplayWindow(arcade.Window):
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
+        elif symbol == arcade.key.T:
+            self.tyre_strategy_comp.toggle_visibility()
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -662,6 +677,8 @@ class F1RaceReplayWindow(arcade.Window):
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.tyre_strategy_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
             return
