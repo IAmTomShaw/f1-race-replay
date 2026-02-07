@@ -1,17 +1,21 @@
 import os
+import math
 import arcade
 import numpy as np
 from scipy.spatial import cKDTree
+from arcade.camera import Camera2D
 from src.f1_data import FPS
 from src.ui_components import (
-    LeaderboardComponent, 
-    WeatherComponent, 
-    LegendComponent, 
-    DriverInfoComponent, 
+    LeaderboardComponent,
+    WeatherComponent,
+    LegendComponent,
+    DriverInfoComponent,
     RaceProgressBarComponent,
     RaceControlsComponent,
     ControlsPopupComponent,
     SessionInfoComponent,
+    TyreStrategyTimelineComponent,
+    ChaseCamHUDComponent,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
@@ -28,7 +32,7 @@ class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None, session=None):
+                 session_info=None, session=None, strategy_data=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -63,7 +67,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
 
-        self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
+        self.controls_popup_comp.set_size(340, 290) # width/height of the popup box
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
         self.degradation_integrator = None
         if session is not None:
@@ -115,6 +119,15 @@ class F1RaceReplayWindow(arcade.Window):
                 round_num=session_info.get('round'),
                 date=session_info.get('date', ''),
                 total_laps=total_laps
+            )
+
+        # Tyre strategy timeline component
+        self.tyre_strategy_comp = TyreStrategyTimelineComponent(visible=False)
+        if strategy_data:
+            self.tyre_strategy_comp.set_data(
+                strategy_data=strategy_data,
+                driver_colors=driver_colors or {},
+                total_laps=total_laps or 0,
             )
 
         self.is_rewinding = False
@@ -200,6 +213,49 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
         # store previous leaderboard order for up/down arrows
         self.last_leaderboard_order = None
+
+        # --- Chase Cam State ---
+        self.chase_cam_active = False
+        self.chase_cam_driver = None       # driver code being followed
+        self.chase_cam = None              # Camera2D instance (created lazily)
+        self._chase_cam_x = 0.0
+        self._chase_cam_y = 0.0
+        self._chase_cam_angle = 0.0        # camera angle in degrees
+        self._prev_driver_pos = {}         # code -> (x, y) for heading calc
+        self.chase_cam_hud = ChaseCamHUDComponent()
+        self._chase_intervals = {}  # code -> gap_seconds to car ahead
+        self._chase_label = arcade.Text("", 0, 0, arcade.color.WHITE, 9,
+                                        bold=True, anchor_x="center", anchor_y="bottom")
+
+        # Chase cam constants
+        self.CHASE_CAM_ZOOM = 2.0
+        self.CHASE_CAM_LERP_POS = 0.35
+        self.CHASE_CAM_LERP_ANGLE = 0.04   # very slow rotation to minimise visual shimmer
+
+        # Pre-rotate world track points for chase cam (reduced density for performance)
+        self._rotated_inner = [self._rotate_world(x, y) for x, y in self.world_inner_points[::3]]
+        self._rotated_outer = [self._rotate_world(x, y) for x, y in self.world_outer_points[::3]]
+
+        # Pre-rotate DRS zone points
+        self._rotated_drs_zones = []
+        if hasattr(self, 'drs_zones') and self.drs_zones:
+            for zone in self.drs_zones:
+                start_idx = zone["start"]["index"]
+                end_idx = zone["end"]["index"]
+                pts = []
+                for i in range(start_idx, min(end_idx + 1, len(self.x_outer))):
+                    rx, ry = self._rotate_world(float(self.x_outer.iloc[i]), float(self.y_outer.iloc[i]))
+                    pts.append((rx, ry))
+                self._rotated_drs_zones.append(pts)
+
+        # Heading smoothing buffer (stores last N heading values)
+        self._heading_buffer = []
+        self._heading_buffer_size = 20  # heavy smoothing to reduce rotation jitter
+
+        # Interpolation state (shared between _update and _draw)
+        self._chase_frac = 0.0
+        self._chase_frame_idx = 0
+        self._chase_next_idx = 0
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
@@ -300,8 +356,10 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp, self.tyre_strategy_comp, self.chase_cam_hud):
             c.on_resize(self)
+        if self.chase_cam:
+            self.chase_cam.match_window()
         
         # update persistent text positions
         self.lap_text.x = 20
@@ -348,6 +406,35 @@ class F1RaceReplayWindow(arcade.Window):
                 bottom=0, top=self.height,
                 texture=self.bg_texture
             )
+
+        # --- Chase Cam Rendering ---
+        if self.chase_cam_active and self.chase_cam:
+            # Use the exact same frame indices that _update_chase_cam computed
+            # to guarantee camera position and car rendering are perfectly in sync.
+            frame = self.frames[self._chase_frame_idx]
+
+            # Update leaderboard order + compute real-time intervals
+            self._update_chase_leaderboard(frame)
+
+            # World pass: position camera and draw track + cars
+            self.chase_cam.position = (self._chase_cam_x, self._chase_cam_y)
+            self.chase_cam.zoom = self.CHASE_CAM_ZOOM
+            self.chase_cam.angle = self._chase_cam_angle
+            self.chase_cam.use()
+
+            self._draw_chase_cam_world(frame)
+
+            # HUD pass: switch to screen-space camera for dashboard overlay
+            self.default_camera.use()
+            self.chase_cam_hud.draw(self)
+
+            # Progress bar still usable for seeking
+            self.progress_bar_comp.draw(self)
+            self.progress_bar_comp.draw_overlays(self)
+
+            # Controls popup still accessible
+            self.controls_popup_comp.draw(self)
+            return
 
         # 2. Draw Track (using pre-calculated screen points)
         idx = min(int(self.frame_index), self.n_frames - 1)
@@ -550,6 +637,9 @@ class F1RaceReplayWindow(arcade.Window):
         # Session info banner (top of screen)
         self.session_info_comp.draw(self)
 
+        # Tyre strategy timeline overlay
+        self.tyre_strategy_comp.draw(self)
+
         # Draw Controls popup box
         self.controls_popup_comp.draw(self)
         
@@ -558,7 +648,7 @@ class F1RaceReplayWindow(arcade.Window):
                     
     def on_update(self, delta_time: float):
         self.race_controls_comp.on_update(delta_time)
-        
+
         seek_speed = 3.0 * max(1.0, self.playback_speed) # Multiplier for seeking speed, scales with current playback speed
         if self.is_rewinding:
             self.frame_index = max(0.0, self.frame_index - delta_time * FPS * seek_speed)
@@ -568,26 +658,49 @@ class F1RaceReplayWindow(arcade.Window):
             self.race_controls_comp.flash_button('forward')
 
         if self.paused:
+            self._update_chase_cam(delta_time)
             return
 
         self.frame_index += delta_time * FPS * self.playback_speed
-        
+
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
 
+        # Update chase cam AFTER frame_index is finalized so camera and
+        # rendered cars use the exact same frame data (no 1-frame desync).
+        self._update_chase_cam(delta_time)
+
     def on_key_press(self, symbol: int, modifiers: int):
-        # Allow ESC to close window at any time
+        # Allow ESC to close window at any time (exit chase cam first)
         if symbol == arcade.key.ESCAPE:
+            if self.chase_cam_active:
+                self._deactivate_chase_cam()
+                return
             arcade.close_window()
+            return
+        # V: toggle chase cam
+        if symbol == arcade.key.V:
+            if self.chase_cam_active:
+                self._deactivate_chase_cam()
+            else:
+                driver = getattr(self, 'selected_driver', None)
+                if driver:
+                    self._activate_chase_cam(driver)
             return
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
         elif symbol == arcade.key.RIGHT:
+            if self.chase_cam_active:
+                self._cycle_chase_driver(1)
+                return
             self.was_paused_before_hold = self.paused
             self.is_forwarding = True
             self.paused = True
         elif symbol == arcade.key.LEFT:
+            if self.chase_cam_active:
+                self._cycle_chase_driver(-1)
+                return
             self.was_paused_before_hold = self.paused
             self.is_rewinding = True
             self.paused = True
@@ -644,6 +757,8 @@ class F1RaceReplayWindow(arcade.Window):
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
+        elif symbol == arcade.key.T:
+            self.tyre_strategy_comp.toggle_visibility()
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -663,6 +778,8 @@ class F1RaceReplayWindow(arcade.Window):
         # forward to components; stop at first that handled it
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return
+        if self.tyre_strategy_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
@@ -678,3 +795,252 @@ class F1RaceReplayWindow(arcade.Window):
         """Handle mouse motion for hover effects on progress bar and controls."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
+
+    # ------------------------------------------------------------------
+    #  Chase Cam helpers
+    # ------------------------------------------------------------------
+
+    def _rotate_world(self, x, y):
+        """Apply circuit rotation to a world coordinate (no scale/translate)."""
+        if not self._rot_rad:
+            return x, y
+        world_cx = (self.x_min + self.x_max) / 2
+        world_cy = (self.y_min + self.y_max) / 2
+        tx = x - world_cx
+        ty = y - world_cy
+        rx = tx * self._cos_rot - ty * self._sin_rot
+        ry = tx * self._sin_rot + ty * self._cos_rot
+        return rx + world_cx, ry + world_cy
+
+    def _compute_heading(self, code, rx, ry):
+        """Compute smoothed heading in degrees from position delta.
+
+        Uses a rolling buffer of recent headings to prevent jitter.
+        """
+        prev = self._prev_driver_pos.get(code)
+        if prev is None:
+            return self._chase_cam_angle
+
+        px, py = prev
+        dx = rx - px
+        dy = ry - py
+        dist = math.sqrt(dx * dx + dy * dy)
+
+        if dist < 1.5:
+            # Too close - use buffered average or current angle
+            if self._heading_buffer:
+                return sum(self._heading_buffer) / len(self._heading_buffer)
+            return self._chase_cam_angle
+
+        raw_heading = math.degrees(math.atan2(dy, dx))
+
+        # Add to rolling buffer
+        self._heading_buffer.append(raw_heading)
+        if len(self._heading_buffer) > self._heading_buffer_size:
+            self._heading_buffer.pop(0)
+
+        # Return average heading (smoothed)
+        # Use circular mean to handle wrap-around (e.g. 359° and 1°)
+        sin_sum = sum(math.sin(math.radians(h)) for h in self._heading_buffer)
+        cos_sum = sum(math.cos(math.radians(h)) for h in self._heading_buffer)
+        return math.degrees(math.atan2(sin_sum, cos_sum))
+
+    def _update_chase_cam(self, delta_time):
+        """Lerp the chase camera toward the target driver each frame.
+
+        Uses sub-frame interpolation between data frames (25 FPS data at 60 Hz
+        display rate) to eliminate the ~21-pixel position jumps that are visible
+        at 6x zoom.
+        """
+        if not self.chase_cam_active or not self.chase_cam_driver:
+            return
+
+        idx = min(int(self.frame_index), self.n_frames - 1)
+        frac = self.frame_index - int(self.frame_index)
+        next_idx = min(idx + 1, self.n_frames - 1)
+        frame = self.frames[idx]
+        code = self.chase_cam_driver
+
+        if code not in frame["drivers"]:
+            return
+
+        d = frame["drivers"][code]
+        x, y = d["x"], d["y"]
+
+        # Interpolate position between consecutive data frames
+        if next_idx != idx and code in self.frames[next_idx]["drivers"]:
+            nd = self.frames[next_idx]["drivers"][code]
+            x = x + (nd["x"] - x) * frac
+            y = y + (nd["y"] - y) * frac
+
+        rx, ry = self._rotate_world(x, y)
+
+        # Store interpolation state for _draw_chase_cam_world and HUD
+        self._chase_frac = frac
+        self._chase_frame_idx = idx
+        self._chase_next_idx = next_idx
+
+        # Heading from position delta in rotated space
+        heading_deg = self._compute_heading(code, rx, ry)
+        self._prev_driver_pos[code] = (rx, ry)
+
+        # Target camera angle: make heading point up on screen
+        target_angle = 90.0 - heading_deg
+
+        # Shortest-path angle interpolation
+        angle_diff = ((target_angle - self._chase_cam_angle + 180) % 360) - 180
+
+        # Position: track directly (no lerp) — interpolation already provides
+        # smooth sub-frame positions, and any camera lag makes the driver dot
+        # oscillate visibly around screen centre at 6x zoom.
+        self._chase_cam_x = rx
+        self._chase_cam_y = ry
+
+        # Angle: still lerp for smooth rotation feel
+        lerp_ang = min(1.0, self.CHASE_CAM_LERP_ANGLE * 60 * delta_time)
+        self._chase_cam_angle += angle_diff * lerp_ang
+
+    def _activate_chase_cam(self, driver_code):
+        """Enter chase cam mode for the given driver."""
+        if self.chase_cam is None:
+            self.chase_cam = Camera2D()
+
+        self.chase_cam_active = True
+        self.chase_cam_driver = driver_code
+        self.chase_cam_hud.visible = True
+
+        # Initialize camera position immediately (no lerp jump)
+        idx = min(int(self.frame_index), self.n_frames - 1)
+        frame = self.frames[idx]
+        if driver_code in frame["drivers"]:
+            pos = frame["drivers"][driver_code]
+            rx, ry = self._rotate_world(pos["x"], pos["y"])
+            self._chase_cam_x = rx
+            self._chase_cam_y = ry
+            self._chase_cam_angle = 0.0
+
+        self._prev_driver_pos.clear()
+        self._heading_buffer.clear()
+
+    def _deactivate_chase_cam(self):
+        """Exit chase cam and return to normal view."""
+        self.chase_cam_active = False
+        self.chase_cam_hud.visible = False
+        self.default_camera.use()
+
+    def _cycle_chase_driver(self, direction):
+        """Cycle to next/prev driver by leaderboard position."""
+        if not self.last_leaderboard_order:
+            return
+
+        order = self.last_leaderboard_order
+        try:
+            current_idx = order.index(self.chase_cam_driver)
+        except ValueError:
+            current_idx = 0
+
+        new_idx = (current_idx + direction) % len(order)
+        new_driver = order[new_idx]
+
+        self.chase_cam_driver = new_driver
+        self.selected_driver = new_driver
+        self._prev_driver_pos.clear()
+        self._heading_buffer.clear()
+
+    def _update_chase_leaderboard(self, frame):
+        """Recompute leaderboard order and store sorted entries for the HUD."""
+        driver_progress = {}
+        for code, pos in frame["drivers"].items():
+            lap_raw = pos.get("lap", 1)
+            try:
+                lap = int(lap_raw)
+            except Exception:
+                lap = 1
+            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+            driver_progress[code] = progress_m
+
+        # Sort by distance travelled (leader first) — same format as leaderboard_comp.entries
+        sorted_entries = []
+        for code, prog in sorted(driver_progress.items(), key=lambda x: x[1], reverse=True):
+            color = self.driver_colors.get(code, arcade.color.WHITE)
+            pos = frame["drivers"][code]
+            sorted_entries.append((code, color, pos, prog))
+
+        self.last_leaderboard_order = [c for c, _, _, _ in sorted_entries]
+
+        # Expose entries so the HUD can compute gaps using the same formula
+        # as DriverInfoComponent (distance / 10 / 55.56 m/s reference speed)
+        self._chase_leaderboard_entries = sorted_entries
+
+    def _draw_chase_cam_world(self, frame):
+        """Draw the track and cars in rotated-world coordinates under the chase camera."""
+
+        # Determine track color from status
+        current_time = frame["t"]
+        current_track_status = "GREEN"
+        for status in self.track_statuses:
+            if status['start_time'] <= current_time and (status['end_time'] is None or current_time < status['end_time']):
+                current_track_status = status['status']
+                break
+
+        STATUS_COLORS = {
+            "GREEN": (150, 150, 150),
+            "YELLOW": (220, 180, 0),
+            "RED": (200, 30, 30),
+            "VSC": (200, 130, 50),
+            "SC": (180, 100, 30),
+        }
+        track_color = STATUS_COLORS.get("GREEN")
+        if current_track_status == "2":
+            track_color = STATUS_COLORS.get("YELLOW")
+        elif current_track_status == "4":
+            track_color = STATUS_COLORS.get("SC")
+        elif current_track_status == "5":
+            track_color = STATUS_COLORS.get("RED")
+        elif current_track_status in ("6", "7"):
+            track_color = STATUS_COLORS.get("VSC")
+
+        # Draw track edges (thicker lines reduce aliasing shimmer during rotation)
+        if len(self._rotated_inner) > 1:
+            arcade.draw_line_strip(self._rotated_inner, track_color, 6)
+        if len(self._rotated_outer) > 1:
+            arcade.draw_line_strip(self._rotated_outer, track_color, 6)
+
+        # Draw DRS zones (pre-computed)
+        if self.toggle_drs_zones and self._rotated_drs_zones:
+            drs_color = (0, 255, 0)
+            for pts in self._rotated_drs_zones:
+                if len(pts) > 1:
+                    arcade.draw_line_strip(pts, drs_color, 6)
+
+        # Draw cars with sub-frame interpolation
+        frac = self._chase_frac
+        cur_idx = self._chase_frame_idx
+        nxt_idx = self._chase_next_idx
+        next_frame = self.frames[nxt_idx] if nxt_idx != cur_idx else frame
+
+        for code, pos in frame["drivers"].items():
+            x, y = pos["x"], pos["y"]
+
+            # Interpolate between data frames for smooth motion at 6x zoom
+            if nxt_idx != cur_idx and code in next_frame["drivers"]:
+                nd = next_frame["drivers"][code]
+                x = x + (nd["x"] - x) * frac
+                y = y + (nd["y"] - y) * frac
+
+            rx, ry = self._rotate_world(x, y)
+            color = self.driver_colors.get(code, arcade.color.WHITE)
+
+            if code == self.chase_cam_driver:
+                # Highlighted chased driver with glow
+                arcade.draw_circle_filled(rx, ry, 16, (*color[:3], 60))
+                arcade.draw_circle_filled(rx, ry, 10, color)
+            else:
+                arcade.draw_circle_filled(rx, ry, 6, color)
+                # Label other drivers with their code
+                self._chase_label.text = code
+                self._chase_label.color = color
+                self._chase_label.x = rx
+                self._chase_label.y = ry + 10
+                self._chase_label.draw()
