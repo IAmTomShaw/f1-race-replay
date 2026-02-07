@@ -4,6 +4,8 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 
 ![Race Replay Preview](./resources/preview.png)
 
+> **HUGE NEWS:** The telemetry stream feature is now in a usable state. See the [telemetry demo documentation](./telemetry.md) for access instructions, data format details, and usage ideas.
+
 ## Features
 
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
