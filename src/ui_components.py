@@ -1028,6 +1028,7 @@ class ControlsPopupComponent(BaseComponent):
             ("L", "Toggle Driver Labels"),
             ("H", "Toggle Help Popup"),
             ("T", "Toggle Tyre Strategy"),
+            ("V", "Chase Cam (select driver)"),
         ]
 
     def set_lines(self, lines: Optional[list[str]]):
@@ -2646,3 +2647,389 @@ class TyreStrategyTimelineComponent(BaseComponent):
         if cx - half_w <= x <= cx + half_w and cy - half_h <= y <= cy + half_h:
             return True  # Consume click inside panel
         return False
+
+
+# ---------------------------------------------------------------------------
+# Chase Cam HUD Component
+# ---------------------------------------------------------------------------
+
+class ChaseCamHUDComponent(BaseComponent):
+    """Dashboard HUD overlay for driver chase cam mode.
+
+    Matches the DriverInfoComponent card style: black bg, team-color outline
+    and header, with rows for telemetry data and vertical THR/BRK bars.
+    Uses pre-created arcade.Text objects for performance.
+    """
+
+    def __init__(self):
+        self.visible = False
+        self._texts_created = False
+        self._fps_timer = 0.0
+        self._fps_count = 0
+        self._fps_display = 0
+
+    def _ensure_texts(self):
+        """Lazily create all Text objects (requires an active window)."""
+        if self._texts_created:
+            return
+        # Card header
+        self._t_header = arcade.Text("", 0, 0, arcade.color.BLACK, 16,
+                                     bold=True, anchor_y="center")
+        # Position + Lap
+        self._t_pos_lap = arcade.Text("", 0, 0, arcade.color.WHITE, 14,
+                                      anchor_y="center")
+        # Speed — large hero number
+        self._t_speed = arcade.Text("", 0, 0, arcade.color.WHITE, 44,
+                                    bold=True, anchor_y="center")
+        self._t_speed_unit = arcade.Text("km/h", 0, 0, (140, 140, 140), 12,
+                                         anchor_y="center")
+        # Gear — large hero number on right
+        self._t_gear = arcade.Text("", 0, 0, arcade.color.WHITE, 44,
+                                   bold=True, anchor_x="center", anchor_y="center")
+        self._t_gear_label = arcade.Text("GEAR", 0, 0, (120, 120, 120), 10,
+                                         anchor_x="center", anchor_y="center")
+        # DRS
+        self._t_drs = arcade.Text("", 0, 0, arcade.color.GRAY, 13,
+                                  bold=True, anchor_y="center")
+        # Tyre compound letter (inside circle)
+        self._t_tyre_compound = arcade.Text("", 0, 0, arcade.color.BLACK, 12,
+                                            bold=True, anchor_x="center", anchor_y="center")
+        # Tyre age label (next to circle)
+        self._t_tyre_label = arcade.Text("", 0, 0, arcade.color.WHITE, 12,
+                                         anchor_y="center")
+        # Gap rows
+        self._t_ahead = arcade.Text("", 0, 0, (180, 180, 180), 12,
+                                    anchor_y="center")
+        self._t_behind = arcade.Text("", 0, 0, (180, 180, 180), 12,
+                                     anchor_y="center")
+        # THR / BRK labels (horizontal bars)
+        self._t_thr = arcade.Text("THR", 0, 0, (140, 140, 140), 11,
+                                  anchor_x="right", anchor_y="center")
+        self._t_brk = arcade.Text("BRK", 0, 0, (140, 140, 140), 11,
+                                  anchor_x="right", anchor_y="center")
+        # Driver banner (top-center)
+        self._t_banner = arcade.Text("", 0, 0, arcade.color.WHITE, 20,
+                                     bold=True, anchor_x="center", anchor_y="center")
+        # Time / playback display (top-left)
+        self._t_time = arcade.Text("", 0, 0, (180, 180, 180), 14,
+                                   anchor_x="left", anchor_y="top")
+        self._texts_created = True
+
+    # -- public API ----------------------------------------------------------
+
+    def toggle_visibility(self):
+        self.visible = not self.visible
+
+    def on_resize(self, window):
+        pass
+
+    # -- main draw -----------------------------------------------------------
+
+    def draw(self, window):
+        if not self.visible:
+            return
+
+        driver_code = getattr(window, "chase_cam_driver", None)
+        if not driver_code:
+            return
+
+        # Use the same frame indices that _update_chase_cam computed
+        # so HUD, camera, and world rendering are all perfectly in sync.
+        idx = getattr(window, '_chase_frame_idx', min(int(window.frame_index), window.n_frames - 1))
+        frac = getattr(window, '_chase_frac', 0.0)
+        next_idx = getattr(window, '_chase_next_idx', idx)
+        frame = window.frames[idx]
+        if driver_code not in frame["drivers"]:
+            return
+
+        self._ensure_texts()
+
+        # Build interpolated driver dict for smooth HUD gauges
+        driver = dict(frame["drivers"][driver_code])
+        if next_idx != idx and driver_code in window.frames[next_idx]["drivers"]:
+            nd = window.frames[next_idx]["drivers"][driver_code]
+            for key in ("speed", "throttle", "brake"):
+                if key in driver and key in nd:
+                    driver[key] = driver[key] + (nd[key] - driver[key]) * frac
+
+        # FPS counter (update once per second)
+        import time
+        now = time.monotonic()
+        self._fps_count += 1
+        if now - self._fps_timer >= 1.0:
+            self._fps_display = self._fps_count
+            self._fps_count = 0
+            self._fps_timer = now
+
+        self._draw_driver_banner(window, driver_code)
+        self._draw_info_card(window, driver, driver_code)
+        self._draw_lap_and_time(window, frame)
+        self._draw_mini_map(window, frame, driver_code)
+
+    # -- sub-elements --------------------------------------------------------
+
+    def _draw_driver_banner(self, window, code):
+        team_color = window.driver_colors.get(code, arcade.color.GRAY)
+        cx = window.width / 2
+        y = window.height - 30
+
+        arcade.draw_rect_filled(arcade.XYWH(cx, y, 200, 36), (0, 0, 0, 200))
+        arcade.draw_rect_filled(arcade.XYWH(cx, y - 16, 200, 4), team_color)
+        self._t_banner.text = code
+        self._t_banner.x = cx
+        self._t_banner.y = y
+        self._t_banner.draw()
+
+    def _draw_info_card(self, window, driver, code):
+        """Draw a spacious driver dashboard card at bottom-left."""
+        box_w, box_h = 380, 320
+        box_x, box_y = 20, 20
+        center_x = box_x + box_w / 2
+        center_y = box_y + box_h / 2
+        top = box_y + box_h
+        left = box_x
+        right = box_x + box_w
+
+        team_color = window.driver_colors.get(code, arcade.color.GRAY)
+
+        # Card background + team-color outline
+        rect = arcade.XYWH(center_x, center_y, box_w, box_h)
+        arcade.draw_rect_filled(rect, (0, 0, 0, 200))
+        arcade.draw_rect_outline(rect, team_color, 2)
+
+        # Team-color header bar
+        header_h = 35
+        header_cy = top - header_h / 2
+        arcade.draw_rect_filled(arcade.XYWH(center_x, header_cy, box_w, header_h), team_color)
+        self._t_header.text = f"Driver: {code}"
+        self._t_header.x = left + 12
+        self._t_header.y = header_cy
+        self._t_header.draw()
+
+        left_text_x = left + 18
+
+        # -- Position + Lap row --
+        cursor_y = top - header_h - 22
+        pos = driver.get("position", "?")
+        lap = driver.get("lap", 1)
+        total = getattr(window, "total_laps", None)
+        lap_str = f"Lap {int(lap)}/{total}" if total else f"Lap {int(lap)}"
+        self._t_pos_lap.text = f"P{pos}  |  {lap_str}"
+        self._t_pos_lap.x = left_text_x
+        self._t_pos_lap.y = cursor_y
+        self._t_pos_lap.draw()
+
+        # -- Speed (large) + Gear (large) --
+        speed = driver.get("speed", 0)
+        gear = driver.get("gear", 0)
+        gear_str = str(int(gear)) if gear and gear > 0 else "N"
+
+        speed_y = cursor_y - 45
+        self._t_speed.text = f"{speed:.0f}"
+        self._t_speed.x = left_text_x
+        self._t_speed.y = speed_y
+        self._t_speed.draw()
+
+        self._t_speed_unit.x = left_text_x
+        self._t_speed_unit.y = speed_y - 28
+        self._t_speed_unit.draw()
+
+        # Gear on the right side
+        gear_x = right - 65
+        self._t_gear.text = gear_str
+        self._t_gear.x = gear_x
+        self._t_gear.y = speed_y
+        self._t_gear.draw()
+
+        self._t_gear_label.x = gear_x
+        self._t_gear_label.y = speed_y + 30
+        self._t_gear_label.draw()
+
+        # -- Thin separator line --
+        sep_y = speed_y - 48
+        arcade.draw_line(left + 12, sep_y, right - 12, sep_y, (60, 60, 60), 1)
+
+        # -- DRS + Tyre row --
+        info_y = sep_y - 20
+        drs_val = driver.get("drs", 0)
+        if drs_val in (10, 12, 14):
+            drs_str, drs_color = "DRS: ON", arcade.color.GREEN
+        elif drs_val == 8:
+            drs_str, drs_color = "DRS: AVAIL", arcade.color.YELLOW
+        else:
+            drs_str, drs_color = "DRS: OFF", arcade.color.GRAY
+        self._t_drs.text = drs_str
+        self._t_drs.color = drs_color
+        self._t_drs.x = left_text_x
+        self._t_drs.y = info_y
+        self._t_drs.draw()
+
+        # Tyre info (right of DRS)
+        tyre_val = int(driver.get("tyre", 0))
+        tyre_life = driver.get("tyre_life", 0)
+        tyre_color = TYRE_COMPOUND_COLORS.get(tyre_val, (200, 200, 200))
+        tyre_letter = TYRE_COMPOUND_LABELS.get(tyre_val, "?")
+
+        tyre_x = left + 160
+        arcade.draw_circle_filled(tyre_x, info_y, 9, tyre_color)
+        self._t_tyre_compound.text = tyre_letter
+        self._t_tyre_compound.x = tyre_x
+        self._t_tyre_compound.y = info_y
+        self._t_tyre_compound.draw()
+
+        try:
+            age_text = f"Lap {int(tyre_life)}"
+        except (ValueError, TypeError):
+            age_text = "Lap 0"
+        self._t_tyre_label.text = age_text
+        self._t_tyre_label.x = tyre_x + 16
+        self._t_tyre_label.y = info_y
+        self._t_tyre_label.draw()
+
+        # -- THR / BRK horizontal bars --
+        thr = max(0.0, min(100.0, driver.get("throttle", 0)))
+        brk_raw = driver.get("brake", 0)
+        brk = max(0.0, min(100.0, brk_raw if brk_raw > 1 else brk_raw * 100))
+        t_r = max(0.0, min(1.0, thr / 100.0))
+        b_r = max(0.0, min(1.0, brk / 100.0))
+
+        bar_full_w = box_w - 80  # full bar width
+        bar_h = 14
+        bar_left = left + 60
+        thr_y = info_y - 28
+        brk_y = thr_y - 24
+
+        # Throttle
+        self._t_thr.x = bar_left - 8
+        self._t_thr.y = thr_y
+        self._t_thr.draw()
+        arcade.draw_rect_filled(
+            arcade.XYWH(bar_left + bar_full_w / 2, thr_y, bar_full_w, bar_h), (50, 50, 50))
+        if t_r > 0:
+            fill_w = bar_full_w * t_r
+            arcade.draw_rect_filled(
+                arcade.XYWH(bar_left + fill_w / 2, thr_y, fill_w, bar_h), (0, 200, 0))
+
+        # Brake
+        self._t_brk.x = bar_left - 8
+        self._t_brk.y = brk_y
+        self._t_brk.draw()
+        arcade.draw_rect_filled(
+            arcade.XYWH(bar_left + bar_full_w / 2, brk_y, bar_full_w, bar_h), (50, 50, 50))
+        if b_r > 0:
+            fill_w = bar_full_w * b_r
+            arcade.draw_rect_filled(
+                arcade.XYWH(bar_left + fill_w / 2, brk_y, fill_w, bar_h), (200, 30, 30))
+
+        # -- Thin separator line --
+        sep2_y = brk_y - 18
+        arcade.draw_line(left + 12, sep2_y, right - 12, sep2_y, (60, 60, 60), 1)
+
+        # -- Gaps --
+        ahead_text, behind_text = self._get_gaps(window, code)
+        gap_y = sep2_y - 18
+        self._t_ahead.text = ahead_text
+        self._t_ahead.x = left_text_x
+        self._t_ahead.y = gap_y
+        self._t_ahead.draw()
+
+        self._t_behind.text = behind_text
+        self._t_behind.x = left_text_x
+        self._t_behind.y = gap_y - 22
+        self._t_behind.draw()
+
+    def _draw_mini_map(self, window, frame, chased_code):
+        map_w, map_h, margin = 200, 150, 20
+        map_x = window.width - map_w - margin
+        map_y = window.height - map_h - margin
+
+        arcade.draw_rect_filled(
+            arcade.XYWH(map_x + map_w / 2, map_y + map_h / 2, map_w, map_h), (0, 0, 0, 180)
+        )
+        arcade.draw_rect_outline(
+            arcade.XYWH(map_x + map_w / 2, map_y + map_h / 2, map_w, map_h), (80, 80, 80), 1
+        )
+
+        x_min = getattr(window, "x_min", 0)
+        x_max = getattr(window, "x_max", 1)
+        y_min = getattr(window, "y_min", 0)
+        y_max = getattr(window, "y_max", 1)
+        world_w = max(1, x_max - x_min)
+        world_h = max(1, y_max - y_min)
+        wcx = (x_min + x_max) / 2
+        wcy = (y_min + y_max) / 2
+        scale = min((map_w - 20) / world_w, (map_h - 20) / world_h)
+
+        cos_r = getattr(window, "_cos_rot", 1.0)
+        sin_r = getattr(window, "_sin_rot", 0.0)
+        has_rot = getattr(window, "_rot_rad", 0.0)
+        mcx = map_x + map_w / 2
+        mcy = map_y + map_h / 2
+
+        def mp(wx, wy):
+            if has_rot:
+                tx, ty = wx - wcx, wy - wcy
+                wx = tx * cos_r - ty * sin_r + wcx
+                wy = tx * sin_r + ty * cos_r + wcy
+            return mcx + (wx - wcx) * scale, mcy + (wy - wcy) * scale
+
+        world_inner = getattr(window, "world_inner_points", [])
+        world_outer = getattr(window, "world_outer_points", [])
+        if len(world_inner) > 40:
+            arcade.draw_line_strip([mp(x, y) for x, y in world_inner[::40]], (100, 100, 100), 1)
+        if len(world_outer) > 40:
+            arcade.draw_line_strip([mp(x, y) for x, y in world_outer[::40]], (100, 100, 100), 1)
+
+        for code, pos in frame["drivers"].items():
+            sx, sy = mp(pos["x"], pos["y"])
+            color = window.driver_colors.get(code, arcade.color.WHITE)
+            arcade.draw_circle_filled(sx, sy, 4 if code == chased_code else 2, color)
+
+    def _draw_lap_and_time(self, window, frame):
+        t = frame.get("t", 0)
+        h = int(t // 3600)
+        m = int((t % 3600) // 60)
+        s = int(t % 60)
+        self._t_time.text = f"{h:02}:{m:02}:{s:02}  x{window.playback_speed}  {self._fps_display}fps"
+        self._t_time.x = 20
+        self._t_time.y = window.height - 20
+        self._t_time.draw()
+
+    # -- helpers -------------------------------------------------------------
+
+    def _get_gaps(self, window, code):
+        """Return (ahead_text, behind_text) using DriverInfoComponent's gap formula.
+
+        Uses _chase_leaderboard_entries (same format as leaderboard_comp.entries):
+        each entry is (code, color, pos_dict, progress_m).
+        Gap = abs(progress_diff) / 10.0 / 55.56 (200 km/h reference speed).
+        """
+        entries = getattr(window, "_chase_leaderboard_entries", None)
+        if not entries:
+            return "Ahead: N/A", "Behind: N/A"
+
+        try:
+            idx = next(i for i, e in enumerate(entries) if e[0] == code)
+        except StopIteration:
+            return "Ahead: N/A", "Behind: N/A"
+
+        curr_pos = entries[idx][3]
+
+        def get_gap_str(neighbor_idx, prefix, sign):
+            n_code = entries[neighbor_idx][0]
+            n_pos = entries[neighbor_idx][3]
+            dist = abs(curr_pos - n_pos) / 10.0
+            gap_time = dist / 55.56  # 200 km/h reference speed
+            return f"{prefix} ({n_code}): {sign}{gap_time:.2f}s ({dist:.1f}m)"
+
+        if idx == 0:
+            ahead_text = "LEADER"
+        else:
+            ahead_text = get_gap_str(idx - 1, "Ahead", "+")
+
+        if idx >= len(entries) - 1:
+            behind_text = "LAST"
+        else:
+            behind_text = get_gap_str(idx + 1, "Behind", "-")
+
+        return ahead_text, behind_text
