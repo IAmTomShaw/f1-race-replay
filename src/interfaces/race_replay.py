@@ -1,6 +1,7 @@
 import os
 import arcade
 import numpy as np
+from scipy.spatial import cKDTree
 from src.f1_data import FPS
 from src.ui_components import (
     LeaderboardComponent, 
@@ -18,6 +19,8 @@ from src.ui_components import (
 from src.tyre_degradation_integration import TyreDegradationIntegrator
 from src.incident_detection import IncidentDetector
 from src.ui_components_incidents import IncidentsPanelComponent
+from src.services.stream import TelemetryStreamServer
+
 
 
 SCREEN_WIDTH = 1280
@@ -29,10 +32,24 @@ class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None, session=None):
+                 session_info=None, session=None, enable_telemetry=False):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
+
+        self.telemetry_stream = None
+        if enable_telemetry:
+            try:
+                self.telemetry_stream = TelemetryStreamServer()
+                self.telemetry_stream.start()
+                print("Telemetry stream server started on localhost:9999")
+            except OSError as e:
+                print(f"Failed to start telemetry server: {e}")
+                print("Continuing without telemetry streaming...")
+                self.telemetry_stream = None
+            except Exception as e:
+                print(f"Error starting telemetry server: {e}")
+                self.telemetry_stream = None
 
         self.frames = frames
         self.track_statuses = track_statuses
@@ -155,6 +172,9 @@ class F1RaceReplayWindow(arcade.Window):
         self._ref_nx = -dy / norm
         self._ref_ny = dx / norm
 
+        # Build KD-Tree for fast closest-point lookup
+        self.track_tree = cKDTree(np.column_stack((self._ref_xs, self._ref_ys)))
+
         # Determine track winding using the shoelace formula to ensure normals point outwards.
         # A positive area indicates counter-clockwise winding (normals point Left=Inside, so we flip).
         # A negative area indicates clockwise winding (normals point Left=Outside, so we keep).
@@ -202,6 +222,61 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
         # store previous leaderboard order for up/down arrows
         self.last_leaderboard_order = None
+        
+        # Broadcast initial telemetry state
+        self._broadcast_telemetry_state()
+
+    def _broadcast_telemetry_state(self):
+        """Broadcast current telemetry state to connected clients."""
+        if not hasattr(self, 'telemetry_stream') or not self.telemetry_stream:
+            return
+            
+        current_frame = self.frames[min(int(self.frame_index), len(self.frames) - 1)] if self.frames else None
+        
+        # Get current track status
+        current_track_status = "GREEN"
+        if current_frame:
+            current_time = current_frame["t"]
+            for status in self.track_statuses:
+                if (current_time >= status["start_time"] and 
+                    (status["end_time"] is None or current_time <= status["end_time"])):
+                    current_track_status = status["status"]
+                    
+        # Calculate leader info
+        leader_code = ""
+        leader_lap = 1
+        if current_frame and "drivers" in current_frame:
+            driver_progress = {}
+            for code, pos in current_frame["drivers"].items():
+                x, y = pos["x"], pos["y"]
+                progress_m = self._project_to_reference(x, y)
+                driver_progress[code] = progress_m
+                
+            if driver_progress:
+                leader_code = max(driver_progress.keys(), key=lambda k: driver_progress[k])
+                leader_lap = current_frame["drivers"].get(leader_code, {}).get("lap", 1)
+        
+        # Format time
+        t = current_frame["t"] if current_frame else 0
+        hours = int(t // 3600)
+        minutes = int((t % 3600) // 60)
+        seconds = int(t % 60)
+        time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
+        
+        self.telemetry_stream.broadcast({
+            "frame_index": int(self.frame_index),
+            "frame": current_frame,
+            "track_status": current_track_status,
+            "playback_speed": self.playback_speed,
+            "is_paused": self.paused,
+            "total_frames": self.n_frames,
+            "session_data": {
+                "time": time_str,
+                "lap": leader_lap,
+                "leader": leader_code,
+                "total_laps": self.total_laps
+            }
+        })
 
     def _initialize_incidents(self):
         """Initialize incident detection from telemetry data"""
@@ -227,14 +302,13 @@ class F1RaceReplayWindow(arcade.Window):
         if self._ref_total_length == 0.0:
             return 0.0
 
-        # Vectorized nearest-point to dense polyline points (sufficient for our purposes)
-        dx = self._ref_xs - x
-        dy = self._ref_ys - y
-        d2 = dx * dx + dy * dy
-        idx = int(np.argmin(d2))
+        # Vectorized nearest-point lookup using KD-Tree (O(log N))
+        _, idx = self.track_tree.query([x, y])
+        idx = int(idx)
 
         # For a slightly better estimate, optionally project onto the adjacent segment
         if idx < len(self._ref_xs) - 1:
+
             x1, y1 = self._ref_xs[idx], self._ref_ys[idx]
             x2, y2 = self._ref_xs[idx+1], self._ref_ys[idx+1]
             vx, vy = x2 - x1, y2 - y1
@@ -435,13 +509,13 @@ class F1RaceReplayWindow(arcade.Window):
             is_selected = code in selected_drivers
             
             if self.show_driver_labels or is_selected:
-                # Find closest point index on reference track
-                r_dx = self._ref_xs - pos["x"]
-                r_dy = self._ref_ys - pos["y"]
-                idx = int(np.argmin(r_dx*r_dx + r_dy*r_dy))
+                # Find closest point index on reference track (Optimized KD-Tree)
+                _, idx = self.track_tree.query([pos["x"], pos["y"]])
+                idx = int(idx)
                 
                 # Get normal vector in world space
                 nx = self._ref_nx[idx]
+
                 ny = self._ref_ny[idx]
                 
                 # Rotate normal to screen space
@@ -544,39 +618,6 @@ class F1RaceReplayWindow(arcade.Window):
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
-        # A fixed reference speed for all gap calculations (200 km/h = 55.56 m/s)
-        REFERENCE_SPEED_MS = 55.56
-        leaderboard_gaps = {}
-        leaderboard_neighbor_gaps = {}
-
-        leader_progress_val = driver_list[0][3] if driver_list else None
-
-        if driver_list and leader_progress_val is not None:
-            # precompute gaps to leader (time) and interval gaps (dist+time)
-            for idx, (code, _, pos, progress_m) in enumerate(driver_list):
-                try:
-                    raw_to_leader = abs(leader_progress_val - (progress_m or 0.0))
-                    dist_to_leader = raw_to_leader / 10.0
-                    time_to_leader = dist_to_leader / REFERENCE_SPEED_MS
-                    leaderboard_gaps[code] = 0.0 if idx == 0 else time_to_leader
-                except Exception:
-                    leaderboard_gaps[code] = None
-
-                ahead_info = None
-                try:
-                    if idx > 0:
-                        code_ahead, _, _, progress_ahead = driver_list[idx - 1]
-                        raw = abs((progress_m or 0.0) - (progress_ahead or 0.0))
-                        dist_m = raw / 10.0
-                        time_s = dist_m / REFERENCE_SPEED_MS
-                        ahead_info = (code_ahead, dist_m, time_s)
-                except Exception:
-                    ahead_info = None
-
-                leaderboard_neighbor_gaps[code] = {"ahead": ahead_info}
-
-        self.leaderboard_gaps = leaderboard_gaps
-        self.leaderboard_neighbor_gaps = leaderboard_neighbor_gaps
 
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
@@ -626,6 +667,9 @@ class F1RaceReplayWindow(arcade.Window):
         
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
+            
+        # Broadcast telemetry state during playback
+        self._broadcast_telemetry_state()
 
     def on_key_press(self, symbol: int, modifiers: int):
         # Allow ESC to close window at any time
@@ -634,6 +678,7 @@ class F1RaceReplayWindow(arcade.Window):
             return
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
+            self._broadcast_telemetry_state()
             self.race_controls_comp.flash_button('play_pause')
         elif symbol == arcade.key.RIGHT:
             self.was_paused_before_hold = self.paused
@@ -649,6 +694,7 @@ class F1RaceReplayWindow(arcade.Window):
                 for spd in PLAYBACK_SPEEDS:
                     if spd > self.playback_speed:
                         self.playback_speed = spd
+                        self._broadcast_telemetry_state()
                         break
             self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.DOWN:
@@ -657,23 +703,29 @@ class F1RaceReplayWindow(arcade.Window):
                 for spd in reversed(PLAYBACK_SPEEDS):
                     if spd < self.playback_speed:
                         self.playback_speed = spd
+                        self._broadcast_telemetry_state()
                         break
             self.race_controls_comp.flash_button('speed_decrease')
         elif symbol == arcade.key.KEY_1:
             self.playback_speed = 0.5
+            self._broadcast_telemetry_state()
             self.race_controls_comp.flash_button('speed_decrease')
         elif symbol == arcade.key.KEY_2:
             self.playback_speed = 1.0
+            self._broadcast_telemetry_state()
             self.race_controls_comp.flash_button('speed_decrease')
         elif symbol == arcade.key.KEY_3:
             self.playback_speed = 2.0
+            self._broadcast_telemetry_state()
             self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.KEY_4:
             self.playback_speed = 4.0
+            self._broadcast_telemetry_state()
             self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.R:
             self.frame_index = 0.0
             self.playback_speed = 1.0
+            self._broadcast_telemetry_state()
             # Clear degradation cache on restart
             if self.degradation_integrator:
                 self.degradation_integrator.clear_cache()
@@ -748,3 +800,10 @@ class F1RaceReplayWindow(arcade.Window):
         """Handle mouse motion for hover effects on progress bar and controls."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
+        
+    def close(self):
+        """Clean up resources when window closes."""
+        if hasattr(self, 'telemetry_stream') and self.telemetry_stream:
+            print("Stopping telemetry stream server...")
+            self.telemetry_stream.stop()
+        super().close()

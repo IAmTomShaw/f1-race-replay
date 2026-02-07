@@ -2,11 +2,19 @@ import arcade
 import threading
 import time
 import numpy as np
-from src.ui_components import build_track_from_example_lap, LapTimeLeaderboardComponent, QualifyingSegmentSelectorComponent, RaceControlsComponent, draw_finish_line, LegendComponent, QualifyingLapTimeComponent
+from src.ui_components import (
+    build_track_from_example_lap,
+    LapTimeLeaderboardComponent,
+    QualifyingSegmentSelectorComponent,
+    RaceControlsComponent,
+    draw_finish_line,
+    LegendComponent,
+    ControlsPopupComponent,
+    QualifyingLapTimeComponent,
+)
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
-from src.ui_components import LegendComponent
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -79,8 +87,21 @@ class QualifyingReplay(arcade.Window):
         self.loaded_driver_code = None
         self.loaded_driver_segment = None
 
-        # Legend component for control icons
-        self.legend_comp = LegendComponent()
+        # Legend + controls popup (same behavior as race replay)
+        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
+        self.controls_popup_comp = ControlsPopupComponent(lines=[
+            ("SPACE", "Pause/Resume"),
+            ("← / →", "Jump back/forward"),
+            ("↑ / ↓", "Speed +/-"),
+            ("1-4", "Set speed: 0.5x / 1x / 2x / 4x"),
+            ("R", "Restart"),
+            ("D", "Toggle DRS Zones"),
+            ("C", "Toggle Comparison Telemetry"),
+            ("H", "Toggle Help Popup"),
+            ("ESC", "Close Window"),
+        ])
+        self.controls_popup_comp.set_size(340, 250)
+        self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13)
 
         # Build the track layout from an example lap
 
@@ -662,60 +683,6 @@ class QualifyingReplay(arcade.Window):
                     if cur_gear is not None:
                         arcade.Text(f"G:{int(cur_gear)}", sx + 10, sy - 10, arcade.color.LIGHT_GRAY, 12).draw()
 
-            # Controls Legend - Bottom Left (keeps small offset from left UI edge)
-            legend_x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
-            legend_y = 180 # Height of legend block
-            legend_icons = self.legend_comp._control_icons_textures # icons
-            legend_lines = [
-                ("Controls:"),
-                ("[SPACE]  Pause/Resume"),
-                ("Rewind / FastForward", ("[", "/", "]"),("arrow-left", "arrow-right")), # text, brackets, icons
-                ("Speed +/- (0.5x, 1x, 2x, 4x)", ("[", "/", "]"), ("arrow-up", "arrow-down")), # text, brackets, icons
-                ("[R]       Restart"),
-                ("[D]       Toggle DRS zones on track map"),
-                ("[C]       Toggle comparison driver telemetry"),
-                ("[ESC]    Close Window")
-            ]
-            for i, lines in enumerate(legend_lines):
-                line = lines[0] if isinstance(lines, tuple) else lines
-                brackets = lines[1] if isinstance(lines, tuple) and len(lines) > 2 else None # brackets only if icons exist
-                icon_keys = lines[2] if isinstance(lines, tuple) and len(lines) > 2 else None
-            
-                icon_size = 14
-                # Draw icons if any
-                if icon_keys:
-                    control_icon_x = legend_x + 12
-                    for key in icon_keys:
-                        icon_texture = legend_icons.get(key)
-                        if icon_texture:
-                            control_icon_y = legend_y - (i * 25) + 5
-                            rect = arcade.XYWH(control_icon_x, control_icon_y, icon_size, icon_size)
-                            arcade.draw_texture_rect(
-                                rect = rect,
-                                texture = icon_texture,
-                                angle = 0,
-                                alpha = 255
-                            )
-                            control_icon_x += icon_size + 6  # spacing between icons                
-                # Draw brackets if any
-                if brackets:
-                    for j in range(len(brackets)):
-                        arcade.Text(
-                            brackets[j],
-                            legend_x + (j * (icon_size + 5)),
-                            legend_y - (i * 25),
-                            arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
-                            14,
-                        ).draw()
-                # Draw the text line
-                arcade.Text(
-                    line,
-                    legend_x + (60 if icon_keys else 0),
-                    legend_y - (i * 25),
-                    arcade.color.LIGHT_GRAY if i > 0 else arcade.color.WHITE,
-                    14,
-                    bold=(i == 0),
-                ).draw()
         else:
             # Add "click a driver to view their qualifying lap" text in the center of the chart area
 
@@ -729,10 +696,16 @@ class QualifyingReplay(arcade.Window):
 
         self.leaderboard.draw(self)
         self.qualifying_segment_selector_modal.draw(self)
+
+        # Controls Legend - Bottom Left (keeps small offset from left UI edge)
+        self.legend_comp.x = max(12, self.left_ui_margin - 320) if hasattr(self, "left_ui_margin") else 20
+        self.legend_comp.draw(self)
         
         # Show race controls only when telemetry is loaded (driver + session selected)
         if self.chart_active and self.loaded_telemetry and self.frame_index < self.n_frames:
             self.race_controls_comp.draw(self)
+        # Controls popup (Help)
+        self.controls_popup_comp.draw(self)
 
     def on_mouse_motion(self, x: int, y: int, dx: int, dy: int):
         """Pass mouse motion events to UI components."""
@@ -789,6 +762,11 @@ class QualifyingReplay(arcade.Window):
             except Exception as e:
                 print("Segment selector click error:", e)
 
+        if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.legend_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+
         # Fallback: let the leaderboard handle the click (select drivers)
         self.leaderboard.on_mouse_press(self, x, y, button, modifiers)
         
@@ -820,6 +798,17 @@ class QualifyingReplay(arcade.Window):
         elif symbol == arcade.key.D:
             # Toggle DRS zones on track map
             self.toggle_drs_zones = not self.toggle_drs_zones
+            return
+        elif symbol == arcade.key.H:
+            # Toggle Controls popup with 'H' key — show anchored to bottom-left with 20px margin
+            margin_x = 20
+            margin_y = 20
+            left_pos = float(margin_x)
+            top_pos = float(margin_y + self.controls_popup_comp.height)
+            if self.controls_popup_comp.visible:
+                self.controls_popup_comp.hide()
+            else:
+                self.controls_popup_comp.show_over(left_pos, top_pos)
             return
         
         # Disable other controls when lap is complete
