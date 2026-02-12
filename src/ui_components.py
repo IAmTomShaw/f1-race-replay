@@ -2468,36 +2468,6 @@ class TyreStrategyTimelineComponent(BaseComponent):
         self._title_text.y = header_y
         self._title_text.draw()
 
-        # Fresh / Used legend (right-aligned, upper portion of header)
-        legend_y = header_y + 8
-        legend_right = left + pw - self._padding
-        swatch_size = 10
-        # "Used" swatch (darker) + label
-        used_swatch_x = legend_right - 28
-        arcade.draw_rect_filled(
-            arcade.XYWH(used_swatch_x, legend_y, swatch_size, swatch_size),
-            (int(255 * 0.65), int(51 * 0.65), int(51 * 0.65))
-        )
-        self._small_text.text = "Used"
-        self._small_text.x = used_swatch_x + 8
-        self._small_text.y = legend_y
-        self._small_text.color = (160, 160, 160)
-        self._small_text.font_size = 9
-        self._small_text.bold = False
-        self._small_text.anchor_x = "left"
-        self._small_text.draw()
-        # "New" swatch (bright) + label
-        new_swatch_x = used_swatch_x - 62
-        arcade.draw_rect_filled(
-            arcade.XYWH(new_swatch_x, legend_y, swatch_size, swatch_size),
-            (255, 51, 51)
-        )
-        self._small_text.text = "New"
-        self._small_text.x = new_swatch_x + 8
-        self._small_text.y = legend_y
-        self._small_text.draw()
-        self._small_text.anchor_x = "center"  # Reset default
-
         # Lap axis along the top
         axis_y = top - self._header_height + 2
         arcade.draw_line(bar_left, axis_y, bar_left + bar_width, axis_y, (60, 60, 60), 1)
@@ -2571,8 +2541,6 @@ class TyreStrategyTimelineComponent(BaseComponent):
                 stint_cx = (x1 + x2) / 2
 
                 base_color = TYRE_COMPOUND_COLORS.get(compound_int, (128, 128, 128))
-                if not fresh:
-                    base_color = tuple(int(c * 0.65) for c in base_color)
 
                 bar_h = self._row_height - 6
                 stint_rect = arcade.XYWH(stint_cx, row_y, stint_width, bar_h)
