@@ -1,13 +1,12 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
-from src.arcade_replay import run_arcade_replay
-
+from src.run_session import run_arcade_replay, launch_telemetry_viewer
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None):
+def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
@@ -83,6 +82,11 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         'total_laps': race_telemetry['total_laps']
     }
 
+    # Launch telemetry viewer if requested
+    if show_telemetry_viewer:
+      launch_telemetry_viewer()
+      print("Launching telemetry stream viewer...")
+
     # Run the arcade replay
 
     run_arcade_replay(
@@ -97,7 +101,9 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       circuit_rotation=circuit_rotation,
       visible_hud=visible_hud,
       ready_file=ready_file,
-      session_info=session_info
+      session_info=session_info,
+      session=session,
+      enable_telemetry=show_telemetry_viewer
     )
 
 if __name__ == "__main__":
@@ -132,6 +138,9 @@ if __name__ == "__main__":
     visible_hud = True
     if "--no-hud" in sys.argv:
       visible_hud = False
+      
+    # Check if telemetry viewer should be disabled
+    show_telemetry_viewer = "--telemetry" in sys.argv
 
     # Session type selection
     session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
@@ -143,7 +152,8 @@ if __name__ == "__main__":
       if idx < len(sys.argv):
         ready_file = sys.argv[idx]
 
-    main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+    main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file, show_telemetry_viewer=show_telemetry_viewer)
+    sys.exit(0)
 
   # Run the GUI
 
