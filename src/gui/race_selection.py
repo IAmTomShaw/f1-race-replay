@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 import uuid
+from typing import Optional
 from src.f1_data import get_race_weekends_by_year, load_session
 from src.gui.settings_dialog import SettingsDialog
 
@@ -42,6 +43,8 @@ class RaceSelectionWindow(QMainWindow):
         self.worker = None
         self.loading_session = False
         self.selected_session_title = None
+        self._play_proc: Optional[subprocess.Popen] = None
+        self._ready_timer: Optional[QTimer] = None
 
         self.setWindowTitle("F1 Race Replay - Session Selection")
         self._setup_ui()
@@ -61,13 +64,15 @@ class RaceSelectionWindow(QMainWindow):
         header_label = QLabel("F1 Race Replay 🏎️")
         font = header_label.font()
         settings_btn = QPushButton("⚙ Settings")
-        settings_btn.setCursor(Qt.PointingHandCursor)
+        settings_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         settings_btn.setFixedHeight(32)
         settings_btn.clicked.connect(self.open_settings)
         font.setPointSize(18)
         font.setBold(True)
         header_label.setFont(font)
-        header_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header_label.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
         
         header_layout.addWidget(header_label)
         header_layout.addStretch()
@@ -102,7 +107,7 @@ class RaceSelectionWindow(QMainWindow):
         self.session_panel = QWidget()
         self.session_panel_layout = QVBoxLayout()
         self.session_panel.setLayout(self.session_panel_layout)
-        self.session_panel_layout.setAlignment(Qt.AlignTop)
+        self.session_panel_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         header_lbl = QLabel("Sessions")
         hdr_font = header_lbl.font()
         hdr_font.setPointSize(14)
@@ -151,7 +156,7 @@ class RaceSelectionWindow(QMainWindow):
             date = str(event.get("date", ""))
 
             event_item = QTreeWidgetItem([round_str, name, country, date])
-            event_item.setData(0, Qt.UserRole, event)
+            event_item.setData(0, Qt.ItemDataRole.UserRole, event)
             self.schedule_tree.addTopLevelItem(event_item)
 
         # Make sure the round column is wide enough to be visible
@@ -164,7 +169,7 @@ class RaceSelectionWindow(QMainWindow):
         self.loading_session = False
 
     def on_race_clicked(self, item, column):
-        ev = item.data(0, Qt.UserRole)
+        ev = item.data(0, Qt.ItemDataRole.UserRole)
         # ensure the sessions panel is visible when a race is selected
         try:
             self.session_panel.show()
@@ -180,8 +185,11 @@ class RaceSelectionWindow(QMainWindow):
 
         # clear existing session widgets
         for i in reversed(range(self.session_list_layout.count())):
-            w = self.session_list_layout.itemAt(i).widget()
-            if w:
+            item_at_index = self.session_list_layout.itemAt(i)
+            if item_at_index is None:
+                continue
+            w = item_at_index.widget()
+            if w is not None:
                 w.setParent(None)
 
         # add buttons for each session (launch playback in separate process)
@@ -233,9 +241,9 @@ class RaceSelectionWindow(QMainWindow):
             cmd += ["--telemetry"]
 
         # Show a modal loading dialog and load the session in a background thread.
-        dlg = QProgressDialog("Loading session data...", None, 0, 0, self)
+        dlg = QProgressDialog("Loading session data...", "", 0, 0, self)
         dlg.setWindowTitle("Loading")
-        dlg.setWindowModality(Qt.ApplicationModal)
+        dlg.setWindowModality(Qt.WindowModality.ApplicationModal)
         dlg.setCancelButton(None)
         dlg.setMinimumDuration(0)
         dlg.setRange(0, 0)
