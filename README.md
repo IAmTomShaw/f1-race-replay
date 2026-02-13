@@ -4,6 +4,8 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 
 ![Race Replay Preview](./resources/preview.png)
 
+> **HUGE NEWS:** The telemetry stream feature is now in a usable state. See the [telemetry demo documentation](./telemetry.md) for access instructions, data format details, and usage ideas.
+
 ## Features
 
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
@@ -21,7 +23,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Playback Speed:** ↑ / ↓ or Speed button (cycles through 0.5x, 1x, 2x, 4x)
 - **Set Speed Directly:** Keys 1–4
 - **Restart**: **R** to restart replay
-- **Toggle DRS Zone**: **D** to hide/showi DRS Zone
+- **Toggle DRS Zone**: **D** to hide/show DRS Zone
 - **Toggle Progress Bar**: **B** to hide/show progress bar
 - **Toggle Driver Names**: **L** to hide/show driver names on track
 - **Select driver/drivers**: Click to select driver or shift click to select multiple drivers

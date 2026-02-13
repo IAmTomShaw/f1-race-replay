@@ -275,6 +275,8 @@ class LeaderboardComponent(BaseComponent):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(tyres_folder, filename)
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
+        self.computed_gaps = {}
+        self.computed_neighbor_gaps = {}
 
     @property
     def visible(self) -> bool:
@@ -300,6 +302,40 @@ class LeaderboardComponent(BaseComponent):
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
         # entries sorted as expected
         self.entries = entries
+        self._calculate_gaps()
+
+    def _calculate_gaps(self):
+        self.computed_gaps = {}
+        self.computed_neighbor_gaps = {}
+        if not self.entries:
+            return
+
+        leader_progress_val = self.entries[0][3]
+
+        for idx, (code, _, pos, progress_m) in enumerate(self.entries):
+            # Leader gap
+            try:
+                raw_to_leader = abs(leader_progress_val - (progress_m or 0.0))
+                dist_to_leader = raw_to_leader / 10.0
+                time_to_leader = dist_to_leader / 55.56
+                self.computed_gaps[code] = 0.0 if idx == 0 else time_to_leader
+            except Exception:
+                self.computed_gaps[code] = None
+
+            # Neighbor gap
+            ahead_info = None
+            try:
+                if idx > 0:
+                    code_ahead, _, _, progress_ahead = self.entries[idx - 1]
+                    raw = abs((progress_m or 0.0) - (progress_ahead or 0.0))
+                    dist_m = raw / 10.0
+                    time_s = dist_m / 55.56
+                    ahead_info = (code_ahead, dist_m, time_s)
+            except Exception:
+                ahead_info = None
+            
+            self.computed_neighbor_gaps[code] = {"ahead": ahead_info}
+
     def draw(self, window):
         # Skip rendering entirely if hidden
         if not self._visible:
@@ -373,9 +409,7 @@ class LeaderboardComponent(BaseComponent):
 
             # Gap display (if enabled)
             if getattr(self, "show_neighbor_gaps", False):
-                neighbor_info = None
-                if hasattr(window, "leaderboard_neighbor_gaps"):
-                    neighbor_info = window.leaderboard_neighbor_gaps.get(code)
+                neighbor_info = self.computed_neighbor_gaps.get(code)
 
                 if i == 0:
                     gap_text = "-"
@@ -392,9 +426,7 @@ class LeaderboardComponent(BaseComponent):
             elif getattr(self, "show_gaps", False):
                 gap_text = ""
                 gap_val = None
-                # prefer window-provided precomputed gaps
-                if hasattr(window, "leaderboard_gaps"):
-                    gap_val = window.leaderboard_gaps.get(code)
+                gap_val = self.computed_gaps.get(code)
                 if gap_val is None:
                     gap_val = pos.get("gap") or pos.get("gap_to_leader")
                 if gap_val is None:
@@ -861,35 +893,21 @@ class DriverInfoComponent(BaseComponent):
                     lb = comp
                     break
 
-        # A fixed reference speed for all gap calculations (200 km/h = 55.56 m/s)
-        REFERENCE_SPEED_MS = 55.56
-
-        def calculate_gap(pos1, pos2):
-            # Calculate gap between two positions consistently
-            raw_dist = abs(pos1 - pos2)
-            dist = raw_dist / 10.0  # Convert to meters
-            time = dist / REFERENCE_SPEED_MS
-            return dist, time
-
         if lb and hasattr(lb, "entries") and lb.entries:
             try:
                 idx = next(i for i, e in enumerate(lb.entries) if e[0] == code)
+                curr_pos = lb.entries[idx][3]
 
-                if idx > 0:  # Car Ahead
-                    code_ahead = lb.entries[idx - 1][0]
-                    curr_pos = lb.entries[idx][3]
-                    ahead_pos = lb.entries[idx - 1][3]
+                def get_gap_str(neighbor_idx, prefix, sign):
+                    n_code, _, _, n_pos = lb.entries[neighbor_idx]
+                    dist = abs(curr_pos - n_pos) / 10.0
+                    time = dist / 55.56  # 200 km/h reference speed
+                    return f"{prefix} ({n_code}): {sign}{time:.2f}s ({dist:.1f}m)"
 
-                    dist, time = calculate_gap(curr_pos, ahead_pos)
-                    gap_ahead = f"Ahead ({code_ahead}): +{time:.2f}s ({dist:.1f}m)"
-
-                if idx < len(lb.entries) - 1:  # Car Behind
-                    code_behind = lb.entries[idx + 1][0]
-                    curr_pos = lb.entries[idx][3]
-                    behind_pos = lb.entries[idx + 1][3]
-
-                    dist, time = calculate_gap(curr_pos, behind_pos)
-                    gap_behind = f"Behind ({code_behind}): -{time:.2f}s ({dist:.1f}m)"
+                if idx > 0:
+                    gap_ahead = get_gap_str(idx - 1, "Ahead", "+")
+                if idx < len(lb.entries) - 1:
+                    gap_behind = get_gap_str(idx + 1, "Behind", "-")
 
             except (StopIteration, IndexError):
                 pass
@@ -967,8 +985,15 @@ class DriverInfoComponent(BaseComponent):
 
 
 class ControlsPopupComponent(BaseComponent):
-    def __init__(self, width: int = 420, height: int = 260, header_font_size: int = 18, body_font_size: int = 16):
-        
+    def __init__(
+        self,
+        width: int = 430,
+        height: int = 260,
+        header_font_size: int = 18,
+        body_font_size: int = 16,
+        lines: Optional[list[str]] = None,
+    ):
+
         self.width = width
         self.height = height
         self.visible = False
@@ -978,9 +1003,26 @@ class ControlsPopupComponent(BaseComponent):
         
         self.header_font_size = header_font_size
         self.body_font_size = body_font_size
+        self.lines = lines
         
         self._header_text = arcade.Text("", 0, 0, arcade.color.BLACK, self.header_font_size, anchor_x="left", anchor_y="center")
         self._body_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, self.body_font_size, anchor_x="left", anchor_y="center")
+
+    def _default_lines(self) -> list[str]:
+        return [
+            ("SPACE", "Pause/Resume"),
+            ("← / →", "Jump back/forward"),
+            ("↑ / ↓", "Speed +/-"),
+            ("1-4", "Set speed: 0.5x / 1x / 2x / 4x"),
+            ("R", "Restart"),
+            ("D", "Toggle DRS Zones"),
+            ("B", "Toggle Progress Bar"),
+            ("L", "Toggle Driver Labels"),
+            ("H", "Toggle Help Popup"),
+        ]
+
+    def set_lines(self, lines: Optional[list[str]]):
+        self.lines = lines
 
     def set_size(self, width: int, height: int):
         
@@ -1022,7 +1064,6 @@ class ControlsPopupComponent(BaseComponent):
         arcade.draw_rect_filled(rect, (0, 0, 0, 255))
         arcade.draw_rect_outline(rect, arcade.color.GRAY, 2)
 
-        
         header_height = max(28, int(self.header_font_size * 2))
         header_cy = cy + self.height / 2 - header_height / 2
         arcade.draw_rect_filled(arcade.XYWH(cx, header_cy, self.width, header_height), arcade.color.GRAY)
@@ -1035,30 +1076,31 @@ class ControlsPopupComponent(BaseComponent):
         self._header_text.y = header_cy
         self._header_text.draw()
 
-
-        lines = [
-            " ",
-            "[SPACE] Pause/Resume",
-            "← / →  Jump back/forward",
-            "↑ / ↓  Speed +/-",
-            "[1-4]  Set speed: 0.5x / 1x / 2x / 4x",
-            "[R]    Restart",
-            "[D]    Toggle DRS Zones",
-            "[B]    Toggle Progress Bar",
-            "[L]    Toggle Driver Labels",
-            "[H]    Toggle Help Popup",
-        ]
+        controls = self.lines if self.lines is not None else self._default_lines()
         
         line_spacing = max(18, int(self.body_font_size + 8))
-        y = header_cy - 20
-        for l in lines:
+        left_x = cx - self.width / 2 + 16
+        desc_x = cx - self.width / 2 + 100  # Fixed position for descriptions
+        y = header_cy - 35  # More space below header
+
+        for key, desc in controls:
+            # Draw key
             self._body_text.font_size = self.body_font_size
-            self._body_text.bold = False
-            self._body_text.color = arcade.color.LIGHT_GRAY
-            self._body_text.text = l
-            self._body_text.x = cx - self.width / 2 + 16
+            self._body_text.bold = True
+            self._body_text.color = arcade.color.WHITE
+            self._body_text.text = key
+            self._body_text.x = left_x
             self._body_text.y = y
             self._body_text.draw()
+
+            # Draw description
+            self._body_text.bold = False
+            self._body_text.color = arcade.color.LIGHT_GRAY
+            self._body_text.text = desc
+            self._body_text.x = desc_x
+            self._body_text.y = y
+            self._body_text.draw()
+
             y -= line_spacing
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
