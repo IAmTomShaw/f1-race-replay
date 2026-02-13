@@ -3,11 +3,13 @@ import pickle
 import sys
 from datetime import timedelta
 from multiprocessing import Pool, cpu_count
+from typing import Optional
 
 import fastf1
 import fastf1.plotting
 import numpy as np
 import pandas as pd
+from fastf1.exceptions import DataNotLoadedError
 
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
@@ -37,7 +39,11 @@ def _process_single_driver(args):
 
     print(f"Getting telemetry for driver: {driver_code}")
 
-    laps_driver = session.laps.pick_drivers(driver_no)
+    try:
+        laps_driver = session.laps.pick_drivers(driver_no)
+    except DataNotLoadedError:
+        # Older sessions may not expose lap/telemetry data via F1 API.
+        return None
     if laps_driver.empty:
         return None
 
@@ -59,27 +65,52 @@ def _process_single_driver(args):
 
     total_dist_so_far = 0.0
 
+    required_cols = {
+        "SessionTime",
+        "X",
+        "Y",
+        "Distance",
+        "RelativeDistance",
+        "Speed",
+        "nGear",
+        "DRS",
+        "Throttle",
+        "Brake",
+    }
+
     # iterate laps in order
     for _, lap in laps_driver.iterlaps():
         # get telemetry for THIS lap only
-        lap_tel = lap.get_telemetry()
+        try:
+            lap_tel = lap.get_telemetry()
+        except (DataNotLoadedError, KeyError, ValueError):
+            # Some historical sessions have partial/missing telemetry per lap/driver.
+            # Skip the problematic lap and continue processing others.
+            continue
+
+        if lap_tel is None or lap_tel.empty:
+            continue
+        if not required_cols.issubset(set(lap_tel.columns)):
+            continue
+
+        try:
+            t_lap = lap_tel["SessionTime"].dt.total_seconds().to_numpy()
+            x_lap = lap_tel["X"].to_numpy()
+            y_lap = lap_tel["Y"].to_numpy()
+            d_lap = lap_tel["Distance"].to_numpy()
+            rd_lap = lap_tel["RelativeDistance"].to_numpy()
+            speed_kph_lap = lap_tel["Speed"].to_numpy()
+            gear_lap = lap_tel["nGear"].to_numpy()
+            drs_lap = lap_tel["DRS"].to_numpy()
+            throttle_lap = lap_tel["Throttle"].to_numpy()
+            brake_lap = lap_tel["Brake"].to_numpy().astype(float)
+        except (KeyError, ValueError, TypeError, AttributeError):
+            # Guard against malformed telemetry rows returned by FastF1.
+            continue
+
         lap_number = lap.LapNumber
         tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
         tyre_life = lap.TyreLife if pd.notna(lap.TyreLife) else 0
-
-        if lap_tel.empty:
-            continue
-
-        t_lap = lap_tel["SessionTime"].dt.total_seconds().to_numpy()
-        x_lap = lap_tel["X"].to_numpy()
-        y_lap = lap_tel["Y"].to_numpy()
-        d_lap = lap_tel["Distance"].to_numpy()
-        rd_lap = lap_tel["RelativeDistance"].to_numpy()
-        speed_kph_lap = lap_tel["Speed"].to_numpy()
-        gear_lap = lap_tel["nGear"].to_numpy()
-        drs_lap = lap_tel["DRS"].to_numpy()
-        throttle_lap = lap_tel["Throttle"].to_numpy()
-        brake_lap = lap_tel["Brake"].to_numpy().astype(float)
 
         # race distance = distance before this lap + distance within this lap
         race_d_lap = total_dist_so_far + d_lap
@@ -148,6 +179,13 @@ def load_session(year, round_number, session_type="R"):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
     session = fastf1.get_session(year, round_number, session_type)
     session.load(telemetry=True, weather=True)
+    if not bool(getattr(session, "f1_api_support", True)):
+        event_name = session.event.get("EventName", "Unknown event")
+        raise ValueError(
+            f"Telemetry data is not supported by FastF1 for {event_name} "
+            f"({year}, round {round_number}, session {session_type}). "
+            "Please choose a newer session/year."
+        )
     return session
 
 
@@ -189,7 +227,30 @@ def get_race_telemetry(session, session_type="R"):
     except FileNotFoundError:
         pass  # Need to compute from scratch
 
-    drivers = session.drivers
+    try:
+        drivers = session.drivers
+        laps = session.laps
+    except DataNotLoadedError as exc:
+        raise ValueError(
+            "This session does not provide lap/telemetry data via FastF1. "
+            "Please choose a newer session/year."
+        ) from exc
+
+    try:
+        # Track replay requires position telemetry (X/Y). Without this, lap telemetry
+        # extraction will fail for most/all drivers in historical sessions.
+        _ = session.pos_data
+    except DataNotLoadedError as exc:
+        raise ValueError(
+            "Position telemetry is unavailable for this session in FastF1. "
+            "Please choose a different session/year."
+        ) from exc
+
+    if laps is None or laps.empty:
+        raise ValueError(
+            "No lap data is available for this session. "
+            "Please choose a different session/year."
+        )
 
     driver_codes = {num: session.get_driver(num)["Abbreviation"] for num in drivers}
 
@@ -429,22 +490,28 @@ def get_race_telemetry(session, session_type="R"):
         if weather_resampled:
             try:
                 wt = weather_resampled
-                rain_val = wt["rainfall"][i] if wt.get("rainfall") is not None else 0.0
+                track_temp_series = wt.get("track_temp")
+                air_temp_series = wt.get("air_temp")
+                humidity_series = wt.get("humidity")
+                wind_speed_series = wt.get("wind_speed")
+                wind_direction_series = wt.get("wind_direction")
+                rainfall_series = wt.get("rainfall")
+                rain_val = float(rainfall_series[i]) if rainfall_series is not None else 0.0
                 weather_snapshot = {
-                    "track_temp": float(wt["track_temp"][i])
-                    if wt.get("track_temp") is not None
+                    "track_temp": float(track_temp_series[i])
+                    if track_temp_series is not None
                     else None,
-                    "air_temp": float(wt["air_temp"][i])
-                    if wt.get("air_temp") is not None
+                    "air_temp": float(air_temp_series[i])
+                    if air_temp_series is not None
                     else None,
-                    "humidity": float(wt["humidity"][i])
-                    if wt.get("humidity") is not None
+                    "humidity": float(humidity_series[i])
+                    if humidity_series is not None
                     else None,
-                    "wind_speed": float(wt["wind_speed"][i])
-                    if wt.get("wind_speed") is not None
+                    "wind_speed": float(wind_speed_series[i])
+                    if wind_speed_series is not None
                     else None,
-                    "wind_direction": float(wt["wind_direction"][i])
-                    if wt.get("wind_direction") is not None
+                    "wind_direction": float(wind_direction_series[i])
+                    if wind_direction_series is not None
                     else None,
                     "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
                 }
@@ -506,7 +573,7 @@ def get_qualifying_results(session):
         full_name = row["FullName"]
 
         # Convert pandas Timedelta objects to seconds (or None if NaT)
-        def convert_time_to_seconds(time_val) -> str:
+        def convert_time_to_seconds(time_val) -> Optional[str]:
             if pd.isna(time_val):
                 return None
             return str(time_val.total_seconds())
@@ -728,22 +795,28 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
         if weather_resampled:
             try:
                 wt = weather_resampled
-                rain_val = wt["rainfall"][i] if wt.get("rainfall") is not None else 0.0
+                track_temp_series = wt.get("track_temp")
+                air_temp_series = wt.get("air_temp")
+                humidity_series = wt.get("humidity")
+                wind_speed_series = wt.get("wind_speed")
+                wind_direction_series = wt.get("wind_direction")
+                rainfall_series = wt.get("rainfall")
+                rain_val = float(rainfall_series[i]) if rainfall_series is not None else 0.0
                 weather_snapshot = {
-                    "track_temp": float(wt["track_temp"][i])
-                    if wt.get("track_temp") is not None
+                    "track_temp": float(track_temp_series[i])
+                    if track_temp_series is not None
                     else None,
-                    "air_temp": float(wt["air_temp"][i])
-                    if wt.get("air_temp") is not None
+                    "air_temp": float(air_temp_series[i])
+                    if air_temp_series is not None
                     else None,
-                    "humidity": float(wt["humidity"][i])
-                    if wt.get("humidity") is not None
+                    "humidity": float(humidity_series[i])
+                    if humidity_series is not None
                     else None,
-                    "wind_speed": float(wt["wind_speed"][i])
-                    if wt.get("wind_speed") is not None
+                    "wind_speed": float(wind_speed_series[i])
+                    if wind_speed_series is not None
                     else None,
-                    "wind_direction": float(wt["wind_direction"][i])
-                    if wt.get("wind_direction") is not None
+                    "wind_direction": float(wind_direction_series[i])
+                    if wind_direction_series is not None
                     else None,
                     "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
                 }
@@ -790,7 +863,9 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
 
     # Set the time of the final frame to the exact lap time
 
-    frames[-1]["t"] = round(parse_time_string(str(fastest_lap["LapTime"])), 3)
+    lap_time_seconds = parse_time_string(str(fastest_lap["LapTime"]))
+    if lap_time_seconds is not None:
+        frames[-1]["t"] = round(lap_time_seconds, 3)
 
     sector_times = {
         "sector1": parse_time_string(str(fastest_lap.get("Sector1Time")))
@@ -840,10 +915,14 @@ def _process_quali_driver(args):
             driver_telemetry_data[segment] = segment_telemetry
 
             # Update global max/min speed
-            if segment_telemetry["max_speed"] > max_speed:
-                max_speed = segment_telemetry["max_speed"]
-            if segment_telemetry["min_speed"] < min_speed or min_speed == 0.0:
-                min_speed = segment_telemetry["min_speed"]
+            seg_max_raw = segment_telemetry.get("max_speed", 0.0)
+            seg_min_raw = segment_telemetry.get("min_speed", 0.0)
+            seg_max_speed = seg_max_raw if isinstance(seg_max_raw, (int, float)) else 0.0
+            seg_min_speed = seg_min_raw if isinstance(seg_min_raw, (int, float)) else 0.0
+            if seg_max_speed > max_speed:
+                max_speed = seg_max_speed
+            if seg_min_speed < min_speed or min_speed == 0.0:
+                min_speed = seg_min_speed
 
         except ValueError:
             driver_telemetry_data[segment] = {"frames": [], "track_statuses": []}
@@ -962,7 +1041,7 @@ def get_race_weekends_by_year(year):
             {
                 "round_number": event["RoundNumber"],
                 "event_name": event["EventName"],
-                "date": str(event["EventDate"].date()),
+                "date": str(event["EventDate"]).split(" ")[0],
                 "country": event["Country"],
                 "type": event["EventFormat"],
             }
