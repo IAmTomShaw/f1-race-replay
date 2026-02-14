@@ -186,8 +186,8 @@ def get_race_telemetry(session, session_type="R"):
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
                 print("The replay should begin in a new window shortly!")
                 return frames
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    except FileNotFoundError as e:
+        print(f"Cache miss or error: {e}")  # Need to compute from scratch
 
     drivers = session.drivers
 
