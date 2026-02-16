@@ -1,7 +1,7 @@
 import os
 import pickle
 import sys
-from datetime import timedelta
+from datetime import timedelta, date
 from multiprocessing import Pool, cpu_count
 
 import fastf1
@@ -969,6 +969,55 @@ def get_race_weekends_by_year(year):
         )
     return weekends
 
+def get_race_weekends_by_place(place):
+    """Returns a list of past n race weekends for a given place."""
+    enable_cache()
+    place=place.lower().strip()
+    weekends=[]
+    current_year=date.today().year
+
+    for year in range(2018,current_year): #Edit according to data availability (current data till last year)
+        try:
+            schedule=fastf1.get_event_schedule(year)
+        except Exception:
+            continue
+
+        for _, event in schedule.iterrows():
+            if event.is_testing():
+                continue
+
+            event_name=str(event["EventName"]).strip().lower()
+            
+            if place==event_name:
+                weekends.append({
+                    "round_number": event["RoundNumber"],
+                    "event_name": event["EventName"],
+                    "date": str(event["EventDate"].date()),
+                    "country": event["Country"],
+                    "year": int(event["EventDate"].date().year),
+                    "type": event["EventFormat"],
+                })
+    return weekends
+
+def get_all_unique_race_names(start_year=2018, end_year=2025): #update as necessary
+    "Return a list of all unique race locations"
+    enable_cache()
+    race_names=set()
+    
+    for year in range(start_year, end_year+1):
+        try:
+            schedule=fastf1.get_event_schedule(year)
+        except Exception:
+            continue
+
+        for _,event in schedule.iterrows():
+            if event.is_testing():
+                continue
+
+            name=str(event["EventName"]).strip()
+            race_names.add(name)
+
+    return sorted(race_names)
 
 def list_rounds(year):
     """Lists all rounds for a given year."""
