@@ -1,0 +1,30 @@
+.f1-header {
+  background-color: #12101D;
+  padding: 12px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  border-bottom: 2px solid rgba(255, 255, 255, 0.5);
+}
+
+.f1-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.f1-text {
+  font-size: 28px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -2px;
+  font-family: 'Impact', 'Arial Black', sans-serif;
+  text-shadow: 3px 3px 6px rgba(0, 0, 0, 0.7);
+  font-style: italic;
+  transform: skewX(-8deg);
+}
+
+.f1-logo-img {
+  width: 100px;
+  height: auto;
+}

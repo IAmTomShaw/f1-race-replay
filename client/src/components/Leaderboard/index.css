@@ -1,0 +1,187 @@
+.leaderboard {
+  background-color: rgba(0, 0, 0, 0.85);
+  border-radius: 20px 0 0 20px;
+  overflow: hidden;
+  font-family: 'Titillium Web', -apple-system, sans-serif;
+  border: 2px solid rgba(255, 255, 255, 0.5);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+    background: linear-gradient(to bottom, #0A060D, #2B2A3F);
+}
+
+.leaderboard-header {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px;
+  background: linear-gradient(to bottom, #12101D 0%, #2B2A3F 100%);
+  border-bottom: 2px solid rgba(255, 255, 255, 0.5);
+  gap: 10px;
+}
+
+.header-row-1 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.f1-logo {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 150px;
+  padding: 5px;
+}
+
+.f1-logo-img {
+  width: 100%;
+  height: auto;
+}
+
+.header-row-2 {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.header-info-item {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.header-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.8);
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.header-value {
+  font-size: 16px;
+  font-weight: 700;
+  color: #fff;
+  font-family: 'Consolas', monospace;
+}
+
+.header-divider {
+  width: 2px;
+  height: 30px;
+  background-color: rgba(255, 255, 255, 0.5);
+}
+
+.leaderboard-entries {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.leaderboard-entries::-webkit-scrollbar {
+  width: 6px;
+}
+
+.leaderboard-entries::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.leaderboard-entries::-webkit-scrollbar-thumb {
+  background: #444;
+  border-radius: 3px;
+}
+
+.lb-entry {
+  display: grid;
+  grid-template-columns: 40px 1fr 80px auto;
+  align-items: stretch; /* Changed from center to stretch */
+  padding: 0; /* Remove padding, add to inner elements */
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  transition: background-color 0.15s;
+  min-height: 32px;
+}
+
+.lb-entry:hover {
+  background-color: rgba(68, 63, 94, 0.4);
+}
+
+.lb-position {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 400;
+  color: #fff;
+  background-color: #000;
+  padding: 8px 0;
+}
+
+.lb-driver {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #fff;
+  background-color: #000;
+  padding: 8px 12px 8px 8px;
+}
+
+.lb-color-stripe {
+  width: 4px;
+  height: 100%;
+  min-height: 24px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.lb-code {
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.lb-gap {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  text-align: right;
+  font-family: 'Consolas', 'Monaco', monospace;
+  padding: 8px 4px;
+  min-width: 80px;
+}
+
+.gap-leader {
+  font-size: 12px;
+  font-weight: 700;
+  color: #999;
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+}
+
+.gap-value {
+  font-size: 12px;
+  font-weight: 700;
+  color: #ccc;
+}
+
+.lb-tyre {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 400;
+  text-align: center;
+  padding: 8px 12px 8px 2px;
+  min-width: 30px;
+}
+
+/* P1 styling */
+.lb-entry:first-child .lb-position {
+  color: #FFD700;
+}
+
+/* P2/P3 styling */
+.lb-entry:nth-child(2) .lb-position,
+.lb-entry:nth-child(3) .lb-position {
+  color: #C0C0C0;
+}

@@ -8,13 +8,15 @@ interface AnimatedTrackCanvasProps {
   frames?: Frame[];
   driverColors?: Record<string, [number, number, number]>;
   currentFrame: number;
+  interpolatedFrame?: Frame | null;
 }
 
 export default function AnimatedTrackCanvas({ 
   trackData, 
   frames,
   driverColors,
-  currentFrame
+  currentFrame,
+  interpolatedFrame
 }: AnimatedTrackCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -30,7 +32,7 @@ export default function AnimatedTrackCanvas({
     
     const canvas = canvasRef.current;
     const bounds = trackData.bounds;
-    const padding = 50;
+    const padding = 80; // Increased from 50 to 80 for better fit
 
     const worldWidth = bounds.maxX - bounds.minX;
     const worldHeight = bounds.maxY - bounds.minY;
@@ -158,10 +160,11 @@ export default function AnimatedTrackCanvas({
       }
     }
 
-    // Draw drivers
-    if (frames && frames[currentFrame]) {
-      const frame = frames[currentFrame];
-      const drivers = frame.drivers;
+    // Draw drivers (use interpolated frame if available)
+    const frameToRender = interpolatedFrame || (frames && frames[currentFrame]);
+    
+    if (frameToRender) {
+      const drivers = frameToRender.drivers;
 
       for (const [code, pos] of Object.entries(drivers)) {
         const screenPos = worldToScreen({ x: pos.x, y: pos.y });
@@ -185,7 +188,7 @@ export default function AnimatedTrackCanvas({
       }
     }
 
-  }, [trackData, frames, currentFrame, driverColors]);
+  }, [trackData, frames, currentFrame, driverColors, interpolatedFrame]);
 
   return (
     <div ref={containerRef} className="animated-track-canvas-container">
