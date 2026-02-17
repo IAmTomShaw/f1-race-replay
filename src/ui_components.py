@@ -1314,20 +1314,15 @@ class CarTelemetryDiagramComponent(BaseComponent):
 
 
 class ControlsPopupComponent(BaseComponent):
-<<<<<<< HEAD
-    def __init__(self, width: int = 420, height: int = 285, header_font_size: int = 18, body_font_size: int = 16):
-        
-=======
     def __init__(
         self,
-        width: int = 430,
-        height: int = 260,
+        width: int = 480,
+        height: int = 285,
         header_font_size: int = 18,
         body_font_size: int = 16,
         lines: Optional[list[str]] = None,
     ):
 
->>>>>>> 8cb0032caa129db6f241392684f5101ea21412b1
         self.width = width
         self.height = height
         self.visible = False
@@ -1352,6 +1347,7 @@ class ControlsPopupComponent(BaseComponent):
             ("D", "Toggle DRS Zones"),
             ("B", "Toggle Progress Bar"),
             ("L", "Toggle Driver Labels"),
+            ("T", "Toggle Telemetry (select driver)"),
             ("H", "Toggle Help Popup"),
         ]
 
@@ -1410,24 +1406,9 @@ class ControlsPopupComponent(BaseComponent):
         self._header_text.y = header_cy
         self._header_text.draw()
 
-<<<<<<< HEAD
 
-        lines = [
-            " ",
-            "[SPACE] Pause/Resume",
-            "← / →  Jump back/forward",
-            "↑ / ↓  Speed +/-",
-            "[1-4]  Set speed: 0.5x / 1x / 2x / 4x",
-            "[R]    Restart",
-            "[D]    Toggle DRS Zones",
-            "[B]    Toggle Progress Bar",
-            "[L]    Toggle Driver Labels",
-            "[T]    Telemetry Display (select driver first)",
-            "[H]    Toggle Help Popup",
-        ]
-=======
         controls = self.lines if self.lines is not None else self._default_lines()
->>>>>>> 8cb0032caa129db6f241392684f5101ea21412b1
+
         
         line_spacing = max(18, int(self.body_font_size + 8))
         left_x = cx - self.width / 2 + 16
