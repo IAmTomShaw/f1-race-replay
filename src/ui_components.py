@@ -1011,7 +1011,7 @@ class CarTelemetryDiagramComponent(BaseComponent):
             4: "f1_car_wet.png",       # WET (blue)
         }
         for compound_id, filename in tyre_files.items():
-            path = os.path.join("images", filename)
+            path = os.path.join("images", "cars", filename)
             if os.path.exists(path):
                 self._car_textures[compound_id] = arcade.load_texture(path)
         # Fallback texture (use medium as default)
