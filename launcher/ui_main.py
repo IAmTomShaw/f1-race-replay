@@ -227,7 +227,7 @@ class RaceCard(QFrame):
         fmt = str(event_data.get('EventFormat', '')).lower()
         if 'sprint' in fmt:
             lbl_tag = QLabel("SPRINT")
-            lbl_tag.setStyleSheet(f"color: #000000; background-color: {COLOR_ACCENT}; padding: 2px 6px; font-size: 10px; font-weight: bold; border-radius: 2px;")
+            lbl_tag.setStyleSheet(f"color: #ffffff; background-color: {COLOR_ACCENT}; padding: 2px 6px; font-size: 10px; font-weight: bold; border-radius: 2px;")
             bottom_layout.addWidget(lbl_tag)
             
         layout.addLayout(bottom_layout)
@@ -306,7 +306,7 @@ class MainWindow(QMainWindow):
         # Title Stack
         title_stack = QVBoxLayout()
         title_stack.setSpacing(0)
-        lbl_app = QLabel("RACE REPLAY")
+        lbl_app = QLabel("F1 RACE REPLAY")
         lbl_app.setStyleSheet(f"color: {COLOR_ACCENT_SEC}; font-size: 48px; font-weight: 900; font-style: italic; letter-spacing: -2px;")
         
         lbl_sub = QLabel("ARCHIVE & TELEMETRY SYSTEM")
