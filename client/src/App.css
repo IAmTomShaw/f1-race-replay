@@ -28,8 +28,8 @@
 .app::after {
   content: '';
   position: absolute;
-  bottom: 0;
-  right: -50px;
+  bottom: 0px;
+  right: -30px;
   width: 500px;
   height: 500px;
   background-image: url('/src/assets/lines-bottom.png');

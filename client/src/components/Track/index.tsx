@@ -21,21 +21,21 @@ export default function AnimatedTrackCanvas({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   
-  // Scaling state
   const scaleRef = useRef<number>(1);
   const offsetXRef = useRef<number>(0);
   const offsetYRef = useRef<number>(0);
 
-  // Calculate scaling
   const calculateScaling = useCallback(() => {
     if (!trackData || !canvasRef.current) return;
     
     const canvas = canvasRef.current;
     const bounds = trackData.bounds;
-    const padding = 80; // Increased from 50 to 80 for better fit
+    const padding = 80;
 
-    const worldWidth = bounds.maxX - bounds.minX;
-    const worldHeight = bounds.maxY - bounds.minY;
+    // After -90° rotation, world Y maps to screen X and world X maps to screen Y.
+    // So the canvas width is constrained by the world Y range, and height by X range.
+    const worldWidth = bounds.maxY - bounds.minY;
+    const worldHeight = bounds.maxX - bounds.minX;
 
     const availableWidth = canvas.width - 2 * padding;
     const availableHeight = canvas.height - 2 * padding;
@@ -47,11 +47,11 @@ export default function AnimatedTrackCanvas({
     const scaledWidth = worldWidth * scaleRef.current;
     const scaledHeight = worldHeight * scaleRef.current;
 
-    offsetXRef.current = (canvas.width - scaledWidth) / 2 - bounds.minX * scaleRef.current;
-    offsetYRef.current = (canvas.height - scaledHeight) / 2 - bounds.minY * scaleRef.current;
+    // Negating both axes shifts the anchor to the max bound instead of min.
+    offsetXRef.current = (canvas.width - scaledWidth) / 2 + bounds.maxY * scaleRef.current;
+    offsetYRef.current = (canvas.height - scaledHeight) / 2 + bounds.maxX * scaleRef.current;
   }, [trackData]);
 
-  // Handle resize
   useEffect(() => {
     const handleResize = () => {
       if (!canvasRef.current || !containerRef.current) return;
@@ -66,12 +66,10 @@ export default function AnimatedTrackCanvas({
     return () => window.removeEventListener('resize', handleResize);
   }, [calculateScaling]);
 
-  // Recalculate scaling when track data changes
   useEffect(() => {
     calculateScaling();
   }, [calculateScaling]);
 
-  // Draw loop - redraws whenever currentFrame changes
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !trackData) return;
@@ -79,16 +77,15 @@ export default function AnimatedTrackCanvas({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
+    // 180° rotation negates both axes: screen.x = -world.y, screen.y = -world.x
     const worldToScreen = (point: Point): Point => ({
-      x: point.x * scaleRef.current + offsetXRef.current,
-      y: point.y * scaleRef.current + offsetYRef.current,
+      x: -point.y * scaleRef.current + offsetXRef.current,
+      y: -point.x * scaleRef.current + offsetYRef.current,
     });
 
-    // Clear canvas
     ctx.fillStyle = '#000000';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-    // Draw track boundaries
     const drawPath = (points: Point[], color: string, lineWidth: number) => {
       if (points.length < 2) return;
       ctx.strokeStyle = color;
@@ -106,7 +103,6 @@ export default function AnimatedTrackCanvas({
     drawPath(trackData.outerBoundary, '#666666', 4);
     drawPath(trackData.innerBoundary, '#666666', 4);
 
-    // Draw DRS zones
     if (trackData.drsZones) {
       for (const zone of trackData.drsZones) {
         const segment = trackData.outerBoundary.slice(zone.startIndex, zone.endIndex + 1);
@@ -116,7 +112,6 @@ export default function AnimatedTrackCanvas({
       }
     }
 
-    // Draw finish line (checkered)
     if (trackData.innerBoundary.length > 0 && trackData.outerBoundary.length > 0) {
       const innerStart = worldToScreen(trackData.innerBoundary[0]);
       const outerStart = worldToScreen(trackData.outerBoundary[0]);
@@ -130,56 +125,44 @@ export default function AnimatedTrackCanvas({
         const extendX = (dx / length) * extension;
         const extendY = (dy / length) * extension;
 
-        const extendedInner = {
-          x: innerStart.x - extendX,
-          y: innerStart.y - extendY,
-        };
-
-        const extendedOuter = {
-          x: outerStart.x + extendX,
-          y: outerStart.y + extendY,
-        };
+        const extendedInner = { x: innerStart.x - extendX, y: innerStart.y - extendY };
+        const extendedOuter = { x: outerStart.x + extendX, y: outerStart.y + extendY };
 
         const numSquares = 20;
         for (let i = 0; i < numSquares; i++) {
           const t1 = i / numSquares;
           const t2 = (i + 1) / numSquares;
           
-          const x1 = extendedInner.x + t1 * (extendedOuter.x - extendedInner.x);
-          const y1 = extendedInner.y + t1 * (extendedOuter.y - extendedInner.y);
-          const x2 = extendedInner.x + t2 * (extendedOuter.x - extendedInner.x);
-          const y2 = extendedInner.y + t2 * (extendedOuter.y - extendedInner.y);
-          
           ctx.strokeStyle = i % 2 === 0 ? '#FFFFFF' : '#000000';
           ctx.lineWidth = 6;
           ctx.beginPath();
-          ctx.moveTo(x1, y1);
-          ctx.lineTo(x2, y2);
+          ctx.moveTo(
+            extendedInner.x + t1 * (extendedOuter.x - extendedInner.x),
+            extendedInner.y + t1 * (extendedOuter.y - extendedInner.y)
+          );
+          ctx.lineTo(
+            extendedInner.x + t2 * (extendedOuter.x - extendedInner.x),
+            extendedInner.y + t2 * (extendedOuter.y - extendedInner.y)
+          );
           ctx.stroke();
         }
       }
     }
 
-    // Draw drivers (use interpolated frame if available)
     const frameToRender = interpolatedFrame || (frames && frames[currentFrame]);
     
     if (frameToRender) {
-      const drivers = frameToRender.drivers;
-
-      for (const [code, pos] of Object.entries(drivers)) {
+      for (const [code, pos] of Object.entries(frameToRender.drivers)) {
         const screenPos = worldToScreen({ x: pos.x, y: pos.y });
         
-        // Get driver color
         const color = driverColors?.[code] || [255, 255, 255];
         const colorStr = `rgb(${color[0]}, ${color[1]}, ${color[2]})`;
 
-        // Draw driver dot
         ctx.fillStyle = colorStr;
         ctx.beginPath();
         ctx.arc(screenPos.x, screenPos.y, 6, 0, Math.PI * 2);
         ctx.fill();
 
-        // Draw driver code label
         ctx.fillStyle = '#FFFFFF';
         ctx.font = 'bold 10px sans-serif';
         ctx.textAlign = 'center';
