@@ -1,4 +1,5 @@
 fastf1
+arcade
 pandas
 matplotlib
 numpy
