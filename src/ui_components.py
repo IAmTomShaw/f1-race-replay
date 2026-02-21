@@ -9,6 +9,14 @@ from src.tyre_degradation_integration import (
     format_tyre_health_bar, 
     format_degradation_text
 )
+from src.inputs.key_press import (
+    IncreaseSpeedCommand,
+    DecreaseSpeedCommand,
+    StartForwardCommand,
+    TogglePauseCommand,
+    StartRewindCommand
+)
+
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
   if degrees is None:
@@ -1633,8 +1641,6 @@ class RaceControlsComponent(BaseComponent):
     - Forward button (right)
     """
     
-    PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
-
     def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = 40, visible=True):
         self.center_x = center_x
         self.center_y = center_y
@@ -1867,44 +1873,37 @@ class RaceControlsComponent(BaseComponent):
         return False
     
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
-        """Handle button clicks."""
+        """Handle button clicks using Command pattern."""
         if self._point_in_rect(x, y, self.rewind_rect):
-            # Update: Support hold-to-rewind
+            # Support hold-to-rewind using Command
             if hasattr(window, 'is_rewinding'):
-                window.was_paused_before_hold = window.paused
-                window.is_rewinding = True
-                window.paused = True
+                rewind_cmd = StartRewindCommand()
+                rewind_cmd.execute(window)
             elif hasattr(window, 'frame_index'):
                 window.frame_index = int(max(0, window.frame_index - 10))
             return True
         elif self._point_in_rect(x, y, self.play_pause_rect):
             if hasattr(window, 'paused'):
-                window.paused = not window.paused
+                pause_cmd = TogglePauseCommand()
+                pause_cmd.execute(window)
             return True
         elif self._point_in_rect(x, y, self.forward_rect):
-            # Update: Support hold-to-forward
+            # Support hold-to-forward using Command
             if hasattr(window, 'is_forwarding'):
-                window.was_paused_before_hold = window.paused
-                window.is_forwarding = True
-                window.paused = True
+                forward_cmd = StartForwardCommand()
+                forward_cmd.execute(window)
             elif hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
                 window.frame_index = int(min(window.n_frames - 1, window.frame_index + 10))
             return True
         elif self._point_in_rect(x, y, self.speed_increase_rect):
             if hasattr(window, 'playback_speed'):
-                # FIX: Use index lookup to increment speed.
-                if window.playback_speed < max(self.PLAYBACK_SPEEDS):
-                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
-                    window.playback_speed = self.PLAYBACK_SPEEDS[min(current_index + 1, len(self.PLAYBACK_SPEEDS) - 1)]
-                    self.flash_button('speed_increase')
+                speed_cmd = IncreaseSpeedCommand()
+                speed_cmd.execute(window)
             return True
         elif self._point_in_rect(x, y, self.speed_decrease_rect):
             if hasattr(window, 'playback_speed'):
-                # FIX: Use index lookup to decrement speed safely within defined PLAYBACK_SPEEDS.
-                if window.playback_speed > min(self.PLAYBACK_SPEEDS):
-                    current_index = self.PLAYBACK_SPEEDS.index(window.playback_speed)
-                    window.playback_speed = self.PLAYBACK_SPEEDS[max(0, current_index - 1)]
-                    self.flash_button('speed_decrease')
+                speed_cmd = DecreaseSpeedCommand()
+                speed_cmd.execute(window)
             return True
         return False
     

@@ -17,13 +17,31 @@ from src.ui_components import (
     draw_finish_line
 )
 from src.tyre_degradation_integration import TyreDegradationIntegrator
-from src.services.stream import TelemetryStreamServer
+from src.inputs.key_press import (
+    CloseWindowCommand,
+    TogglePauseCommand,
+    StartForwardCommand,
+    IncreaseSpeedCommand,
+    DecreaseSpeedCommand,
+    SetSpeedCommand,
+    RestartCommand,
+    ToggleDRSZonesCommand,
+    ToggleDriverLabelsCommand,
+    ToggleHelpPopupCommand,
+    ToggleProgressBarCommand,
+    ToggleSessionInfoCommand,
+    StartRewindCommand
+)
+
+from src.inputs.key_release import (
+    StopForwardCommand,
+    StopRewindCommand
+)
 
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Race Replay"
-PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
@@ -52,7 +70,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.track_statuses = track_statuses
         self.n_frames = len(frames)
         self.drivers = list(drivers)
-        self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
+        self.playback_speed = playback_speed
         self.driver_colors = driver_colors or {}
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
@@ -136,6 +154,31 @@ class F1RaceReplayWindow(arcade.Window):
         self.is_rewinding = False
         self.is_forwarding = False
         self.was_paused_before_hold = False
+        
+        # Command registry for key bindings (Command Pattern)
+        self._key_press_commands = {
+            arcade.key.ESCAPE: CloseWindowCommand(),
+            arcade.key.SPACE: TogglePauseCommand(),
+            arcade.key.RIGHT: StartForwardCommand(),
+            arcade.key.LEFT: StartRewindCommand(),
+            arcade.key.UP: IncreaseSpeedCommand(),
+            arcade.key.DOWN: DecreaseSpeedCommand(),
+            arcade.key.KEY_1: SetSpeedCommand(0.5, 'speed_decrease'),
+            arcade.key.KEY_2: SetSpeedCommand(1.0, 'speed_decrease'),
+            arcade.key.KEY_3: SetSpeedCommand(2.0, 'speed_increase'),
+            arcade.key.KEY_4: SetSpeedCommand(4.0, 'speed_increase'),
+            arcade.key.R: RestartCommand(),
+            arcade.key.D: ToggleDRSZonesCommand(),
+            arcade.key.L: ToggleDriverLabelsCommand(),
+            arcade.key.H: ToggleHelpPopupCommand(),
+            arcade.key.B: ToggleProgressBarCommand(),
+            arcade.key.I: ToggleSessionInfoCommand(),
+        }
+        
+        self._key_release_commands = {
+            arcade.key.RIGHT: StopForwardCommand(),
+            arcade.key.LEFT: StopRewindCommand(),
+        }
         
         # Extract race events for the progress bar
         race_events = extract_race_events(frames, track_statuses, total_laps or 0)
@@ -651,90 +694,14 @@ class F1RaceReplayWindow(arcade.Window):
         self._broadcast_telemetry_state()
 
     def on_key_press(self, symbol: int, modifiers: int):
-        # Allow ESC to close window at any time
-        if symbol == arcade.key.ESCAPE:
-            arcade.close_window()
+        if symbol in self._key_press_commands:
+            self._key_press_commands[symbol].execute(self)
             return
-        if symbol == arcade.key.SPACE:
-            self.paused = not self.paused
-            self._broadcast_telemetry_state()
-            self.race_controls_comp.flash_button('play_pause')
-        elif symbol == arcade.key.RIGHT:
-            self.was_paused_before_hold = self.paused
-            self.is_forwarding = True
-            self.paused = True
-        elif symbol == arcade.key.LEFT:
-            self.was_paused_before_hold = self.paused
-            self.is_rewinding = True
-            self.paused = True
-        elif symbol == arcade.key.UP:
-            if self.playback_speed < PLAYBACK_SPEEDS[-1]:
-                # Increase to next higher speed
-                for spd in PLAYBACK_SPEEDS:
-                    if spd > self.playback_speed:
-                        self.playback_speed = spd
-                        self._broadcast_telemetry_state()
-                        break
-            self.race_controls_comp.flash_button('speed_increase')
-        elif symbol == arcade.key.DOWN:
-            if self.playback_speed > PLAYBACK_SPEEDS[0]:
-                # Decrease to next lower speed
-                for spd in reversed(PLAYBACK_SPEEDS):
-                    if spd < self.playback_speed:
-                        self.playback_speed = spd
-                        self._broadcast_telemetry_state()
-                        break
-            self.race_controls_comp.flash_button('speed_decrease')
-        elif symbol == arcade.key.KEY_1:
-            self.playback_speed = 0.5
-            self._broadcast_telemetry_state()
-            self.race_controls_comp.flash_button('speed_decrease')
-        elif symbol == arcade.key.KEY_2:
-            self.playback_speed = 1.0
-            self._broadcast_telemetry_state()
-            self.race_controls_comp.flash_button('speed_decrease')
-        elif symbol == arcade.key.KEY_3:
-            self.playback_speed = 2.0
-            self._broadcast_telemetry_state()
-            self.race_controls_comp.flash_button('speed_increase')
-        elif symbol == arcade.key.KEY_4:
-            self.playback_speed = 4.0
-            self._broadcast_telemetry_state()
-            self.race_controls_comp.flash_button('speed_increase')
-        elif symbol == arcade.key.R:
-            self.frame_index = 0.0
-            self.playback_speed = 1.0
-            self._broadcast_telemetry_state()
-            # Clear degradation cache on restart
-            if self.degradation_integrator:
-                self.degradation_integrator.clear_cache()
-            self.race_controls_comp.flash_button('rewind')
-        elif symbol == arcade.key.D:
-            self.toggle_drs_zones = not self.toggle_drs_zones
-        elif symbol == arcade.key.L:
-            self.show_driver_labels = not self.show_driver_labels
-        elif symbol == arcade.key.H:
-            # Toggle Controls popup with 'H' key — show anchored to bottom-left with 20px margin
-            margin_x = 20
-            margin_y = 20
-            left_pos = float(margin_x)
-            top_pos = float(margin_y + self.controls_popup_comp.height)
-            if self.controls_popup_comp.visible:
-                self.controls_popup_comp.hide()
-            else:
-                self.controls_popup_comp.show_over(left_pos, top_pos)
-        elif symbol == arcade.key.B:
-            self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
-        elif symbol == arcade.key.I:
-            self.session_info_comp.toggle_visibility() # toggle session info banner
 
     def on_key_release(self, symbol: int, modifiers: int):
-        if symbol == arcade.key.RIGHT:
-            self.is_forwarding = False
-            self.paused = self.was_paused_before_hold
-        elif symbol == arcade.key.LEFT:
-            self.is_rewinding = False
-            self.paused = self.was_paused_before_hold
+        if symbol in self._key_release_commands:
+            self._key_release_commands[symbol].execute(self)
+            return
 
     def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
         if self.is_forwarding or self.is_rewinding:
