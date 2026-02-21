@@ -1,14 +1,60 @@
-
-venv/
-
-output_animation.mp4
-.fastf1-cache
-still_frame.png
-
-.mypy_cache/
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
+# UV / Virtual Environments
+.venv/
+venv/
+ENV/
+env/
+
+# UV lock file (optional - uncomment if you want to exclude it)
+# uv.lock
+
+# FastF1 cache
+.fastf1-cache/
+
+# Generated files
+output_animation.mp4
+still_frame.png
 computed_data/
 
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
 .DS_Store
-.idea
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# MyPy
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Ruff
+.ruff_cache/
