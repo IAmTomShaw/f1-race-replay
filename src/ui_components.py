@@ -975,12 +975,349 @@ class DriverInfoComponent(BaseComponent):
         return window.driver_colors.get(code, arcade.color.GRAY)
 
 
+class CarTelemetryDiagramComponent(BaseComponent):
+    """
+    A pitwall-style car telemetry diagram showing a top-down F1 car with
+    real-time data overlays for throttle, brake, speed, gear, DRS, and tyres.
+    Displays as a popup when a driver is selected.
+    """
+    
+    # Tyre compound colors matching F1 conventions
+    TYRE_COLORS = {
+        0: (255, 40, 40),     # SOFT - Red
+        1: (255, 200, 0),     # MEDIUM - Yellow
+        2: (255, 255, 255),   # HARD - White
+        3: (40, 200, 80),     # INTERMEDIATE - Green
+        4: (0, 140, 255),     # WET - Blue
+    }
+    
+    def __init__(self, width: int = 340, height: int = 420):
+        self.width = width
+        self.height = height
+        self._visible = False
+        
+        # Rolling buffer for throttle/brake trace (5 seconds at 25 fps)
+        self._trace_length = 125
+        self._throttle_history = []
+        self._brake_history = []
+        
+        # Load tyre-specific car textures
+        self._car_textures = {}
+        tyre_files = {
+            0: "f1_car_soft.png",      # SOFT (red)
+            1: "f1_car_medium.png",    # MEDIUM (yellow)
+            2: "f1_car_hard.png",      # HARD (white)
+            3: "f1_car_intermediate.png",  # INTERMEDIATE (green)
+            4: "f1_car_wet.png",       # WET (blue)
+        }
+        for compound_id, filename in tyre_files.items():
+            path = os.path.join("images", "cars", filename)
+            if os.path.exists(path):
+                self._car_textures[compound_id] = arcade.load_texture(path)
+        # Fallback texture (use medium as default)
+        self._car_texture_default = self._car_textures.get(1, None)
+        self._car_size = (110, 110)  # Square aspect ratio matching source image
+        
+        # Cached text objects for performance
+        self._speed_text = arcade.Text("", 0, 0, arcade.color.WHITE, 28, bold=True, anchor_x="center")
+        self._gear_text = arcade.Text("", 0, 0, arcade.color.WHITE, 36, bold=True, anchor_x="center")
+        self._drs_text = arcade.Text("", 0, 0, arcade.color.GREEN, 14, bold=True, anchor_x="center")
+        self._label_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, 10, anchor_x="center")
+        
+    @property
+    def visible(self) -> bool:
+        return self._visible
+    
+    @visible.setter
+    def visible(self, value: bool):
+        self._visible = value
+        if not value:
+            # Clear history when hidden
+            self._throttle_history.clear()
+            self._brake_history.clear()
+    
+    def toggle_visibility(self) -> bool:
+        self.visible = not self._visible
+        return self._visible
+    
+    def update_telemetry(self, driver_pos: dict):
+        """Update the rolling trace buffers with new telemetry values."""
+        throttle = driver_pos.get('throttle', 0) / 100.0  # Normalize to 0-1
+        brake = driver_pos.get('brake', 0)
+        if brake > 1.0:
+            brake = brake / 100.0  # Normalize if percentage
+        brake = min(1.0, max(0.0, brake))
+        
+        self._throttle_history.append(throttle)
+        self._brake_history.append(brake)
+        
+        # Trim to max length
+        if len(self._throttle_history) > self._trace_length:
+            self._throttle_history.pop(0)
+        if len(self._brake_history) > self._trace_length:
+            self._brake_history.pop(0)
+    
+    def draw(self, window):
+        if not self._visible:
+            return
+        
+        # Get selected driver data
+        codes = getattr(window, "selected_drivers", [])
+        if not codes:
+            single = getattr(window, "selected_driver", None)
+            codes = [single] if single else []
+        
+        if not codes or not window.frames:
+            return
+        
+        code = codes[0]  # Show first selected driver
+        idx = min(int(window.frame_index), window.n_frames - 1)
+        frame = window.frames[idx]
+        
+        if code not in frame["drivers"]:
+            return
+        
+        driver_pos = frame["drivers"][code]
+        team_color = window.driver_colors.get(code, arcade.color.GRAY)
+        
+        # Update trace history
+        self.update_telemetry(driver_pos)
+        
+        # Calculate popup position (left side, below weather if present)
+        weather_bottom = getattr(window, "weather_bottom", None)
+        top = weather_bottom - 20 if weather_bottom else window.height - 200
+        left = 20
+        
+        center_x = left + self.width / 2
+        center_y = top - self.height / 2
+        
+        # Draw background
+        rect = arcade.XYWH(center_x, center_y, self.width, self.height)
+        arcade.draw_rect_filled(rect, (15, 15, 20, 240))
+        arcade.draw_rect_outline(rect, team_color, 2)
+        
+        # Header
+        header_h = 28
+        header_cy = top - header_h / 2
+        arcade.draw_rect_filled(arcade.XYWH(center_x, header_cy, self.width, header_h), team_color)
+        arcade.Text(f"TELEMETRY: {code}", center_x, header_cy, arcade.color.BLACK, 14, 
+                   bold=True, anchor_x="center", anchor_y="center").draw()
+        
+        # --- Draw car outline (simplified top-down view) ---
+        car_cx = center_x
+        car_cy = center_y + 30  # Offset up to make room for trace
+        tyre_compound = int(driver_pos.get('tyre', 1))  # Default to medium (1) if not set
+        self._draw_car_outline(car_cx, car_cy, team_color, tyre_compound)
+        # Tyres are now integrated into the car image, no separate indicators needed
+        
+        # --- DRS indicator above car ---
+        drs_val = driver_pos.get('drs', 0)
+        drs_active = drs_val in [10, 12, 14]
+        drs_available = drs_val == 8
+        self._draw_drs_indicator(car_cx, car_cy + 75, drs_active, drs_available)
+        
+        # --- Throttle bar (left side) ---
+        throttle = driver_pos.get('throttle', 0) / 100.0
+        bar_height = 100  # Reduced from 120 to fit in box
+        self._draw_vertical_bar(left + 35, car_cy - 10, 18, bar_height, throttle, 
+                               arcade.color.GREEN, "THR", f"{int(driver_pos.get('throttle', 0))}%")
+        
+        # --- Brake bar (left side, next to throttle) ---
+        brake = driver_pos.get('brake', 0)
+        if brake > 1.0:
+            brake = brake / 100.0
+        brake = min(1.0, max(0.0, brake))
+        brake_pct = int(brake * 100)
+        self._draw_vertical_bar(left + 60, car_cy - 10, 18, bar_height, brake,
+                               arcade.color.RED, "BRK", f"{brake_pct}%")
+        
+        
+        # --- Speed readout (right side) ---
+        speed = driver_pos.get('speed', 0)
+        speed_x = left + self.width - 55
+        self._speed_text.text = f"{int(speed)}"
+        self._speed_text.x = speed_x
+        self._speed_text.y = car_cy + 40
+        self._speed_text.draw()
+        self._label_text.text = "KM/H"
+        self._label_text.x = speed_x
+        self._label_text.y = car_cy + 18
+        self._label_text.draw()
+        
+        # --- Gear readout (right side, below speed) ---
+        gear = driver_pos.get('gear', 0)
+        gear_str = "N" if gear == 0 else ("R" if gear < 0 else str(gear))
+        self._gear_text.text = gear_str
+        self._gear_text.x = speed_x
+        self._gear_text.y = car_cy - 20
+        self._gear_text.draw()
+        self._label_text.text = "GEAR"
+        self._label_text.x = speed_x
+        self._label_text.y = car_cy - 50
+        self._label_text.draw()
+        
+        # --- Throttle/Brake trace graph (bottom) ---
+        trace_left = left + 25
+        trace_right = left + self.width - 25
+        trace_bottom = top - self.height + 25
+        trace_top = trace_bottom + 60
+        self._draw_trace_graph(trace_left, trace_right, trace_bottom, trace_top)
+        
+        # Trace label
+        self._label_text.text = "THROTTLE / BRAKE TRACE"
+        self._label_text.x = center_x
+        self._label_text.y = trace_bottom - 10
+        self._label_text.draw()
+    
+    def _draw_car_outline(self, cx: float, cy: float, team_color: tuple, tyre_compound: int = 1):
+        """Draw the F1 car silhouette using a loaded texture for the tyre compound."""
+        # Get the texture for the current tyre compound
+        texture = self._car_textures.get(tyre_compound, self._car_texture_default)
+        if texture:
+            # Draw the car texture centered at (cx, cy)
+            car_w, car_h = self._car_size
+            rect = arcade.XYWH(cx, cy, car_w, car_h)
+            arcade.draw_texture_rect(rect=rect, texture=texture, angle=0, alpha=255)
+        else:
+            # Fallback: draw a simple rectangle if texture not loaded
+            arcade.draw_rect_outline(arcade.XYWH(cx, cy, 60, 100), (180, 180, 180), 2)
+            arcade.Text("CAR", cx, cy, arcade.color.GRAY, 12, anchor_x="center", anchor_y="center").draw()
+    
+    def _draw_tyre_indicators(self, cx: float, cy: float, compound: int):
+        """Draw tyre compound circles at wheel positions."""
+        tyre_color = self.TYRE_COLORS.get(compound, (128, 128, 128))
+        radius = 10
+        
+        # Wheel positions relative to car center
+        positions = [
+            (cx - 35, cy + 35),   # Front Left
+            (cx + 35, cy + 35),   # Front Right
+            (cx - 30, cy - 35),   # Rear Left
+            (cx + 30, cy - 35),   # Rear Right
+        ]
+        
+        for x, y in positions:
+            arcade.draw_circle_filled(x, y, radius, tyre_color)
+            arcade.draw_circle_outline(x, y, radius, (60, 60, 60), 2)
+    
+    def _draw_drs_indicator(self, cx: float, cy: float, active: bool, available: bool):
+        """Draw DRS status indicator above the car."""
+        if active:
+            text = "DRS OPEN"
+            color = arcade.color.GREEN
+            bg_color = (0, 80, 0, 200)
+        elif available:
+            text = "DRS READY"
+            color = arcade.color.YELLOW
+            bg_color = (80, 60, 0, 200)
+        else:
+            text = "DRS"
+            color = arcade.color.GRAY
+            bg_color = (40, 40, 40, 200)
+        
+        # Draw background pill
+        pill_width = 80
+        pill_height = 20
+        arcade.draw_rect_filled(arcade.XYWH(cx, cy, pill_width, pill_height), bg_color)
+        arcade.draw_rect_outline(arcade.XYWH(cx, cy, pill_width, pill_height), color, 2)
+        
+        self._drs_text.text = text
+        self._drs_text.color = color
+        self._drs_text.x = cx
+        self._drs_text.y = cy
+        self._drs_text.anchor_y = "center"
+        self._drs_text.draw()
+    
+    def _draw_vertical_bar(self, x: float, cy: float, width: float, height: float,
+                          value: float, color: tuple, label: str, value_text: str):
+        """Draw a vertical progress bar with label."""
+        bar_bottom = cy - height / 2
+        bar_top = cy + height / 2
+        
+        # Background
+        arcade.draw_rect_filled(arcade.XYWH(x, cy, width, height), (40, 40, 40))
+        
+        # Filled portion
+        fill_height = height * value
+        fill_cy = bar_bottom + fill_height / 2
+        if fill_height > 0:
+            arcade.draw_rect_filled(arcade.XYWH(x, fill_cy, width, fill_height), color)
+        
+        # Outline
+        arcade.draw_rect_outline(arcade.XYWH(x, cy, width, height), (80, 80, 80), 1)
+        
+        # Label below
+        self._label_text.text = label
+        self._label_text.x = x
+        self._label_text.y = bar_bottom - 12
+        self._label_text.draw()
+        
+        # Value above
+        arcade.Text(value_text, x, bar_top + 8, arcade.color.WHITE, 10, 
+                   anchor_x="center", anchor_y="bottom").draw()
+    
+    def _draw_trace_graph(self, left: float, right: float, bottom: float, top: float):
+        """Draw the rolling throttle/brake trace graph."""
+        # Background
+        width = right - left
+        height = top - bottom
+        cx = (left + right) / 2
+        cy = (top + bottom) / 2
+        arcade.draw_rect_filled(arcade.XYWH(cx, cy, width, height), (25, 25, 30))
+        arcade.draw_rect_outline(arcade.XYWH(cx, cy, width, height), (60, 60, 60), 1)
+        
+        if len(self._throttle_history) < 2:
+            return
+        
+        n = len(self._throttle_history)
+        x_step = width / max(1, self._trace_length - 1)
+        
+        # Draw throttle line (green)
+        throttle_points = []
+        for i, val in enumerate(self._throttle_history):
+            x = left + i * x_step
+            y = bottom + val * height
+            throttle_points.append((x, y))
+        
+        if len(throttle_points) >= 2:
+            arcade.draw_line_strip(throttle_points, arcade.color.GREEN, 2)
+        
+        # Draw brake line (red)
+        brake_points = []
+        for i, val in enumerate(self._brake_history):
+            x = left + i * x_step
+            y = bottom + val * height
+            brake_points.append((x, y))
+        
+        if len(brake_points) >= 2:
+            arcade.draw_line_strip(brake_points, arcade.color.RED, 2)
+    
+    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool:
+        """Handle clicks - close if clicked outside."""
+        if not self._visible:
+            return False
+        
+        # Calculate bounds
+        weather_bottom = getattr(window, "weather_bottom", None)
+        top = weather_bottom - 20 if weather_bottom else window.height - 200
+        left = 20
+        right = left + self.width
+        bottom = top - self.height
+        
+        # Click inside the diagram is consumed
+        if left <= x <= right and bottom <= y <= top:
+            return True
+        
+        # Click outside closes the diagram
+        self.visible = False
+        return False
+
 
 class ControlsPopupComponent(BaseComponent):
     def __init__(
         self,
-        width: int = 430,
-        height: int = 260,
+        width: int = 480,
+        height: int = 285,
         header_font_size: int = 18,
         body_font_size: int = 16,
         lines: Optional[list[str]] = None,
@@ -1010,6 +1347,7 @@ class ControlsPopupComponent(BaseComponent):
             ("D", "Toggle DRS Zones"),
             ("B", "Toggle Progress Bar"),
             ("L", "Toggle Driver Labels"),
+            ("T", "Toggle Telemetry (select driver)"),
             ("H", "Toggle Help Popup"),
         ]
 
@@ -1068,7 +1406,9 @@ class ControlsPopupComponent(BaseComponent):
         self._header_text.y = header_cy
         self._header_text.draw()
 
+
         controls = self.lines if self.lines is not None else self._default_lines()
+
         
         line_spacing = max(18, int(self.body_font_size + 8))
         left_x = cx - self.width / 2 + 16
