@@ -110,10 +110,12 @@ class RaceSelectionWindow(QMainWindow):
 
         # Schedule tree (left)
         self.schedule_tree = QTreeWidget()
-        self.schedule_tree.setHeaderLabels(["Round", "Event", "Country", "Start Date"])
+        self.schedule_tree.setHeaderLabels(["Round", "Event", "Circuit", "Country", "Start Date"])
         self.schedule_tree.setRootIsDecorated(False)
         content_layout.addWidget(self.schedule_tree, 3)
-        self.schedule_tree.setColumnWidth(2, 180)
+        self.schedule_tree.setColumnWidth(0, 50)
+        self.schedule_tree.setColumnWidth(1, 200)
+        self.schedule_tree.setColumnWidth(2, 300) # Circuit column
 
         # Session panel (right)
         self.session_panel = QWidget()
@@ -216,10 +218,11 @@ class RaceSelectionWindow(QMainWindow):
             # Ensure all columns are strings (QTreeWidgetItem expects text)
             round_str = str(event.get("round_number", ""))
             name = str(event.get("event_name", ""))
+            circuit = str(event.get("location", ""))
             country = str(event.get("country", ""))
             date = str(event.get("date", ""))
 
-            event_item = QTreeWidgetItem([round_str, name, country, date])
+            event_item = QTreeWidgetItem([round_str, name, circuit, country, date])
             event_item.setData(0, Qt.UserRole, event)
             self.schedule_tree.addTopLevelItem(event_item)
 
