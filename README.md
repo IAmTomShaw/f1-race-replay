@@ -9,6 +9,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 ## Features
 
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
+- **Insights Menu:** Floating menu for quick access to telemetry analysis tools (launches automatically with replay).
 - **Leaderboard:** See live driver positions and current tyre compounds.
 - **Lap & Time Display:** Track the current lap and total race time.
 - **Driver Status:** Drivers who retire or go out are marked as "OUT" on the leaderboard.
@@ -154,10 +155,42 @@ f1-race-replay/
 └── computed_data/            # Computed telemetry data (created automatically upon first run)
 ```
 
+## Building Custom Telemetry Windows
+
+When you start a race replay, an **Insights Menu** automatically appears, providing quick access to various telemetry analysis tools. You can easily create custom insight windows that receive live telemetry data using the `PitWallWindow` base class:
+
+```python
+from src.gui.pit_wall_window import PitWallWindow
+
+class MyInsightWindow(PitWallWindow):
+    def setup_ui(self):
+        # Create your custom UI
+        pass
+    
+    def on_telemetry_data(self, data):
+        # Process telemetry data
+        pass
+```
+
+The `PitWallWindow` base class handles all telemetry stream connection logic automatically, allowing you to focus solely on your window's functionality.
+
+**Key Features:**
+- Automatic connection to telemetry stream
+- Built-in status bar with connection state
+- Proper cleanup on window close
+- Simple API - just implement `setup_ui()` and `on_telemetry_data()`
+
+**Documentation & Examples:**
+- See [docs/PitWallWindow.md](./docs/PitWallWindow.md) for complete guide
+- See [docs/InsightsMenu.md](./docs/InsightsMenu.md) for adding insights to the menu
+- Run the example: `python -m src.gui.example_pit_wall_window`
+- Test the menu: `python -m src.gui.insights_menu`
+
 ## Customization
 
 - Change track width, colors, and UI layout in `src/arcade_replay.py`.
 - Adjust telemetry processing in `src/f1_data.py`.
+- Create custom telemetry windows using `PitWallWindow` base class (see above).
 
 ## Contributing
 
