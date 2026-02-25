@@ -28,7 +28,7 @@ PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 2
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
+                 left_ui_margin=340, right_ui_margin=260, top_ui_margin=0, bottom_ui_margin=0, total_laps=None, visible_hud=True,
                  session_info=None, session=None, enable_telemetry=False):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
@@ -68,13 +68,15 @@ class F1RaceReplayWindow(arcade.Window):
         self.finished_drivers = []
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
+        self.top_ui_margin = top_ui_margin
+        self.bottom_ui_margin = bottom_ui_margin
         self.toggle_drs_zones = True 
         self.show_driver_labels = False
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
-        self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
-        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
+        self.weather_comp = WeatherComponent(left=20, top_offset=self.top_ui_margin + 100, visible=visible_hud)
+        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), y=self.bottom_ui_margin + 180, visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
 
@@ -107,7 +109,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.progress_bar_comp = RaceProgressBarComponent(
             left_margin=left_ui_margin,
             right_margin=right_ui_margin,
-            bottom=30,
+            bottom=self.bottom_ui_margin - 30, # Adjusted based on actual UI
             height=24,
             marker_height=16
         )
@@ -115,7 +117,7 @@ class F1RaceReplayWindow(arcade.Window):
         # Race control buttons component
         self.race_controls_comp = RaceControlsComponent(
             center_x=self.width // 2,
-            center_y=100,
+            center_y=self.bottom_ui_margin - 80, # Adjusted based on actual UI
             visible = visible_hud
         )
         
@@ -204,9 +206,9 @@ class F1RaceReplayWindow(arcade.Window):
         arcade.set_background_color(arcade.color.BLACK)
 
         # Persistent UI Text objects (avoid per-frame allocations)
-        self.lap_text = arcade.Text("", 20, self.height - 40, arcade.color.WHITE, 24, anchor_y="top")
-        self.time_text = arcade.Text("", 20, self.height - 80, arcade.color.WHITE, 20, anchor_y="top")
-        self.status_text = arcade.Text("", 20, self.height - 120, arcade.color.WHITE, 24, bold=True, anchor_y="top")
+        self.lap_text = arcade.Text("", 20, self.height - self.top_ui_margin, arcade.color.WHITE, 24, anchor_y="top")
+        self.time_text = arcade.Text("", 20, self.height - self.top_ui_margin - 40, arcade.color.WHITE, 20, anchor_y="top")
+        self.status_text = arcade.Text("", 20, self.height - self.top_ui_margin - 80, arcade.color.WHITE, 24, bold=True, anchor_y="top")
 
         # Trigger initial scaling calculation
         self.update_scaling(self.width, self.height)
@@ -346,7 +348,7 @@ class F1RaceReplayWindow(arcade.Window):
         # never overlaps side UI elements (leaderboard, telemetry, legends).
         inner_w = max(1.0, screen_w - self.left_ui_margin - self.right_ui_margin)
         usable_w = inner_w * (1 - 2 * padding)
-        usable_h = screen_h * (1 - 2 * padding)
+        usable_h = screen_h - self.top_ui_margin - self.bottom_ui_margin - (screen_h * 2 * padding)
 
         # Calculate scale to fit whichever dimension is the limiting factor
         scale_x = usable_w / world_w
@@ -357,7 +359,7 @@ class F1RaceReplayWindow(arcade.Window):
         # world_cx/world_cy are unchanged by rotation about centre
         # Center within the available inner area (left_ui_margin .. screen_w - right_ui_margin)
         screen_cx = self.left_ui_margin + inner_w / 2
-        screen_cy = screen_h / 2
+        screen_cy = self.bottom_ui_margin + usable_h / 2
 
         self.tx = screen_cx - self.world_scale * world_cx
         self.ty = screen_cy - self.world_scale * world_cy
@@ -377,11 +379,11 @@ class F1RaceReplayWindow(arcade.Window):
         
         # update persistent text positions
         self.lap_text.x = 20
-        self.lap_text.y = self.height - 40
+        self.lap_text.y = self.height - self.top_ui_margin
         self.time_text.x = 20
-        self.time_text.y = self.height - 80
+        self.time_text.y = self.height - self.top_ui_margin - 40
         self.status_text.x = 20
-        self.status_text.y = self.height - 120
+        self.status_text.y = self.height - self.top_ui_margin - 80
 
     def world_to_screen(self, x, y):
         # Rotate around the track centre (if rotation is set), then scale+translate
@@ -716,7 +718,7 @@ class F1RaceReplayWindow(arcade.Window):
         elif symbol == arcade.key.H:
             # Toggle Controls popup with 'H' key — show anchored to bottom-left with 20px margin
             margin_x = 20
-            margin_y = 20
+            margin_y = 20 + self.bottom_ui_margin
             left_pos = float(margin_x)
             top_pos = float(margin_y + self.controls_popup_comp.height)
             if self.controls_popup_comp.visible:
