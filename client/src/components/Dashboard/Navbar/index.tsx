@@ -1,8 +1,12 @@
 import './index.css';
 
-export default function Navbar() {
+interface NavbarProps {
+  onHome: () => void;
+}
+
+export default function Navbar({ onHome }: NavbarProps) {
   const handleHomeClick = () => {
-    console.log('Home clicked');
+    onHome();
   };
 
   return (

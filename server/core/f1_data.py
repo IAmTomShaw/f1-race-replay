@@ -142,13 +142,47 @@ def _process_single_driver(args):
         "max_lap": driver_max_lap
     }
 
-def load_session(year, round_number, session_type='R'):
-    # session_type: 'R' (Race), 'S' (Sprint) etc.
+
+def load_session_minimal(year, round_number, session_type='R'):
+    """Loads only lap + position data — no weather, no race control messages.
+    ~3–5× faster than a full load. Use for track shape extraction."""
+    enable_cache()
     session = fastf1.get_session(year, round_number, session_type)
-    session.load(telemetry=True, weather=True)
+    session.load(laps=True, telemetry=True, weather=False, messages=False)
+    return session
+
+
+def load_session(year, round_number, session_type='R'):
+    """Full session load for race frames (telemetry + weather)."""
+    enable_cache()
+    session = fastf1.get_session(year, round_number, session_type)
+    session.load(telemetry=True, weather=True, messages=False)  # skip messages
     return session
 
 # The following functions require a loaded session object
+
+_FALLBACK_PALETTE = [
+    [229, 4,   17 ],  # red
+    [0,   160, 222],  # blue
+    [0,   210, 190],  # teal
+    [255, 135, 0  ],  # orange
+    [220, 0,   255],  # purple
+    [0,   234, 91 ],  # green
+    [255, 215, 0  ],  # gold
+    [255, 255, 255],  # white
+    [180, 0,   0  ],  # dark red
+    [0,   90,  180],  # dark blue
+    [100, 200, 100],  # light green
+    [255, 180, 0  ],  # amber
+    [200, 100, 255],  # lavender
+    [0,   180, 130],  # dark teal
+    [255, 80,  80 ],  # salmon
+    [80,  80,  255],  # periwinkle
+    [200, 200, 0  ],  # olive
+    [0,   200, 255],  # sky blue
+    [255, 0,   128],  # hot pink
+    [128, 255, 0  ],  # lime
+]
 
 def get_driver_colors(session):
     color_mapping = fastf1.plotting.get_driver_color_mapping(session)
@@ -160,6 +194,37 @@ def get_driver_colors(session):
         rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
         rgb_colors[driver] = rgb
     return rgb_colors
+
+
+# ── REPLACE with this (palette at module level, function below it): ───────────
+
+_FALLBACK_PALETTE = [
+    [229, 4,   17 ], [0,   160, 222], [0,   210, 190], [255, 135, 0  ],
+    [220, 0,   255], [0,   234, 91 ], [255, 215, 0  ], [255, 255, 255],
+    [180, 0,   0  ], [0,   90,  180], [100, 200, 100], [255, 180, 0  ],
+    [200, 100, 255], [0,   180, 130], [255, 80,  80 ], [80,  80,  255],
+    [200, 200, 0  ], [0,   200, 255], [255, 0,   128], [128, 255, 0  ],
+]
+
+def get_driver_colors(session) -> dict:
+    try:
+        color_mapping = fastf1.plotting.get_driver_color_mapping(session)
+        rgb_colors = {}
+        for driver, hex_color in color_mapping.items():
+            hex_color = hex_color.lstrip('#')
+            rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+            rgb_colors[driver] = rgb
+        return rgb_colors
+    except Exception as e:
+        logger.warning(f"Could not load driver colors from FastF1 ({e}), using fallback palette.")
+        try:
+            drivers = list(session.results['Abbreviation'])
+        except Exception:
+            drivers = []
+        return {
+            code: _FALLBACK_PALETTE[i % len(_FALLBACK_PALETTE)]
+            for i, code in enumerate(drivers)
+        }
 
 def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
@@ -657,3 +722,42 @@ def list_sprints(year):
     else:
         for _, event in sprints.iterrows():
             print(f"{event['RoundNumber']}: {event['EventName']}")
+
+def get_track_shape(session) -> list[dict]:
+    """Extract raw X/Y track shape from the first driver's first lap.
+    No resampling, no interpolation — just the GPS points FastF1 already has.
+    Returns in ~1–2 s once session data is loaded."""
+    laps = session.laps
+    if laps.empty:
+        raise ValueError("No lap data available in session")
+
+    # Pick first driver that has usable telemetry on lap 1
+    for driver_no in session.drivers:
+        try:
+            driver_laps = laps.pick_drivers(driver_no)
+            lap1 = driver_laps[driver_laps['LapNumber'] == 1]
+            if lap1.empty:
+                continue
+
+            tel = lap1.iloc[0].get_telemetry()
+            if tel.empty or 'X' not in tel.columns:
+                continue
+
+            # Drop NaN positions and downsample to at most 500 points
+            tel = tel.dropna(subset=['X', 'Y'])
+            if len(tel) == 0:
+                continue
+
+            step = max(1, len(tel) // 500)
+            tel = tel.iloc[::step]
+
+            return [
+                {"t": round(row['SessionTime'].total_seconds(), 3),
+                 "x": float(row['X']),
+                 "y": float(row['Y'])}
+                for _, row in tel.iterrows()
+            ]
+        except Exception:
+            continue
+
+    raise ValueError("No valid position data found for track shape")

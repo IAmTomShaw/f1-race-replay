@@ -10,8 +10,8 @@ export interface DRSZone {
 }
 
 export interface TrackDataResponse {
-  frames: TrackFrame[];
-  drs_zones: DRSZone[];
+  frames: { t: number; x: number; y: number }[];
+  drs_zones: { start_index: number; end_index: number }[];
   circuit_rotation: number;
   session_info: {
     event_name: string;
@@ -20,5 +20,6 @@ export interface TrackDataResponse {
     year: number;
     round: number;
     date: string;
+    total_laps: number | null;  // add this
   };
 }

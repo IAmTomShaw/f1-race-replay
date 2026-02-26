@@ -112,3 +112,9 @@ def reload_settings():
     global _settings
     _settings = None
     return get_settings()
+
+
+def get_allowed_years(self) -> list[int]:
+    # 2018 and earlier lack position_data on the FastF1 livetiming source.
+    # 2019 works partially; 2020+ is reliable.
+    return list(range(2019, 2025))  # was range(2018, 2025)

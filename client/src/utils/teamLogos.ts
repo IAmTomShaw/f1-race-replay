@@ -9,6 +9,7 @@ export const TEAM_INFO: Record<string, { logo?: string; color: string; shortName
   'Williams': { color: '#64C4FF', shortName: 'WIL', logo: 'Williams.png' },
   'Haas F1 Team': { color: '#B6BABD', shortName: 'HAA', logo: 'Haas.png' },
   'RB': { color: '#6692FF', shortName: 'RB', logo: 'Alpha Tauri.png' },
+  'Racing Bulls': { color: '#6692FF', shortName: 'RB', logo: 'Alpha Tauri.png' },
   'Sauber': { color: '#52E252', shortName: 'SAU', logo: 'Sauber.png' },
   'Kick Sauber': { color: '#52E252', shortName: 'SAU', logo: 'Kick Sauber.png' },
 };

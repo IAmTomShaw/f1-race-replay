@@ -1,0 +1,42 @@
+.race-select {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 50px;
+  padding-left: 15%;
+  padding-right: 15%;
+}
+
+/* ── Loading / Error states ── */
+.race-select-loading,
+.race-select-error {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  color: var(--color-grey-light);
+}
+
+.race-select-error button {
+  padding: 8px 20px;
+  background: var(--color-red);
+  color: var(--color-text);
+  border: none;
+  border-radius: 4px;
+  font-family: var(--font-button);
+  font-size: 14px;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .race-select {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 10px;
+}
+}

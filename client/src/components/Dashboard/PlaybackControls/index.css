@@ -150,3 +150,11 @@
   min-width: 50px;
   text-align: center;
 }
+
+.race-nav-btn {
+  opacity: 0.4;
+}
+
+.race-nav-btn:not(:disabled) {
+  opacity: 1;
+}

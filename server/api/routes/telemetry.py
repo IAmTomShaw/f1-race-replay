@@ -12,8 +12,11 @@ from api.models.telemetry import (
     CacheInfoResponse
 )
 from api.models.race import SessionInfo
+
 from core.f1_data import (
     load_session,
+    load_session_minimal,   # add this import
+    get_track_shape,        # add this import
     get_race_telemetry,
     get_driver_colors,
     get_circuit_rotation
@@ -29,7 +32,7 @@ cache = get_cache_manager()
 
 @router.get("/race/{year}/{round}")  # Remove response_model=TelemetryData
 async def get_race_telemetry_data(
-    year: int = Path(..., ge=2018, le=2025),
+    year: int = Path(..., ge=2019, le=2025),
     round: int = Path(..., ge=1, le=24),
     session_type: str = Query("R", regex="^(R|S)$"),
     force_refresh: bool = Query(False)
@@ -199,93 +202,47 @@ from core.drs_zones import get_drs_zones_for_session
 
 @router.get("/track/{year}/{round}")
 async def get_track_data(
-    year: int = Path(..., ge=2018, le=2025),
+    year: int = Path(..., ge=2019, le=2025),
     round: int = Path(..., ge=1, le=24),
     session_type: str = Query("R", regex="^(R|S)$")
 ):
-    """Get track shape data with DRS zones"""
+    """Get track shape data. Uses a minimal session load — no full telemetry pipeline."""
     try:
-        logger.info(f"Loading track data: {year} R{round} {session_type}")
-        
-        cached_data = cache.get(year, round, session_type)
-        
-        if not cached_data:
-            logger.info("No cache found, processing telemetry...")
-            session = load_session(year, round, session_type)
-            telemetry_data = get_race_telemetry(session, session_type)
-            cached_data = telemetry_data
-        
-        frames = cached_data.get("frames", [])
-        logger.info(f"Total frames available: {len(frames)}")
-        
-        # Extract first lap for track shape
-        first_lap_frames = []
-        first_driver = None
-        
-        for frame in frames:
-            if not isinstance(frame, dict) or "drivers" not in frame:
-                continue
-            
-            drivers = frame["drivers"]
-            if not isinstance(drivers, dict):
-                continue
-            
-            if not first_driver and drivers:
-                first_driver = list(drivers.keys())[0]
-                logger.info(f"Using driver: {first_driver} for track shape")
-            
-            if first_driver in drivers:
-                driver_data = drivers[first_driver]
-                
-                if driver_data.get("lap") == 1:
-                    first_lap_frames.append({
-                        "t": frame["t"],
-                        "x": driver_data["x"],
-                        "y": driver_data["y"],
-                    })
-                elif driver_data.get("lap", 1) > 1:
-                    break
-        
-        logger.info(f"✅ Extracted {len(first_lap_frames)} frames for track rendering")
-        
-        # Hardcoded DRS zones for Bahrain (approximate positions)
-        # DRS Zone 1: ~15-25% around the lap (Turn 1 exit to Turn 4)
-        # DRS Zone 2: ~85-95% around the lap (Back straight)
-        total_points = len(first_lap_frames)
+        logger.info(f"Loading track shape: {year} R{round} {session_type}")
+
+        # Fast path: only load laps + position, skip weather/messages
+        session = load_session_minimal(year, round, session_type)
+
+        track_frames = get_track_shape(session)
+        logger.info(f"Extracted {len(track_frames)} track shape points")
+
+        # Hardcoded DRS zones (proportional to track length)
+        n = len(track_frames)
         drs_zones = [
-            {
-                "start_index": int(total_points * 0.15),
-                "end_index": int(total_points * 0.25)
-            },
-            {
-                "start_index": int(total_points * 0.85),
-                "end_index": int(total_points * 0.95)
-            }
+            {"start_index": int(n * 0.15), "end_index": int(n * 0.25)},
+            {"start_index": int(n * 0.85), "end_index": int(n * 0.95)},
         ]
-        
-        logger.info(f"✅ Using {len(drs_zones)} hardcoded DRS zones for Bahrain")
-        
-        # Get session info
-        session = load_session(year, round, session_type)
+
         session_info = _build_session_info(session, year, round)
         circuit_rotation = get_circuit_rotation(session)
-        
+
         return {
-            "frames": first_lap_frames,
+            "frames": track_frames,
             "drs_zones": drs_zones,
             "circuit_rotation": circuit_rotation,
             "session_info": session_info,
         }
-        
+
+    except ValueError as e:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Position data unavailable for {year} Round {round}: {e}"
+        )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error loading track data: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to load track data: {str(e)}"
-        )
-    
+        raise HTTPException(status_code=500, detail=str(e))
 
 def _build_session_info(session, year: int, round: int) -> dict:
     """Helper function to build session info dictionary"""
@@ -313,7 +270,7 @@ def _build_session_info(session, year: int, round: int) -> dict:
 
 @router.get("/frames/{year}/{round}")
 async def get_race_frames(
-    year: int = Path(..., ge=2018, le=2025),
+    year: int = Path(..., ge=2019, le=2025),   # was ge=2018
     round: int = Path(..., ge=1, le=24),
     session_type: str = Query("R", regex="^(R|S)$"),
     max_frames: int = Query(5000, ge=100, le=50000)

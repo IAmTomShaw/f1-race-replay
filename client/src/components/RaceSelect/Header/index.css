@@ -1,0 +1,72 @@
+.race-select-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 20px;
+  margin-bottom: 4px;
+}
+
+.race-select-header-left {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.race-select-logo {
+  height: 16px;
+}
+
+.race-select-title {
+  background: linear-gradient(to right, var(--color-red) 10%, var(--color-component) 40%);
+  border-right: 5px solid var(--color-red);
+  padding: 12px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  font-size: var(--font-size-header);
+  font-family: var(--font-header);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.2;
+}
+
+.race-select-title span {
+  color: var(--color-red);
+}
+
+/* ── Year dropdown ── */
+.year-dropdown {
+  font-family: var(--font-button);
+  font-size: 13px;
+  font-weight: var(--font-weight-bold);
+  padding: 6px 32px 6px 12px;
+  border-radius: 4px;
+  border: var(--component-border-weight) solid var(--color-outline);
+  background-color: var(--color-component);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  color: var(--color-text);
+  cursor: pointer;
+  outline: none;
+  appearance: none;
+  -webkit-appearance: none;
+  transition: border-color 0.15s;
+}
+
+.year-dropdown:hover {
+  border-color: var(--color-grey-light);
+}
+
+.year-dropdown:focus {
+  border-color: var(--color-red);
+}
+
+.year-dropdown option {
+  background: var(--color-component);
+  color: var(--color-text);
+}

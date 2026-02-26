@@ -16,8 +16,8 @@
   position: absolute;
   top: 0;
   left: 0;
-  width: 500px;
-  height: 500px;
+  width: 450px;
+  height: 450px;
   background-image: url('/src/assets/lines-top.png');
   background-size: contain;
   background-repeat: no-repeat;
@@ -30,8 +30,8 @@
   position: absolute;
   bottom: 0px;
   right: -30px;
-  width: 500px;
-  height: 500px;
+  width: 450px;
+  height: 450px;
   background-image: url('/src/assets/lines-bottom.png');
   background-size: contain;
   background-repeat: no-repeat;

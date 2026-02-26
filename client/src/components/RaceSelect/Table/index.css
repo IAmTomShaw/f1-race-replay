@@ -1,0 +1,217 @@
+.race-table-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  gap: 16px;
+  overflow: hidden;
+}
+
+/* ── Scroll container ── */
+.race-table-scroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: linear-gradient(180deg, var(--color-dark) 0%, var(--color-component) 100%);
+  padding: 0px 20px 4px 16px;
+  border-radius: var(--radius-md);
+  border: var(--component-border-weight) solid var(--color-outline);
+}
+
+.race-table-scroll::-webkit-scrollbar { width: 6px; }
+.race-table-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 12px 0 16px;
+}
+.race-table-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-grey-dark);
+  border-radius: 3px;
+}
+
+/* ── Table ── */
+.race-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0 5px;
+  table-layout: fixed;
+}
+
+/* ── Sticky header ── */
+.race-table thead tr {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.race-table thead th {
+  background: var(--color-dark);
+}
+
+/* ── Header ── */
+.race-table th {
+  font-family: var(--font-header);
+  font-size: var(--font-size-text);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 0px 12px 10px;
+  color: var(--color-grey-medium);
+}
+
+/* ── Header cells — both identical ── */
+thead th.col-round,
+thead th.col-track {
+  font-family: var(--font-header);
+  font-size: var(--font-size-text);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: var(--color-grey-light);
+  padding-top: 10px;
+}
+
+/* ── Column widths ── */
+.col-round { width: 100px; }
+.col-track  { width: auto; }
+
+/* ── Body cells ── */
+tbody td.col-round {
+  font-family: var(--font-text);
+  font-size: var(--font-size-text);
+  color: var(--color-text);
+}
+
+tbody td.col-track {
+  font-family: var(--font-text);
+  font-size: var(--font-size-text);
+  color: var(--color-text);
+}
+
+/* ── Rows ── */
+.race-row {
+  cursor: pointer;
+}
+
+.race-row td {
+  background: var(--color-component-light);
+  padding: 5px 12px;
+  vertical-align: middle;
+  transition: background 0.12s, color 0.12s;
+}
+
+.race-row td:first-child { border-radius: 8px 0 0 8px; }
+.race-row td:last-child  { border-radius: 0 8px 8px 0; }
+
+/* Hover */
+.race-row:hover td {
+  background: var(--color-grey-lightest);
+  color: #000000;
+}
+
+.race-row:hover .track-cell-name,
+.race-row:hover .track-cell-meta {
+  color: #000000;
+}
+
+/* Selected */
+.race-row.selected td {
+  background: var(--color-red);
+  color: var(--color-text);
+}
+
+.race-row.selected .track-cell-name,
+.race-row.selected .track-cell-meta {
+  color: var(--color-text);
+}
+
+.race-row.selected:hover td {
+  background: var(--color-red);
+  color: var(--color-text);
+}
+
+.race-row.selected:hover .track-cell-name,
+.race-row.selected:hover .track-cell-meta {
+  color: var(--color-text);
+}
+
+/* ── Track cell ── */
+.track-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.track-cell-flag {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.track-cell-info {
+  display: flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.track-cell-name {
+  font-size: var(--font-size-header);
+  font-family: var(--font-header);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.12s;
+}
+
+.track-cell-meta {
+  font-size: var(--font-size-text);
+  color: var(--color-grey-light);
+  flex-shrink: 0;
+  transition: color 0.12s;
+}
+
+/* ── Footer + Replay button ── */
+.race-table-footer {
+  flex-shrink: 0;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.replay-button {
+  font-family: var(--font-header);
+  font-size: var(--font-size-button);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 10px 20px;
+  border-radius: 0 0 var(--radius-md) 0;
+  border: var(--component-border-weight) solid var(--color-outline);
+  background: transparent;
+  color: var(--color-grey-medium);
+  cursor: not-allowed;
+  background-color: var(--color-background);
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.replay-button.active {
+  background: var(--color-red);
+  border-color: var(--color-red);
+  color: var(--color-text);
+  cursor: pointer;
+}
+
+.replay-button.active:hover {
+  filter: brightness(1.1);
+}
+
+.track-cell-image {
+  height: 16px;
+  object-fit: cover;
+  border-radius: 2px;
+  flex-shrink: 0;
+}

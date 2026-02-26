@@ -28,6 +28,7 @@
   --color-header: #12101D;
   --color-dark: #0A060D;
   --color-component: #2B2A3F;
+  --color-component-light: #413F5C;
   --color-outline: #999999a5;
   --color-red: #E10600;
   --color-red-hover: #a91100;
@@ -35,6 +36,7 @@
   --color-text: #FFFFFF;
   --color-yellow: #FFD429;
 
+  --color-grey-lightest: #D9D9D9;
   --color-grey-light: #aaa;
   --color-grey-medium: #777;
   --color-grey-dark: #555;
