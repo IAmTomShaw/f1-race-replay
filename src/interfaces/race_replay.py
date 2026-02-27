@@ -74,6 +74,8 @@ class F1RaceReplayWindow(arcade.Window):
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
         self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
+        self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
+        self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
@@ -214,6 +216,14 @@ class F1RaceReplayWindow(arcade.Window):
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
+        
+        # Camera State
+        self.follow_mode = False
+        self.base_scale = 1.0
+        self.world_cx = 0.0
+        self.world_cy = 0.0
+        self.screen_cx = 0.0
+        self.screen_cy = 0.0
         # store previous leaderboard order for up/down arrows
         self.last_leaderboard_order = None
         
@@ -351,7 +361,10 @@ class F1RaceReplayWindow(arcade.Window):
         # Calculate scale to fit whichever dimension is the limiting factor
         scale_x = usable_w / world_w
         scale_y = usable_h / world_h
-        self.world_scale = min(scale_x, scale_y)
+        
+        # Base scale (fit to screen)
+        self.base_scale = min(scale_x, scale_y)
+        self.world_scale = self.base_scale
 
         # Center the world in the screen (rotation done about original centre)
         # world_cx/world_cy are unchanged by rotation about centre
@@ -359,10 +372,76 @@ class F1RaceReplayWindow(arcade.Window):
         screen_cx = self.left_ui_margin + inner_w / 2
         screen_cy = screen_h / 2
 
+        self.screen_cx = screen_cx
+        self.screen_cy = screen_cy
+        self.world_cx = world_cx
+        self.world_cy = world_cy
+
+        # Default translation (Center Track)
         self.tx = screen_cx - self.world_scale * world_cx
         self.ty = screen_cy - self.world_scale * world_cy
 
         # Update the polyline screen coordinates based on new scale
+        self.screen_inner_points = [self.world_to_screen(x, y) for x, y in self.world_inner_points]
+        self.screen_outer_points = [self.world_to_screen(x, y) for x, y in self.world_outer_points]
+
+    def update_camera(self):
+        """
+        Updates the camera position (tx, ty) and scale based on the mode (Follow vs Track).
+        """
+        # If in Follow Mode and a driver is selected
+        selected_drivers = getattr(self, "selected_drivers", [])
+        primary_driver = selected_drivers[-1] if selected_drivers else getattr(self, "selected_driver", None)
+
+        if self.follow_mode and primary_driver:
+            # Get driver position from current frame
+            idx = min(int(self.frame_index), self.n_frames - 1)
+            frame = self.frames[idx]
+            if primary_driver in frame["drivers"]:
+                pos = frame["drivers"][primary_driver]
+                driver_x = pos["x"]
+                driver_y = pos["y"]
+
+                # Zoom in (e.g. 4x the base fit-to-screen scale)
+                target_scale = self.base_scale * 4.0
+                self.world_scale = target_scale
+
+                # Calculate translation to center the driver at screen center
+                # We need to account for rotation if applying it in world_to_screen
+                # But world_to_screen does: rotate -> scale -> translate
+                
+                # To center the driver at (screen_cx, screen_cy):
+                # screen_x = scale * rotated_x + tx
+                # therefore: tx = screen_cx - scale * rotated_x
+                
+                # Calculate rotated driver position
+                if self._rot_rad:
+                    dx = driver_x - self.world_cx
+                    dy = driver_y - self.world_cy
+                    rx = dx * self._cos_rot - dy * self._sin_rot
+                    ry = dx * self._sin_rot + dy * self._cos_rot
+                    rot_driver_x = rx + self.world_cx
+                    rot_driver_y = ry + self.world_cy
+                else:
+                    rot_driver_x = driver_x
+                    rot_driver_y = driver_y
+
+                self.tx = self.screen_cx - self.world_scale * rot_driver_x
+                self.ty = self.screen_cy - self.world_scale * rot_driver_y
+                
+                # Re-calculate track points only if scale changed significantly (optimization)
+                # For now, we can just update them every frame to be safe during smooth zoom
+                self.screen_inner_points = [self.world_to_screen(x, y) for x, y in self.world_inner_points]
+                self.screen_outer_points = [self.world_to_screen(x, y) for x, y in self.world_outer_points]
+                return
+
+        # Default / Reset to full track view
+        self.world_scale = self.base_scale
+        self.tx = self.screen_cx - self.world_scale * self.world_cx
+        self.ty = self.screen_cy - self.world_scale * self.world_cy
+        
+        # Only re-calc points if we are switching back from follow mode (or just once)
+        # We can detect state change if needed, but doing it here ensures correctness
         self.screen_inner_points = [self.world_to_screen(x, y) for x, y in self.world_inner_points]
         self.screen_outer_points = [self.world_to_screen(x, y) for x, y in self.world_outer_points]
 
@@ -411,6 +490,7 @@ class F1RaceReplayWindow(arcade.Window):
         return dirs[idx]
 
     def on_draw(self):
+        self.update_camera()
         self.clear()
 
         # 1. Draw Background (stretched to fit new window size)
@@ -568,7 +648,10 @@ class F1RaceReplayWindow(arcade.Window):
             # default no status text
             self.status_text.text = ""
             # update status color and text if required
-            if current_track_status == "2":
+            if self.follow_mode and selected_drivers:
+                self.status_text.text = f"CAM: {selected_drivers[-1]} POV"
+                self.status_text.color = arcade.color.CYAN
+            elif current_track_status == "2":
                 self.status_text.text = "YELLOW FLAG"
                 self.status_text.color = arcade.color.YELLOW
             elif current_track_status == "5":
@@ -727,6 +810,8 @@ class F1RaceReplayWindow(arcade.Window):
             self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
         elif symbol == arcade.key.I:
             self.session_info_comp.toggle_visibility() # toggle session info banner
+        elif symbol == arcade.key.F:
+            self.follow_mode = not self.follow_mode
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:
@@ -744,6 +829,15 @@ class F1RaceReplayWindow(arcade.Window):
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
+        if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
+            return
+        # controls popup comp
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):

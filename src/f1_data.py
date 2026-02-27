@@ -950,6 +950,34 @@ def get_quali_telemetry(session, session_type="Q"):
     }
 
 
+
+CIRCUIT_MAP = {
+    "Sakhir": "Bahrain International Circuit",
+    "Jeddah": "Jeddah Corniche Circuit",
+    "Melbourne": "Albert Park Circuit",
+    "Baku": "Baku City Circuit",
+    "Miami": "Miami International Autodrome",
+    "Imola": "Autodromo Enzo e Dino Ferrari",
+    "Monaco": "Circuit de Monaco",
+    "Barcelona": "Circuit de Barcelona-Catalunya",
+    "Montreal": "Circuit Gilles Villeneuve",
+    "Spielberg": "Red Bull Ring",
+    "Silverstone": "Silverstone Circuit",
+    "Budapest": "Hungaroring",
+    "Spa-Francorchamps": "Circuit de Spa-Francorchamps",
+    "Zandvoort": "Circuit Zandvoort",
+    "Monza": "Autodromo Nazionale Monza",
+    "Singapore": "Marina Bay Street Circuit",
+    "Suzuka": "Suzuka International Racing Course",
+    "Lusail": "Lusail International Circuit",
+    "Austin": "Circuit of the Americas",
+    "Mexico City": "Autodromo Hermanos Rodriguez",
+    "São Paulo": "Autodromo Jose Carlos Pace",
+    "Las Vegas": "Las Vegas Strip Circuit",
+    "Yas Island": "Yas Marina Circuit",
+    "Shanghai": "Shanghai International Circuit",
+}
+
 def get_race_weekends_by_year(year):
     """Returns a list of race weekends for a given year."""
     enable_cache()
@@ -958,15 +986,18 @@ def get_race_weekends_by_year(year):
     for _, event in schedule.iterrows():
         if event.is_testing():
             continue
-        weekends.append(
-            {
-                "round_number": event["RoundNumber"],
-                "event_name": event["EventName"],
-                "date": str(event["EventDate"].date()),
-                "country": event["Country"],
-                "type": event["EventFormat"],
-            }
-        )
+        
+        location = event['Location']
+        circuit_name = CIRCUIT_MAP.get(location, location) # Fallback to location if not found
+
+        weekends.append({
+            "round_number": event['RoundNumber'],
+            "event_name": event['EventName'],
+            "date": str(event['EventDate'].date()),
+            "country": event['Country'],
+            "location": circuit_name, # Use mapped circuit name
+            "type": event['EventFormat'],
+        })
     return weekends
 
 def get_race_weekends_by_place(place):
