@@ -1,6 +1,7 @@
 import os
 import pickle
 import sys
+import gzip
 from datetime import timedelta, date
 from multiprocessing import Pool, cpu_count
 
@@ -8,6 +9,77 @@ import fastf1
 import fastf1.plotting
 import numpy as np
 import pandas as pd
+
+
+# Bump this when the cache format or logic changes in a way that
+# should invalidate and regenerate existing precomputed telemetry.
+CACHE_VERSION = "2"
+_CACHE_VERSION_CHECKED = False
+
+
+def _ensure_computed_cache_version():
+    """On first use, clear old computed_data caches if version changed."""
+    global _CACHE_VERSION_CHECKED
+    if _CACHE_VERSION_CHECKED:
+        return
+
+    _CACHE_VERSION_CHECKED = True
+
+    cache_dir = "computed_data"
+    version_file = os.path.join(cache_dir, ".version")
+
+    # If there is no existing directory, nothing to clear; just write version.
+    if not os.path.exists(cache_dir):
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(version_file, "w", encoding="utf-8") as f:
+            f.write(CACHE_VERSION)
+        return
+
+    # Existing directory: check version file
+    existing_version = None
+    if os.path.exists(version_file):
+        try:
+            with open(version_file, "r", encoding="utf-8") as f:
+                existing_version = f.read().strip()
+        except OSError:
+            existing_version = None
+
+    if existing_version == CACHE_VERSION:
+        # Up-to-date; nothing to do
+        return
+
+    # Version mismatch or missing: clear old caches inside computed_data
+    print(
+        "WARNING: Existing telemetry caches were created with an older version of "
+        "the code and will be deleted. They will be recalculated on first use; "
+        "initial runs may be slower."
+    )
+
+    # Remove all files in computed_data (but keep the directory itself)
+    for entry in os.listdir(cache_dir):
+        path = os.path.join(cache_dir, entry)
+        try:
+            if os.path.isfile(path) or os.path.islink(path):
+                os.remove(path)
+            elif os.path.isdir(path):
+                # Recursively remove any subdirectories (defensive; not expected normally)
+                for root, dirs, files in os.walk(path, topdown=False):
+                    for name in files:
+                        os.remove(os.path.join(root, name))
+                    for name in dirs:
+                        os.rmdir(os.path.join(root, name))
+                os.rmdir(path)
+        except OSError:
+            # If something can't be removed, skip it; worst case, that cache stays.
+            continue
+
+    # Write new version stamp
+    try:
+        with open(version_file, "w", encoding="utf-8") as f:
+            f.write(CACHE_VERSION)
+    except OSError:
+        # Non-fatal; future runs may attempt to clear again.
+        pass
 
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
@@ -172,22 +244,30 @@ def get_circuit_rotation(session):
 
 
 def get_race_telemetry(session, session_type="R"):
+    # Ensure computed_data caches are compatible with this version
+    _ensure_computed_cache_version()
+
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprint" if session_type == "S" else "race"
+    base_cache_path = f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl"
+    compressed_cache_path = base_cache_path + ".gz"
 
     # Check if this data has already been computed
+    if "--refresh-data" not in sys.argv:
+        try:
+            if os.path.exists(compressed_cache_path):
+                with gzip.open(compressed_cache_path, "rb") as f:
+                    frames = pickle.load(f)
+            else:
+                with open(base_cache_path, "rb") as f:
+                    frames = pickle.load(f)
 
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return frames
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return frames
+        except FileNotFoundError:
+            # Need to compute from scratch
+            pass
 
     drivers = session.drivers
 
@@ -466,15 +546,19 @@ def get_race_telemetry(session, session_type="R"):
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
 
-    # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "total_laps": int(max_lap_number),
-            "max_tyre_life": max_tyre_life_map,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # Save using compressed pickle to reduce disk usage
+    with gzip.open(compressed_cache_path, "wb") as f:
+        pickle.dump(
+            {
+                "frames": frames,
+                "driver_colors": get_driver_colors(session),
+                "track_statuses": formatted_track_statuses,
+                "total_laps": int(max_lap_number),
+                "max_tyre_life": max_tyre_life_map,
+            },
+            f,
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
 
     print("Saved Successfully!")
     print("The replay should begin in a new window shortly")
@@ -876,21 +960,30 @@ def get_quali_telemetry(session, session_type="Q"):
     #   }
     # }
 
+    # Ensure computed_data caches are compatible with this version
+    _ensure_computed_cache_version()
+
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprintquali" if session_type == "SQ" else "quali"
+    base_cache_path = f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl"
+    compressed_cache_path = base_cache_path + ".gz"
 
     # Check if this data has already been computed
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                data = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return data
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    if "--refresh-data" not in sys.argv:
+        try:
+            if os.path.exists(compressed_cache_path):
+                with gzip.open(compressed_cache_path, "rb") as f:
+                    data = pickle.load(f)
+            else:
+                with open(base_cache_path, "rb") as f:
+                    data = pickle.load(f)
+
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return data
+        except FileNotFoundError:
+            # Need to compute from scratch
+            pass
 
     qualifying_results = get_qualifying_results(session)
 
@@ -930,7 +1023,8 @@ def get_quali_telemetry(session, session_type="Q"):
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    # Save using compressed pickle to reduce disk usage
+    with gzip.open(compressed_cache_path, "wb") as f:
         pickle.dump(
             {
                 "results": qualifying_results,
