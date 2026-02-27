@@ -123,6 +123,7 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Session info banner component
         self.session_info_comp = SessionInfoComponent(visible=visible_hud)
+        self.circuit_length_m = session_info.get('circuit_length_m') if session_info else None
         if session_info:
             self.session_info_comp.set_info(
                 event_name=session_info.get('event_name', ''),
@@ -273,6 +274,7 @@ class F1RaceReplayWindow(arcade.Window):
             "playback_speed": self.playback_speed,
             "is_paused": self.paused,
             "total_frames": self.n_frames,
+            "circuit_length_m": self.circuit_length_m,
             "session_data": {
                 "time": time_str,
                 "lap": leader_lap,
