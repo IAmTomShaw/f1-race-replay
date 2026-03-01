@@ -28,7 +28,7 @@ TOP_MARGIN = 40
 BOTTOM_MARGIN = 40
 
 class QualifyingReplay(arcade.Window):
-    def __init__(self, session, data, circuit_rotation=0, left_ui_margin=340, right_ui_margin=0, top_ui_margin=70, bottom_ui_margin=150, title="Qualifying Results"):
+    def __init__(self, session, data, circuit_rotation=0, left_ui_margin=340, right_ui_margin=0, title="Qualifying Results"):
         super().__init__(width=SCREEN_WIDTH, height=SCREEN_HEIGHT, title=title, resizable=True)
         self.maximize()
         
@@ -39,9 +39,9 @@ class QualifyingReplay(arcade.Window):
         )
         self.race_controls_comp = RaceControlsComponent(
             center_x= self.width // 2 + 100,
-            center_y= self.bottom_ui_margin - 80
+            center_y= 40
         )
-        self.qualifying_lap_time_comp = QualifyingLapTimeComponent(x=LEFT_MARGIN, y=self.height - self.top_ui_margin)
+        self.qualifying_lap_time_comp = QualifyingLapTimeComponent()
         self.leaderboard.set_entries(self.data.get("results", []))
         self.drs_zones = []
         self.drs_zones_xy = []
@@ -80,8 +80,6 @@ class QualifyingReplay(arcade.Window):
         self._sin_rot = float(np.sin(self._rot_rad))
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
-        self.top_ui_margin = top_ui_margin
-        self.bottom_ui_margin = bottom_ui_margin
 
         self.chart_active = False
         self.show_comparison_telemetry = True
@@ -90,7 +88,7 @@ class QualifyingReplay(arcade.Window):
         self.loaded_driver_segment = None
 
         # Legend + controls popup (same behavior as race replay)
-        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), y=self.bottom_ui_margin + 180)
+        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.controls_popup_comp = ControlsPopupComponent(lines=[
             ("SPACE", "Pause/Resume"),
             ("← / →", "Jump back/forward"),
@@ -198,7 +196,7 @@ class QualifyingReplay(arcade.Window):
         # never overlaps side UI elements (leaderboard, telemetry, legends).
         inner_w = max(1.0, screen_w - self.left_ui_margin - self.right_ui_margin)
         usable_w = inner_w * (1 - 2 * padding)
-        usable_h = screen_h - self.top_ui_margin - self.bottom_ui_margin - (screen_h * 2 * padding)
+        usable_h = screen_h * (1 - 2 * padding)
 
         # Calculate scale to fit whichever dimension is the limiting factor
         scale_x = usable_w / world_w
@@ -209,7 +207,7 @@ class QualifyingReplay(arcade.Window):
         # world_cx/world_cy are unchanged by rotation about centre
         # Center within the available inner area (left_ui_margin .. screen_w - right_ui_margin)
         screen_cx = self.left_ui_margin + inner_w / 2
-        screen_cy = self.bottom_ui_margin + usable_h / 2
+        screen_cy = screen_h / 2
 
         self.tx = screen_cx - self.world_scale * world_cx
         self.ty = screen_cy - self.world_scale * world_cy
@@ -804,7 +802,7 @@ class QualifyingReplay(arcade.Window):
         elif symbol == arcade.key.H:
             # Toggle Controls popup with 'H' key — show anchored to bottom-left with 20px margin
             margin_x = 20
-            margin_y = 20 + self.bottom_ui_margin
+            margin_y = 20
             left_pos = float(margin_x)
             top_pos = float(margin_y + self.controls_popup_comp.height)
             if self.controls_popup_comp.visible:
@@ -1034,7 +1032,7 @@ class QualifyingReplay(arcade.Window):
             self.paused = self.was_paused_before_hold
 
 def run_qualifying_replay(session, data, title="Qualifying Results", ready_file=None):
-    window = QualifyingReplay(session=session, data=data, title=title, top_ui_margin=70, bottom_ui_margin=150)
+    window = QualifyingReplay(session=session, data=data, title=title)
     # Signal readiness to parent process (if requested) after window created
     if ready_file:
         try:
