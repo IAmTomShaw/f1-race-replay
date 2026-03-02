@@ -950,6 +950,44 @@ def get_quali_telemetry(session, session_type="Q"):
     }
 
 
+def get_previous_year_drs_data(event_name, year):
+    """Try to get DRS activation data from the previous year's qualifying for the same event.
+
+    When a session's telemetry lacks DRS data (e.g. 2025 Las Vegas GP),
+    we can borrow DRS zone positions from the previous year's qualifying
+    since the circuit layout and DRS zones are typically identical.
+
+    Returns (rel_dist_array, drs_array) or None if unavailable.
+    """
+    enable_cache()
+    prev_year = year - 1
+    try:
+        schedule = fastf1.get_event_schedule(prev_year)
+        matching = schedule[schedule['EventName'] == event_name]
+        if matching.empty:
+            return None
+        round_number = int(matching.iloc[0]['RoundNumber'])
+        prev_session = load_session(prev_year, round_number, 'Q')
+        if prev_session is None or len(prev_session.laps) == 0:
+            return None
+        fastest = prev_session.laps.pick_fastest()
+        if fastest is None:
+            return None
+        telemetry = fastest.get_telemetry()
+        if 'DRS' not in telemetry.columns:
+            return None
+        drs_vals = telemetry['DRS'].to_numpy()
+        if not np.any(np.isin(drs_vals, [10, 12, 14])):
+            return None
+        return (
+            telemetry['RelativeDistance'].to_numpy(),
+            drs_vals,
+        )
+    except Exception as e:
+        print(f"Could not load {prev_year} qualifying for DRS fallback: {e}")
+        return None
+
+
 def get_race_weekends_by_year(year):
     """Returns a list of race weekends for a given year."""
     enable_cache()

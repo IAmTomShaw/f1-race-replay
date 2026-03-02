@@ -1,4 +1,4 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints, get_previous_year_drs_data
 from src.run_session import run_arcade_replay, launch_insights_menu
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
@@ -64,6 +64,33 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         else:
             print("Error: No valid laps found in session")
             return
+
+    # If the example_lap has no meaningful DRS activations, try to borrow
+    # DRS zone data from the previous year's qualifying for the same circuit.
+    has_active_drs = (
+        'DRS' in example_lap.columns
+        and any(val in (10, 12, 14) for val in example_lap['DRS'])
+    )
+    if not has_active_drs:
+        import numpy as np
+        event_name = session.event['EventName']
+        print(f"No DRS activations in example lap. Trying previous year's qualifying for '{event_name}'...")
+        prev_drs = get_previous_year_drs_data(event_name, year)
+        if prev_drs is not None:
+            prev_rel_dist, prev_drs_vals = prev_drs
+            order = np.argsort(prev_rel_dist)
+            prev_rel_sorted = prev_rel_dist[order]
+            prev_drs_sorted = prev_drs_vals[order]
+
+            curr_rel_dist = example_lap['RelativeDistance'].to_numpy()
+            idxs = np.searchsorted(prev_rel_sorted, curr_rel_dist, side='right') - 1
+            idxs = np.clip(idxs, 0, len(prev_rel_sorted) - 1)
+
+            example_lap = example_lap.copy()
+            example_lap['DRS'] = prev_drs_sorted[idxs]
+            print(f"DRS zones mapped from {year - 1} qualifying onto current track layout")
+        else:
+            print("No previous year DRS data available. DRS zones will not be shown.")
 
     drivers = session.drivers
 
