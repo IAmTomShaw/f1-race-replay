@@ -28,7 +28,7 @@ class TyreDegradationWindow(PitWallWindow):
         self.current_driver = "All Drivers"
         self.driver_data = {}  # Store data list for each driver
 
-        # Tyre degradation rates (seconds per lap) - based on user example
+        # Fallback tyre degradation rates (seconds per lap)
         self.degradation_rates = {
             0: 0.0179,  # SOFT (example value)
             1: 0.015,   # MEDIUM (estimated)
@@ -36,6 +36,7 @@ class TyreDegradationWindow(PitWallWindow):
             3: 0.02,    # INTERMEDIATE (estimated)
             4: 0.012    # WET (estimated)
         }
+        self._fallback_degradation_rates = dict(self.degradation_rates)
 
         # Expected tyre life (laps) per compound for health normalization
         # 100% at lap 1 of stint, 0% at expected life, negative beyond expected life
@@ -46,6 +47,8 @@ class TyreDegradationWindow(PitWallWindow):
             3: 18,  # INTERMEDIATE
             4: 22   # WET
         }
+        self._fallback_expected_tyre_life = dict(self.expected_tyre_life)
+        self.tyre_profile_source = "Fallback"
 
         super().__init__()
         self.setWindowTitle("F1 Tyre Degradation Analysis")
@@ -90,9 +93,11 @@ class TyreDegradationWindow(PitWallWindow):
         title.setFont(QFont("Arial", 20, QFont.Bold))
         layout.addWidget(title)
 
-        subtitle = QLabel("Cumulative degradation impact for selected driver")
-        subtitle.setFont(QFont("Arial", 12))
-        layout.addWidget(subtitle)
+        self.subtitle = QLabel(
+            f"Cumulative degradation impact for selected driver • Profile: {self.tyre_profile_source}"
+        )
+        self.subtitle.setFont(QFont("Arial", 12))
+        layout.addWidget(self.subtitle)
 
         return header
 
@@ -126,6 +131,10 @@ class TyreDegradationWindow(PitWallWindow):
 
     def on_telemetry_data(self, data):
         """Process incoming telemetry data and store per-driver tyre info."""
+        profile = data.get('tyre_profile')
+        if profile:
+            self._update_tyre_profile(profile)
+
         if 'frame' in data and 'drivers' in data['frame']:
             drivers = data['frame']['drivers']
 
@@ -174,6 +183,53 @@ class TyreDegradationWindow(PitWallWindow):
         """Refresh the data collection (clears stored telemetry)."""
         self.driver_data = {}
         self.update_plot()
+
+    def _update_tyre_profile(self, profile):
+        """Update race-specific tyre degradation profile from telemetry stream."""
+        updated = False
+
+        max_life = profile.get('max_tyre_life', {}) if isinstance(profile, dict) else {}
+        if isinstance(max_life, dict) and max_life:
+            parsed_life = {}
+            for key, value in max_life.items():
+                try:
+                    tyre_key = int(key)
+                    tyre_life = int(value)
+                except (TypeError, ValueError):
+                    continue
+                if tyre_life > 0:
+                    parsed_life[tyre_key] = tyre_life
+
+            merged_life = dict(self._fallback_expected_tyre_life)
+            merged_life.update(parsed_life)
+            if parsed_life and merged_life != self.expected_tyre_life:
+                self.expected_tyre_life = merged_life
+                self.tyre_profile_source = "Race Session"
+                updated = True
+
+        rates = profile.get('degradation_rates', {}) if isinstance(profile, dict) else {}
+        if isinstance(rates, dict) and rates:
+            parsed_rates = {}
+            for key, value in rates.items():
+                try:
+                    tyre_key = int(key)
+                    rate = float(value)
+                except (TypeError, ValueError):
+                    continue
+                if rate >= 0:
+                    parsed_rates[tyre_key] = rate
+
+            merged_rates = dict(self._fallback_degradation_rates)
+            merged_rates.update(parsed_rates)
+            if parsed_rates and merged_rates != self.degradation_rates:
+                self.degradation_rates = merged_rates
+                self.tyre_profile_source = "Race Session"
+                updated = True
+
+        if updated and hasattr(self, 'subtitle'):
+            self.subtitle.setText(
+                f"Cumulative degradation impact for selected driver • Profile: {self.tyre_profile_source}"
+            )
 
     def update_plot(self):
         """Update the degradation plot for all drivers or a single driver."""

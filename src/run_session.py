@@ -9,7 +9,8 @@ from src.insights.telemetry_stream_viewer import main as telemetry_viewer_main
 
 def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
                       playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, total_laps=None,
-                      visible_hud=True, ready_file=None, session_info=None, session=None, enable_telemetry=True):
+                      visible_hud=True, ready_file=None, session_info=None, session=None, enable_telemetry=True,
+                      max_tyre_life=None):
     window = F1RaceReplayWindow(
         frames=frames,
         track_statuses=track_statuses,
@@ -23,7 +24,8 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
         visible_hud=visible_hud,
         session_info=session_info,
         session=session,
-        enable_telemetry=enable_telemetry
+        enable_telemetry=enable_telemetry,
+        max_tyre_life=max_tyre_life
     )
     # Signal readiness to parent process (if requested) after window created
     if ready_file:

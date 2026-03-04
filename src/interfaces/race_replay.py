@@ -3,6 +3,7 @@ import arcade
 import numpy as np
 from scipy.spatial import cKDTree
 from src.f1_data import FPS
+from src.lib.tyres import get_tyre_compound_int
 from src.ui_components import (
     LeaderboardComponent, 
     WeatherComponent, 
@@ -29,7 +30,7 @@ class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None, session=None, enable_telemetry=False):
+                 session_info=None, session=None, enable_telemetry=False, max_tyre_life=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -57,8 +58,10 @@ class F1RaceReplayWindow(arcade.Window):
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
         self.total_laps = total_laps
+        self.max_tyre_life = max_tyre_life or {}
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+        self.tyre_degradation_rates = {}
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -93,6 +96,11 @@ class F1RaceReplayWindow(arcade.Window):
                     print("✓ Tyre degradation model initialized successfully")
                     # Link integrator to driver info component
                     self.driver_info_comp.degradation_integrator = self.degradation_integrator
+                    rates = self.degradation_integrator.get_degradation_rates()
+                    for compound_name, rate in rates.items():
+                        compound_key = get_tyre_compound_int(compound_name)
+                        if compound_key is not None and compound_key >= 0:
+                            self.tyre_degradation_rates[int(compound_key)] = float(rate)
                 else:
                     print("✗ Tyre degradation model initialization failed")
                     self.degradation_integrator = None
@@ -265,6 +273,10 @@ class F1RaceReplayWindow(arcade.Window):
             "is_paused": self.paused,
             "total_frames": self.n_frames,
             "circuit_length_m": self.circuit_length_m,
+            "tyre_profile": {
+                "max_tyre_life": self.max_tyre_life,
+                "degradation_rates": self.tyre_degradation_rates,
+            },
             "session_data": {
                 "time": time_str,
                 "lap": leader_lap,
