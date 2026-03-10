@@ -257,19 +257,46 @@ class F1RaceReplayWindow(arcade.Window):
         seconds = int(t % 60)
         time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
         
+        # Augment each driver's frame data with tyre compound + tyre_life.
+        # The live stream only carries position/speed/telemetry — tyre data
+        # comes from session.laps via the degradation integrator.
+        # Insight panels (separate processes) can then use these fields directly
+        # without needing a FastF1 session of their own.
+        augmented_frame = None
+        if current_frame:
+            augmented_drivers = {}
+            for code, driver_data in current_frame.get("drivers", {}).items():
+                augmented = dict(driver_data)
+                if self.degradation_integrator:
+                    try:
+                        lap = int(driver_data.get("lap") or 0)
+                        health = self.degradation_integrator.get_tyre_health(code, lap)
+                        if health:
+                            augmented["compound"]  = health.get("compound", "MEDIUM")
+                            augmented["tyre_life"] = health.get("laps_on_tyre", 15)
+                    except Exception:
+                        pass
+                augmented_drivers[code] = augmented
+            augmented_frame = {**current_frame, "drivers": augmented_drivers}
+
         self.telemetry_stream.broadcast({
             "frame_index": int(self.frame_index),
-            "frame": current_frame,
+            "frame": augmented_frame if augmented_frame is not None else current_frame,
             "track_status": current_track_status,
             "playback_speed": self.playback_speed,
             "is_paused": self.paused,
             "total_frames": self.n_frames,
             "circuit_length_m": self.circuit_length_m,
+            "session_info": {
+                "year":         self.session_info_comp._year  if hasattr(self.session_info_comp, '_year')  else None,
+                "round_num":    self.session_info_comp._round if hasattr(self.session_info_comp, '_round') else None,
+                "session_type": "R",
+            },
             "session_data": {
-                "time": time_str,
-                "lap": leader_lap,
-                "leader": leader_code,
-                "total_laps": self.total_laps
+                "time":       time_str,
+                "lap":        leader_lap,
+                "leader":     leader_code,
+                "total_laps": self.total_laps,
             }
         })
 

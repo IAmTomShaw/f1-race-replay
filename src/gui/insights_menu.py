@@ -59,6 +59,13 @@ class InsightsMenu(QMainWindow):
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
             ]
         ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Race Analysis",
+            [
+                ("Overtaking Probability", "Live DRS threat detection — overtake probability for cars in range", self.launch_overtaking_probability),
+            ]
+        ))
         
         content_layout.addStretch()
         
@@ -169,6 +176,18 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Driver Live Telemetry")
         from src.insights.driver_telemetry_window import DriverTelemetryWindow
         window = DriverTelemetryWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_overtaking_probability(self):
+        print("🚀 Launching: Overtaking Probability")
+        import os
+        from src.insights.overtaking_insight import OvertakingInsight
+        model_dir = os.environ.get("F1_MODEL_DIR", "./models")
+        window = OvertakingInsight(
+            model_path        = f"{model_dir}/overtaking_model.pkl",
+            compound_map_path = f"{model_dir}/compound_map.json",
+        )
         window.show()
         self.opened_windows.append(window)
 
