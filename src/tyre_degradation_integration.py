@@ -111,6 +111,15 @@ class TyreDegradationIntegrator:
         """Clear cache."""
         self._cache.clear()
 
+    def get_degradation_rates(self) -> Dict[str, float]:
+        """Get fitted degradation rates per compound in seconds/lap."""
+        if not self._initialized:
+            return {}
+        return {
+            compound_name: float(profile.degradation_rate)
+            for compound_name, profile in self._model.tyre_profiles.items()
+        }
+
 
 def format_tyre_health_bar(health: int, width: int = 100, height: int = 12) -> Dict:
     """Format health bar visualization data."""

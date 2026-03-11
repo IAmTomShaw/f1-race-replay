@@ -60,7 +60,12 @@ class InsightsMenu(QMainWindow):
             ]
         ))
         
-        content_layout.addStretch()
+        content_layout.addWidget(self.create_category_section(
+            "Tyre Analysis",
+            [
+                ("Tyre Degradation Analysis", "View cumulative tyre degradation impact for a selected driver", self.launch_tyre_degradation_analysis),
+            ]
+        ))
         
         scroll.setWidget(content_widget)
         main_layout.addWidget(scroll)
@@ -190,9 +195,12 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Position Tracker")
         self.show_placeholder_message("Position Tracker")
     
-    def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
-        self.show_placeholder_message("Tyre Strategy")
+    def launch_tyre_degradation_analysis(self):
+        print("🚀 Launching: Tyre Degradation Analysis")
+        from src.gui.tyre_degradation_window import TyreDegradationWindow
+        window = TyreDegradationWindow()
+        window.show()
+        self.opened_windows.append(window)
     
     def launch_pit_analysis(self):
         print("🚀 Launching: Pit Stop Analysis")
