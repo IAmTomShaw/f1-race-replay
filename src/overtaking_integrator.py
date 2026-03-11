@@ -125,15 +125,29 @@ class OvertakingIntegrator:
             str(behind_data.get("compound", "")).upper(),
             self._lap_lookup.get((behind_driver, lap), (1, 15))[0]
         )
-        behind_tyre = int(behind_data.get("tyre_life") or
-                          self._lap_lookup.get((behind_driver, lap), (1, 15))[1])
+        behind_default_tyre = self._lap_lookup.get((behind_driver, lap), (1, 15))[1]
+        behind_tyre_raw = behind_data.get("tyre_life")
+        try:
+            if behind_tyre_raw is None or behind_tyre_raw == "":
+                behind_tyre = behind_default_tyre
+            else:
+                behind_tyre = int(behind_tyre_raw)
+        except (ValueError, TypeError):
+            behind_tyre = behind_default_tyre
 
         ahead_compound = self._compound_map.get(
             str(ahead_data.get("compound", "")).upper(),
             self._lap_lookup.get((ahead_driver, lap), (1, 15))[0]
         )
-        ahead_tyre = int(ahead_data.get("tyre_life") or
-                         self._lap_lookup.get((ahead_driver, lap), (1, 15))[1])
+        ahead_default_tyre = self._lap_lookup.get((ahead_driver, lap), (1, 15))[1]
+        ahead_tyre_raw = ahead_data.get("tyre_life")
+        try:
+            if ahead_tyre_raw is None or ahead_tyre_raw == "":
+                ahead_tyre = ahead_default_tyre
+            else:
+                ahead_tyre = int(ahead_tyre_raw)
+        except (ValueError, TypeError):
+            ahead_tyre = ahead_default_tyre
 
         tyre_delta = ahead_tyre - behind_tyre
         cache_key  = f"{behind_driver}_{ahead_driver}_{lap}"
