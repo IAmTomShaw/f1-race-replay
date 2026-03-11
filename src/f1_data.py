@@ -144,10 +144,36 @@ def _process_single_driver(args):
     }
 
 
-def load_session(year, round_number, session_type="R"):
+def load_session(year, round_number, session_type="R", exit_on_failure=True):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
-    session = fastf1.get_session(year, round_number, session_type)
-    session.load(telemetry=True, weather=True)
+    try:
+        session = fastf1.get_session(year, round_number, session_type)
+    except Exception as e:
+        if exit_on_failure:
+            print(f"Error fetching session metadata: {e}")
+            print(f"Please verify that Year {year} and Round {round_number} are valid.")
+            sys.exit(1)
+        return None
+
+    try:
+        session.load(telemetry=True, weather=True)
+    except Exception as e:
+        if exit_on_failure:
+            # Check for specific error types or messages
+            error_msg = str(e)
+            if "DataNotLoadedError" in error_msg or "not available" in error_msg.lower():
+                print(f"\nError: Session data for {year} Round {round_number} is not available.")
+                print("This could be because the session hasn't happened yet, or data is not yet processed by the provider.")
+            elif "ConnectionError" in error_msg or "Failed to connect" in error_msg:
+                print("\nError: Could not connect to F1 data servers.")
+                print("Please check your internet connection and try again.")
+            else:
+                print(f"\nError loading session data: {e}")
+                print("It's possible the data is missing or the cache is corrupted.")
+            
+            sys.exit(1)
+        return None
+
     return session
 
 

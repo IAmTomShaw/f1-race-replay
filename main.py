@@ -45,7 +45,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     
     try:
         print("Attempting to load qualifying session for track layout...")
-        quali_session = load_session(year, round_number, 'Q')
+        quali_session = load_session(year, round_number, 'Q', exit_on_failure=False)
         if quali_session is not None and len(quali_session.laps) > 0:
             fastest_quali = quali_session.laps.pick_fastest()
             if fastest_quali is not None:
