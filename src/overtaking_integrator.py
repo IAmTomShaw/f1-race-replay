@@ -73,6 +73,9 @@ class OvertakingIntegrator:
                 print("OvertakingIntegrator: empty laps DataFrame")
                 return False
 
+            # Bug 6 fix: build locally, then swap atomically so any concurrent
+            # reader of self._lap_lookup never sees a partially-built dict.
+            new_lookup: Dict[Tuple[str, int], Tuple[int, int]] = {}
             built = 0
             for _, row in laps.iterrows():
                 driver   = row.get("Driver")
@@ -87,14 +90,16 @@ class OvertakingIntegrator:
 
                 compound_enc = self._compound_map.get(str(compound).upper(), 0)
                 try:
-                    tyre_life_int = int(tyre_life)
+                    # Bug 4 fix: guard against "N/A" or other non-numeric values
+                    tyre_life_int = int(float(tyre_life))
                     lap_num_int   = int(lap_num)
                 except (ValueError, TypeError):
                     continue
 
-                self._lap_lookup[(driver, lap_num_int)] = (compound_enc, tyre_life_int)
+                new_lookup[(driver, lap_num_int)] = (compound_enc, tyre_life_int)
                 built += 1
 
+            self._lap_lookup = new_lookup  # atomic swap — safe for concurrent readers
             print(f"OvertakingIntegrator: built lap lookup for {built} lap rows")
             self._initialized = True
             return True
@@ -150,7 +155,11 @@ class OvertakingIntegrator:
             ahead_tyre = ahead_default_tyre
 
         tyre_delta = ahead_tyre - behind_tyre
-        cache_key  = f"{behind_driver}_{ahead_driver}_{lap}"
+        # Bug 5 fix: include quantized gap in cache key — gap_s changes every frame
+        # so without it the probability would be frozen at the first sampled gap value.
+        # round(gap_s, 1) keeps the cache useful (~10 buckets per second) while staying
+        # responsive to real gap changes.
+        cache_key  = f"{behind_driver}_{ahead_driver}_{lap}_{round(gap_s, 1)}"
 
         if cache_key in self._cache:
             return self._cache[cache_key]
@@ -205,7 +214,9 @@ class OvertakingIntegrator:
         Returns:
             float in [0, 1]
         """
-        cache_key = f"{behind_driver}_{ahead_driver}_{lap}"
+        # Bug 5 fix: include quantized gap in cache key (same rationale as
+        # get_overtake_probability_from_frame above).
+        cache_key = f"{behind_driver}_{ahead_driver}_{lap}_{round(gap_s, 1)}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
