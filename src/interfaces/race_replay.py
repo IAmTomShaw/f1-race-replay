@@ -288,8 +288,8 @@ class F1RaceReplayWindow(arcade.Window):
             "total_frames": self.n_frames,
             "circuit_length_m": self.circuit_length_m,
             "session_info": {
-                "year":         self.session_info_comp._year  if hasattr(self.session_info_comp, '_year')  else None,
-                "round_num":    self.session_info_comp._round if hasattr(self.session_info_comp, '_round') else None,
+                "year":         getattr(self.session_info_comp, "session_info", {}).get("year"),
+                "round_num":    getattr(self.session_info_comp, "session_info", {}).get("round"),
                 "session_type": "R",
             },
             "session_data": {
