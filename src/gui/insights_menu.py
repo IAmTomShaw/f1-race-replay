@@ -185,8 +185,8 @@ class InsightsMenu(QMainWindow):
         from src.insights.overtaking_insight import OvertakingInsight
         model_dir = os.environ.get("F1_MODEL_DIR", "./models")
         window = OvertakingInsight(
-            model_path        = f"{model_dir}/overtaking_model.pkl",
-            compound_map_path = f"{model_dir}/compound_map.json",
+            model_path        = os.path.join(model_dir, "overtaking_model.pkl"),
+            compound_map_path = os.path.join(model_dir, "compound_map.json"),
         )
         window.show()
         self.opened_windows.append(window)
