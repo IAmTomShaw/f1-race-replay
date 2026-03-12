@@ -75,7 +75,7 @@ class InsightsMenu(QMainWindow):
         
         layout = QVBoxLayout(header)
         
-        title = QLabel("🏎️ F1 Insights")
+        title = QLabel("F1 Insights")
         title.setFont(QFont("Arial", 24, QFont.Bold))
         layout.addWidget(title)
         
@@ -157,7 +157,7 @@ class InsightsMenu(QMainWindow):
     # Insight launch methods (placeholders for now)
     
     def launch_example_window(self):
-        print("🚀 Launching: Example Insight Window")
+        print("Launching: Example Insight Window")
         # Open the Example PitWallWindow
         from src.insights.example_pit_wall_window import ExamplePitWallWindow
         example_window = ExamplePitWallWindow()
@@ -166,64 +166,67 @@ class InsightsMenu(QMainWindow):
         self.opened_windows.append(example_window)
 
     def launch_driver_telemetry(self):
-        print("🚀 Launching: Driver Live Telemetry")
-        from src.insights.driver_telemetry_window import DriverTelemetryWindow
-        window = DriverTelemetryWindow()
-        window.show()
-        self.opened_windows.append(window)
+        print("Launching: Driver Live Telemetry")
+        try:
+            import subprocess
+            import sys
+            subprocess.Popen([sys.executable, "-m", "src.insights.driver_telemetry_window"])
+        except Exception as e:
+            print(f"Failed to launch driver telemetry: {e}")
+            self.show_launch_error("Driver Live Telemetry", str(e))
 
     def launch_telemetry_viewer(self):
-        print("🚀 Launching: Telemetry Stream Viewer")
+        print("Launching: Telemetry Stream Viewer")
         try:
             import subprocess
             import sys
             subprocess.Popen([sys.executable, "-m", "src.insights.telemetry_stream_viewer"])
         except Exception as e:
             print(f"Failed to launch telemetry viewer: {e}")
-            self.show_placeholder_message("Telemetry Stream Viewer")
+            self.show_launch_error("Telemetry Stream Viewer", str(e))
     
     def launch_speed_monitor(self):
-        print("🚀 Launching: Speed Monitor")
+        print("Launching: Speed Monitor")
         self.show_placeholder_message("Speed Monitor")
     
     def launch_position_tracker(self):
-        print("🚀 Launching: Position Tracker")
+        print("Launching: Position Tracker")
         self.show_placeholder_message("Position Tracker")
     
     def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
+        print("Launching: Tyre Strategy")
         self.show_placeholder_message("Tyre Strategy")
     
     def launch_pit_analysis(self):
-        print("🚀 Launching: Pit Stop Analysis")
+        print("Launching: Pit Stop Analysis")
         self.show_placeholder_message("Pit Stop Analysis")
     
     def launch_gap_analysis(self):
-        print("🚀 Launching: Gap Analysis")
+        print("Launching: Gap Analysis")
         self.show_placeholder_message("Gap Analysis")
     
     def launch_sector_times(self):
-        print("🚀 Launching: Sector Times")
+        print("Launching: Sector Times")
         self.show_placeholder_message("Sector Times")
     
     def launch_lap_evolution(self):
-        print("🚀 Launching: Lap Time Evolution")
+        print("Launching: Lap Time Evolution")
         self.show_placeholder_message("Lap Time Evolution")
     
     def launch_top_speed(self):
-        print("🚀 Launching: Top Speed Tracker")
+        print("Launching: Top Speed Tracker")
         self.show_placeholder_message("Top Speed Tracker")
     
     def launch_flag_tracker(self):
-        print("🚀 Launching: Flag Tracker")
+        print("Launching: Flag Tracker")
         self.show_placeholder_message("Flag Tracker")
     
     def launch_overtake_counter(self):
-        print("🚀 Launching: Overtake Counter")
+        print("Launching: Overtake Counter")
         self.show_placeholder_message("Overtake Counter")
     
     def launch_drs_usage(self):
-        print("🚀 Launching: DRS Usage")
+        print("Launching: DRS Usage")
         self.show_placeholder_message("DRS Usage")
     
     def show_placeholder_message(self, insight_name):
@@ -238,6 +241,17 @@ class InsightsMenu(QMainWindow):
             "Developers can use PitWallWindow to create custom insights.\n"
             "See docs/PitWallWindow.md for more information."
         )
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec()
+
+    def show_launch_error(self, insight_name, error_message):
+        from PySide6.QtWidgets import QMessageBox
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("Launch Failed")
+        msg.setIcon(QMessageBox.Warning)
+        msg.setText(f"{insight_name} could not be started.")
+        msg.setInformativeText(error_message)
         msg.setStandardButtons(QMessageBox.Ok)
         msg.exec()
 
@@ -266,3 +280,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
