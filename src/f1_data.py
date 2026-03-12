@@ -144,35 +144,48 @@ def _process_single_driver(args):
     }
 
 
+import fastf1.exceptions
+import requests.exceptions
+
 def load_session(year, round_number, session_type="R", exit_on_failure=True):
-    # session_type: 'R' (Race), 'S' (Sprint) etc.
+    """
+    Helper to fetch and load a FastF1 session.
+    session_type: 'R' (Race), 'S' (Sprint), 'Q' (Qualifying), 'SQ' (Sprint Qualifying).
+    """
     try:
         session = fastf1.get_session(year, round_number, session_type)
-    except Exception as e:
+    except (ValueError, fastf1.exceptions.InvalidSessionError, fastf1.exceptions.ErgastError) as e:
         if exit_on_failure:
-            print(f"Error fetching session metadata: {e}")
-            print(f"Please verify that Year {year} and Round {round_number} are valid.")
+            print(f"[ERROR] Session metadata could not be fetched: {e}")
+            print(f"Please verify that Year {year} and Round {round_number} are valid for session type '{session_type}'.")
             sys.exit(1)
         return None
+    except Exception as e:
+        print(f"[ERROR] An unexpected error occurred while fetching session metadata: {e}")
+        sys.exit(1)
 
     try:
         session.load(telemetry=True, weather=True)
-    except Exception as e:
+    except (fastf1.exceptions.DataNotLoadedError, fastf1.exceptions.NoLapDataError) as e:
         if exit_on_failure:
-            # Check for specific error types or messages
-            error_msg = str(e)
-            if "DataNotLoadedError" in error_msg or "not available" in error_msg.lower():
-                print(f"\nError: Session data for {year} Round {round_number} is not available.")
-                print("This could be because the session hasn't happened yet, or data is not yet processed by the provider.")
-            elif "ConnectionError" in error_msg or "Failed to connect" in error_msg:
-                print("\nError: Could not connect to F1 data servers.")
-                print("Please check your internet connection and try again.")
-            else:
-                print(f"\nError loading session data: {e}")
-                print("It's possible the data is missing or the cache is corrupted.")
-            
+            print(f"\n[ERROR] Session data could not be loaded: {e}")
+            print("This usually means the session hasn't happened yet or the data hasn't been processed.")
             sys.exit(1)
         return None
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        if exit_on_failure:
+            print(f"\n[ERROR] Network connectivity issue: {e}")
+            print("Please check your internet connection and try again.")
+            sys.exit(1)
+        return None
+    except fastf1.exceptions.RateLimitExceededError as e:
+        print(f"\n[ERROR] API Rate limit exceeded: {e}")
+        print("Wait a few moments or use a proxy if necessary.")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERROR] An unexpected error occurred while loading session data: {e}")
+        print("The FastF1 cache might be corrupted (try deleting .fastf1-cache/) or the requested data is missing from the provider.")
+        sys.exit(1)
 
     return session
 
