@@ -9,6 +9,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 ## Features
 
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
+- **Safety Car Visualization:** See the Safety Car deploy from pit lane, lead the field, and return to pits — with animated transitions and pulsing glow effects.
 - **Insights Menu:** Floating menu for quick access to telemetry analysis tools (launches automatically with replay).
 - **Leaderboard:** See live driver positions and current tyre compounds.
 - **Lap & Time Display:** Track the current lap and total race time.
@@ -29,6 +30,43 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Toggle Driver Names**: **L** to hide/show driver names on track
 - **Select driver/drivers**: Click to select driver or shift click to select multiple drivers
 
+
+## Safety Car
+
+The replay includes a **simulated Safety Car** that appears on track whenever the F1 data indicates a Safety Car deployment (track status code `4`). Since the F1 API does not provide GPS telemetry for the actual Safety Car, its position is simulated based on the race leader's position.
+
+### How it works
+
+- **Data source:** The Safety Car deployment timing comes from the real F1 track status data via FastF1 (`session.track_status`).
+- **Position simulation:** The SC is placed ~500 meters ahead of the race leader on the track reference polyline. This approximates where the real SC would be relative to the field.
+- **Three animation phases:**
+  - **Deploying** — The SC animates from the pit lane onto the track over ~3 seconds, with a pulsing glow and "SC DEPLOYING" label.
+  - **On Track** — The SC drives ahead of the leader with a steady amber glow and "SC" label.
+  - **Returning** — The SC animates back to the pit lane over ~3 seconds, with a fading pulsing glow and "SC IN" label.
+- **Visual appearance:** The SC is drawn as a larger orange/amber circle (8px radius vs 6px for regular cars) with an orange outline ring and always-visible "SC" label.
+
+### Technical details
+
+The SC position computation happens in `_compute_safety_car_positions()` in `src/f1_data.py`. Each frame gets a `safety_car` field:
+
+```json
+{
+  "safety_car": {
+    "x": 1234.56,
+    "y": 7890.12,
+    "phase": "on_track",
+    "alpha": 1.0
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `x`, `y` | World coordinates of the SC |
+| `phase` | `"deploying"`, `"on_track"`, or `"returning"` |
+| `alpha` | Opacity value from `0.0` (invisible) to `1.0` (fully visible), used for fade in/out animation |
+
+> **Note:** If you have existing cached `.pkl` files from previous runs, you must re-run with `--refresh-data` to generate SC position data. Older cached files will simply show no Safety Car.
 
 ## Qualifying Session Support (in development)
 
@@ -142,12 +180,12 @@ f1-race-replay/
 ├── resources/
 │   └── preview.png           # Race replay preview image
 ├── src/
-│   ├── f1_data.py            # Telemetry loading, processing, and frame generation
+│   ├── f1_data.py            # Telemetry loading, processing, frame generation & SC position simulation
 │   ├── arcade_replay.py      # Visualization and UI logic
 │   └── ui_components.py      # UI components like buttons and leaderboard
 │   ├── interfaces/
 │   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
-│   │   └── race_replay.py    # Race replay interface and telemetry visualization
+│   │   └── race_replay.py    # Race replay interface, SC rendering & telemetry visualization
 │   └── lib/
 │       └── tyres.py          # Type definitions for telemetry data structures
 │       └── time.py           # Time formatting utilities
