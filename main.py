@@ -1,4 +1,4 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints, _get_current_championship_standings, get_live_standings
 from src.run_session import run_arcade_replay, launch_telemetry_viewer
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
@@ -82,6 +82,12 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         'total_laps': race_telemetry['total_laps']
     }
 
+    # Get championship standings before race
+    current_driver_standings, current_constructors_standings = _get_current_championship_standings(session)
+
+    # Compute standings per lap
+    live_driver_standings, live_constructors_standings = get_live_standings(current_driver_standings, current_constructors_standings, session)
+
     # Launch telemetry viewer if requested
     if show_telemetry_viewer:
       launch_telemetry_viewer()
@@ -103,7 +109,11 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       ready_file=ready_file,
       session_info=session_info,
       session=session,
-      enable_telemetry=show_telemetry_viewer
+      enable_telemetry=show_telemetry_viewer,
+      current_driver_standings=current_driver_standings,
+      current_constructors_standings=current_constructors_standings,
+      live_driver_standings=live_driver_standings,
+      live_constructors_standings=live_constructors_standings
     )
 
 if __name__ == "__main__":

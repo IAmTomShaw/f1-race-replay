@@ -43,7 +43,7 @@ class LegendComponent(BaseComponent):
         self.lines = ["Help (Click or 'H')"]
         
         self.controls_text_offset = 180
-        self._text = arcade.Text("", 0, 0, arcade.color.CYAN, 14)
+        self._text = arcade.Text("", self.x + 60, self.y, arcade.color.CYAN, 14)
     
     @property
     def visible(self) -> bool:
@@ -974,6 +974,8 @@ class DriverInfoComponent(BaseComponent):
     def _get_driver_color(self, window, code):
         return window.driver_colors.get(code, arcade.color.GRAY)
 
+    def _get_team_color(self, window, code):
+        return window.team_colors.get(code, arcade.color.GRAY)
 
 
 class ControlsPopupComponent(BaseComponent):
@@ -1113,7 +1115,236 @@ class ControlsPopupComponent(BaseComponent):
         # Click outside closes popup
         self.hide()
         return True
+    
+class ConstructorsChampionshipOverlay:
 
+    def __init__(self, live_constructors_standings=None, current_constructors_standings=None, team_colors=None,
+                 x=20, y=300, visible=True):
+
+        self.live_constructors_standings = live_constructors_standings or {}
+        self.current_constructors_standings = current_constructors_standings or {}
+        self.team_colors = team_colors or {}
+        self.visible = visible
+
+        self.x = x
+        self.y = y
+        self.current_lap = 1
+        self.cached_lap_standings = {}
+
+    def update(self, lap):
+        """Update standings for current lap"""
+        self.current_lap = lap
+        self.cached_lap_standings = self.live_constructors_standings.get(lap, {})
+
+    def draw(self):
+
+        if not self.visible:
+            return
+
+        y = self.y
+
+        arcade.draw_text(
+            "Constructors Championship Standings",
+            self.x,
+            y,
+            arcade.color.WHITE,
+            14,
+            bold=True
+        )
+
+        y -= 25
+
+        for pos, (team, pts) in enumerate(self.cached_lap_standings.items(), start=1):
+
+            base_pts = self.current_constructors_standings.get(team, 0)
+            gained = pts - base_pts
+
+            # team color
+            color = self.team_colors.get(team, (200,200,200))
+
+            # team bar
+            arcade.draw_rect_filled(
+            arcade.XYWH(self.x - 6, y+1, 4, 16),
+            color
+            )
+
+            # position
+            arcade.draw_text(
+                f"{pos}",
+                self.x,
+                y,
+                arcade.color.WHITE,
+                12
+            )
+
+            # team
+            arcade.draw_text(
+                team,
+                self.x + 22,
+                y,
+                arcade.color.WHITE,
+                12
+            )
+
+            # points
+            arcade.draw_text(
+                f"{pts:.0f}",
+                self.x +180,
+                y,
+                arcade.color.WHITE,
+                12
+            )
+
+            # gained points
+            if gained > 0:
+                arcade.draw_text(
+                    f"+{gained:.0f}",
+                    self.x + 220,
+                    y,
+                    arcade.color.LIME_GREEN,
+                    12
+                )
+
+            y -= 20
+
+            if pos >= 10:
+                break
+
+            previous_pos = list(self.current_constructors_standings.keys()).index(team) + 1 if team in self.current_constructors_standings else pos
+            delta = previous_pos - pos
+
+            if delta > 0:
+                arrow = "▲"
+                arrow_color = arcade.color.LIME_GREEN
+            elif delta < 0:
+                arrow = "▼"
+                arrow_color = arcade.color.RED
+            else:
+                arrow = "•"
+                arrow_color = arcade.color.GRAY
+
+            arcade.draw_text(
+            arrow,
+            self.x + 280,
+            y,
+            arrow_color,
+            12
+        )
+        
+class DriversChampionshipOverlay:
+
+    def __init__(self, live_standings=None, current_driver_standings=None,driver_colors=None,
+                 x=20, y=300, visible=True):
+
+        self.live_standings = live_standings or {}
+        self.current_driver_standings = current_driver_standings or {}
+        self.driver_colors = driver_colors or {}
+        self.visible = visible
+
+        self.x = x
+        self.y = y
+        self.current_lap = 1
+        self.cached_lap_standings = {}
+
+    def update(self, lap):
+        """Update standings for current lap"""
+        self.current_lap = lap
+        self.cached_lap_standings = self.live_standings.get(lap, {})
+
+    def draw(self):
+
+        if not self.visible:
+            return
+
+        y = self.y
+
+        arcade.draw_text(
+            "Driver Championship Standings",
+            self.x,
+            y,
+            arcade.color.WHITE,
+            14,
+            bold=True
+        )
+
+        y -= 25
+
+        for pos, (driver, pts) in enumerate(self.cached_lap_standings.items(), start=1):
+
+            base_pts = self.current_driver_standings.get(driver, 0)
+            gained = pts - base_pts
+
+            # team color
+            color = self.driver_colors.get(driver, (200,200,200))
+
+            # team bar
+            arcade.draw_rect_filled(
+            arcade.XYWH(self.x - 6, y+1, 4, 16),
+            color
+            )
+
+            # position
+            arcade.draw_text(
+                f"{pos}",
+                self.x,
+                y,
+                arcade.color.WHITE,
+                12
+            )
+
+            # driver
+            arcade.draw_text(
+                driver,
+                self.x + 22,
+                y,
+                arcade.color.WHITE,
+                12
+            )
+
+            # points
+            arcade.draw_text(
+                f"{pts:.0f}",
+                self.x + 80,
+                y,
+                arcade.color.WHITE,
+                12
+            )
+
+            # gained points
+            if gained > 0:
+                arcade.draw_text(
+                    f"+{gained:.0f}",
+                    self.x + 120,
+                    y,
+                    arcade.color.LIME_GREEN,
+                    12
+                )
+
+            y -= 20
+
+            if pos >= 20:
+                break
+
+            previous_pos = list(self.current_driver_standings.keys()).index(driver) + 1 if driver in self.current_driver_standings else pos
+            delta = previous_pos - pos
+
+            if delta > 0:
+                arrow = "▲"
+                arrow_color = arcade.color.LIME_GREEN
+            elif delta < 0:
+                arrow = "▼"
+                arrow_color = arcade.color.RED
+            else:
+                arrow = "•"
+                arrow_color = arcade.color.GRAY
+
+            arcade.draw_text(
+            arrow,
+            self.x + 60,
+            y,
+            arrow_color,
+            12
+        )
 
 class SessionInfoComponent(BaseComponent):
     """
