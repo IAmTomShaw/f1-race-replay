@@ -91,8 +91,8 @@ class QualifyingReplay(arcade.Window):
         self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320))
         self.controls_popup_comp = ControlsPopupComponent(lines=[
             ("SPACE", "Pause/Resume"),
-            ("← / →", "Jump back/forward"),
-            ("↑ / ↓", "Speed +/-"),
+            ("<- / ->", "Jump back/forward"),
+            ("^ / v", "Speed +/-"),
             ("1-4", "Set speed: 0.5x / 1x / 2x / 4x"),
             ("R", "Restart"),
             ("D", "Toggle DRS Zones"),
@@ -121,11 +121,14 @@ class QualifyingReplay(arcade.Window):
         self.tx = 0
         self.ty = 0
 
+        example_lap_telemetry = example_lap.get_telemetry()
+        self._chart_lap_length_m = self._estimate_lap_length_m(example_lap_telemetry)
+
         (self.plot_x_ref, self.plot_y_ref,
          self.x_inner, self.y_inner,
          self.x_outer, self.y_outer,
          self.x_min, self.x_max,
-         self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap.get_telemetry())
+         self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap_telemetry)
          
         ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
         self._ref_xs = np.array([p[0] for p in ref_points])
@@ -136,6 +139,9 @@ class QualifyingReplay(arcade.Window):
         self._ref_seg_len = diffs
         self._ref_cumdist = np.concatenate(([0.0], np.cumsum(diffs)))
         self._ref_total_length = float(self._ref_cumdist[-1]) if len(self._ref_cumdist) > 0 else 0.0
+        if not self._chart_lap_length_m or self._chart_lap_length_m <= 0:
+            self._chart_lap_length_m = self._ref_total_length if self._ref_total_length > 0 else None
+        self.corner_markers_rel = self._extract_corner_markers_rel()
 
         # Pre-calculate interpolated world points ONCE (optimization)
         self.world_inner_points = self._interpolate_points(self.x_inner, self.y_inner)
@@ -227,6 +233,11 @@ class QualifyingReplay(arcade.Window):
                 # Get comparison telemetry if available
                 comparison_data = self.data.get("telemetry", {}).get(fastest_driver.get("code")) if fastest_driver and self.show_comparison_telemetry else None
                 comparison_telemetry = comparison_data.get("Q3").get("frames", []) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                compare_driver_code = fastest_driver.get("code") if (comparison_telemetry and fastest_driver) else None
+                corner_speed_rows, top_speed_primary, top_speed_compare = self._compute_corner_speeds_for_panel(
+                    frames,
+                    comparison_telemetry if comparison_telemetry else None,
+                )
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
@@ -270,8 +281,25 @@ class QualifyingReplay(arcade.Window):
                 map_bottom = area_bottom
                 map_left = area_left
                 map_right = area_right
-                map_w = max(10, map_right - map_left)
+                map_total_w = max(10, map_right - map_left)
                 map_h = max(10, map_top - map_bottom)
+
+                # Reserve a right-side panel for corner-by-corner speeds + top speed.
+                panel_gap = 14
+                corner_panel_w = min(360.0, max(250.0, map_total_w * 0.28))
+                if map_total_w - corner_panel_w - panel_gap < 260:
+                    corner_panel_w = max(0.0, map_total_w - 260.0 - panel_gap)
+
+                if corner_panel_w >= 220:
+                    map_track_right = map_right - corner_panel_w - panel_gap
+                else:
+                    corner_panel_w = 0.0
+                    map_track_right = map_right
+
+                map_w = max(10, map_track_right - map_left)
+                panel_left = map_track_right + panel_gap
+                panel_bottom = map_bottom
+                panel_h = map_h
 
                 # Backgrounds for the charts
 
@@ -315,7 +343,7 @@ class QualifyingReplay(arcade.Window):
                     comp_key_y = speed_top + 10 + (comp_key_size * 0.5)
                     comp_square_x = chart_right - comp_key_padding_right - (comp_key_size / 2)
 
-                    comp_driver_code = fastest_driver.get("code") if fastest_driver else "N/A"
+                    comp_driver_code = compare_driver_code or "N/A"
 
                     comp_key_rect = arcade.XYWH(comp_square_x, comp_key_y, comp_key_size, 3)
                     arcade.draw_rect_filled(comp_key_rect, arcade.color.YELLOW)
@@ -330,7 +358,7 @@ class QualifyingReplay(arcade.Window):
 
                 # compute global ranges from all frames (use distance for x-axis) - Should be max of 1.0 rel_dist, but just in case
 
-                all_dists = [ self._pick_telemetry_value(f.get("telemetry", {}), "rel_dist") for f in frames ]
+                all_dists = [ self._pick_telemetry_value(f.get("telemetry", {}), "dist") for f in frames ]
                 
                 # filter out None
                 all_dists = [d for d in all_dists if d is not None]
@@ -346,6 +374,16 @@ class QualifyingReplay(arcade.Window):
                 if full_s_max == full_s_min:
                     full_s_max = full_s_min + 1.0
 
+                # Draw corner markers as semi-transparent reference lines on speed chart.
+                self._draw_speed_corner_markers(
+                    chart_left=chart_left,
+                    chart_w=chart_w,
+                    speed_bottom=speed_bottom,
+                    speed_h=speed_h,
+                    full_d_min=full_d_min,
+                    full_d_max=full_d_max,
+                    vertical_padding=VP,
+                )
                 # Prepare arrays for drawing up to current frame index (animate)
                 self.frame_index = max(0, min(self.frame_index, len(frames) - 1))
                 draw_pos = []         # along-track distance used as x-axis
@@ -413,7 +451,7 @@ class QualifyingReplay(arcade.Window):
                 # Collect values frame-by-frame (safe for mixed datasets)
                 for f_i, f in enumerate(frames[:self.frame_index + 1]):
                     tel = f.get("telemetry", {}) if isinstance(f.get("telemetry", {}), dict) else {}
-                    d = self._pick_telemetry_value(tel, "rel_dist")
+                    d = self._pick_telemetry_value(tel, "dist")
                     s = self._pick_telemetry_value(tel, "speed")
                     if d is None or s is None:
                         continue
@@ -441,7 +479,7 @@ class QualifyingReplay(arcade.Window):
 
                         if frame_comparison_telemetry is not None:
                             frame_comparison_telemetry = frame_comparison_telemetry.get("telemetry", {}) if isinstance(frame_comparison_telemetry.get("telemetry", {}), dict) else {}
-                            c_d = self._pick_telemetry_value(frame_comparison_telemetry, "rel_dist")
+                            c_d = self._pick_telemetry_value(frame_comparison_telemetry, "dist")
                             c_s= self._pick_telemetry_value(frame_comparison_telemetry, "speed")
                             c_th = self._pick_telemetry_value(frame_comparison_telemetry, "throttle")
                             c_br = self._pick_telemetry_value(frame_comparison_telemetry, "brake")
@@ -683,6 +721,18 @@ class QualifyingReplay(arcade.Window):
                     if cur_gear is not None:
                         arcade.Text(f"G:{int(cur_gear)}", sx + 10, sy - 10, arcade.color.LIGHT_GRAY, 12).draw()
 
+                self._draw_corner_speed_panel(
+                    left=panel_left,
+                    bottom=panel_bottom,
+                    width=corner_panel_w,
+                    height=panel_h,
+                    primary_label=self.loaded_driver_code or "-",
+                    compare_label=compare_driver_code,
+                    corner_rows=corner_speed_rows,
+                    primary_top_speed=top_speed_primary,
+                    compare_top_speed=top_speed_compare,
+                )
+
         else:
             # Add "click a driver to view their qualifying lap" text in the center of the chart area
 
@@ -750,6 +800,361 @@ class QualifyingReplay(arcade.Window):
                 return tel[k]
         return None
 
+
+    def _extract_dist_speed_series(self, frames):
+        if not isinstance(frames, list) or not frames:
+            return None, None
+
+        distances = []
+        speeds = []
+        for frame in frames:
+            tel = frame.get("telemetry", {}) if isinstance(frame, dict) else {}
+            dist = self._pick_telemetry_value(tel, "dist")
+            speed = self._pick_telemetry_value(tel, "speed")
+            if dist is None or speed is None:
+                continue
+            try:
+                distances.append(float(dist))
+                speeds.append(float(speed))
+            except Exception:
+                continue
+
+        if not distances:
+            return None, None
+
+        dist_arr = np.array(distances, dtype=float)
+        speed_arr = np.array(speeds, dtype=float)
+        order = np.argsort(dist_arr)
+        dist_arr = dist_arr[order]
+        speed_arr = speed_arr[order]
+
+        # Keep one sample per distance value for stable lookup.
+        unique_dist, unique_idx = np.unique(dist_arr, return_index=True)
+        speed_arr = speed_arr[unique_idx]
+        return unique_dist, speed_arr
+
+    def _speed_at_distance(self, distances, speeds, target_dist: float):
+        if distances is None or speeds is None:
+            return None
+        if len(distances) == 0:
+            return None
+        if target_dist is None:
+            return None
+
+        idx = int(np.searchsorted(distances, target_dist, side="left"))
+        if idx <= 0:
+            return float(speeds[0])
+        if idx >= len(distances):
+            return float(speeds[-1])
+
+        prev_idx = idx - 1
+        choose_idx = idx if abs(distances[idx] - target_dist) < abs(target_dist - distances[prev_idx]) else prev_idx
+        return float(speeds[choose_idx])
+
+    def _compute_corner_speeds_for_panel(self, primary_frames, compare_frames=None):
+        primary_dist, primary_speed = self._extract_dist_speed_series(primary_frames)
+        compare_dist, compare_speed = self._extract_dist_speed_series(compare_frames) if compare_frames else (None, None)
+
+        top_primary = float(np.max(primary_speed)) if primary_speed is not None and len(primary_speed) > 0 else None
+        top_compare = float(np.max(compare_speed)) if compare_speed is not None and len(compare_speed) > 0 else None
+
+        if not self.corner_markers_rel:
+            return [], top_primary, top_compare
+
+        rows = []
+        markers = sorted(self.corner_markers_rel, key=lambda m: m.get("distance_m", 0.0))
+        for marker in markers:
+            label = str(marker.get("label", "")).strip()
+            if not label:
+                continue
+
+            corner_dist = marker.get("distance_m")
+            if corner_dist is None:
+                rel = marker.get("rel_dist")
+                if rel is None:
+                    continue
+                try:
+                    rel = float(rel)
+                except Exception:
+                    continue
+
+                if primary_dist is not None and len(primary_dist) > 0:
+                    lap_len = float(primary_dist[-1] - primary_dist[0])
+                    corner_dist = float(primary_dist[0] + rel * lap_len)
+                elif self._chart_lap_length_m:
+                    corner_dist = float(rel * self._chart_lap_length_m)
+                else:
+                    continue
+
+            try:
+                corner_dist = float(corner_dist)
+            except Exception:
+                continue
+
+            rows.append(
+                {
+                    "label": label,
+                    "primary_speed": self._speed_at_distance(primary_dist, primary_speed, corner_dist),
+                    "compare_speed": self._speed_at_distance(compare_dist, compare_speed, corner_dist),
+                }
+            )
+
+        return rows, top_primary, top_compare
+
+    def _draw_corner_speed_panel(
+        self,
+        left: float,
+        bottom: float,
+        width: float,
+        height: float,
+        primary_label: str,
+        compare_label: str | None,
+        corner_rows,
+        primary_top_speed: float | None,
+        compare_top_speed: float | None,
+    ):
+        if width < 220 or height < 120:
+            return
+
+        panel_rect = arcade.XYWH(left + width * 0.5, bottom + height * 0.5, width, height)
+        arcade.draw_rect_filled(panel_rect, (28, 28, 28, 215))
+        arcade.draw_rect_outline(panel_rect, (90, 90, 90, 180), 1)
+
+        pad_x = 10
+        y = bottom + height - 20
+
+        arcade.Text("Corner Speeds", left + pad_x, y, arcade.color.ANTI_FLASH_WHITE, 16, bold=True).draw()
+        y -= 22
+
+        if compare_label:
+            order_text = f"Order: {primary_label} / {compare_label}"
+        else:
+            order_text = f"Driver: {primary_label}"
+        arcade.Text(order_text, left + pad_x, y, (190, 190, 190), 12).draw()
+        y -= 20
+
+        top_primary_txt = f"{int(round(primary_top_speed))} km/h" if primary_top_speed is not None else "--"
+        arcade.Text(f"Top {primary_label}: {top_primary_txt}", left + pad_x, y, arcade.color.ANTI_FLASH_WHITE, 12).draw()
+        y -= 18
+
+        if compare_label:
+            top_compare_txt = f"{int(round(compare_top_speed))} km/h" if compare_top_speed is not None else "--"
+            arcade.Text(f"Top {compare_label}: {top_compare_txt}", left + pad_x, y, arcade.color.YELLOW, 12).draw()
+            y -= 18
+
+        arcade.draw_line(left + pad_x, y, left + width - pad_x, y, (90, 90, 90, 180), 1)
+        y -= 18
+
+        if not corner_rows:
+            arcade.Text("Corner speed data unavailable", left + pad_x, y, (170, 170, 170), 12).draw()
+            return
+
+        line_h = 16
+        table_bottom = bottom + 10
+        rows_per_col = max(1, int((y - table_bottom) / line_h))
+        col_count = 1 if len(corner_rows) <= rows_per_col else 2
+        rows_per_col = max(1, int(np.ceil(len(corner_rows) / col_count)))
+
+        col_gap = 10
+        inner_w = width - (2 * pad_x)
+        col_w = (inner_w - col_gap) / 2 if col_count == 2 else inner_w
+        max_draw = rows_per_col * col_count
+
+        for i, row in enumerate(corner_rows[:max_draw]):
+            col = i // rows_per_col
+            row_idx = i % rows_per_col
+            x = left + pad_x + col * (col_w + col_gap)
+            row_y = y - (row_idx * line_h)
+
+            p_val = row.get("primary_speed")
+            c_val = row.get("compare_speed")
+            p_txt = str(int(round(p_val))) if p_val is not None else "--"
+            c_txt = str(int(round(c_val))) if c_val is not None else "--"
+            label = str(row.get("label", ""))
+
+            if compare_label:
+                text = f"T{label}: {p_txt}/{c_txt}"
+            else:
+                text = f"T{label}: {p_txt}"
+
+            arcade.Text(text, x, row_y, arcade.color.ANTI_FLASH_WHITE, 12).draw()
+
+        if len(corner_rows) > max_draw:
+            arcade.Text("...", left + width - 20, table_bottom, (170, 170, 170), 12).draw()
+
+
+    def _estimate_lap_length_m(self, telemetry):
+        if telemetry is None:
+            return None
+        try:
+            if "Distance" not in telemetry:
+                return None
+            distances = telemetry["Distance"].to_numpy(dtype=float)
+            distances = distances[np.isfinite(distances)]
+            if distances.size == 0:
+                return None
+            lap_length = float(np.max(distances) - np.min(distances))
+            return lap_length if lap_length > 0 else None
+        except Exception:
+            return None
+
+    def _project_xy_to_reference_distance(self, x: float, y: float):
+        if self._ref_total_length <= 0:
+            return None
+        try:
+            idx = int(np.argmin((self._ref_xs - x) ** 2 + (self._ref_ys - y) ** 2))
+            return float(self._ref_cumdist[idx])
+        except Exception:
+            return None
+
+    def _extract_corner_markers_rel(self):
+        """Extract corner labels for speed-chart overlays using both rel and distance axes."""
+        markers = []
+        if self.session is None:
+            return markers
+
+        lap_length_m = self._chart_lap_length_m or self._ref_total_length
+        if lap_length_m is None or lap_length_m <= 0:
+            return markers
+
+        def _missing(value):
+            if value is None:
+                return True
+            try:
+                return bool(np.isnan(value))
+            except Exception:
+                return False
+
+        try:
+            circuit_info = self.session.get_circuit_info()
+            corners = getattr(circuit_info, "corners", None)
+            if corners is None or len(corners) == 0:
+                return markers
+
+            columns = {str(col).lower(): col for col in corners.columns}
+            number_col = columns.get("number")
+            letter_col = columns.get("letter")
+            distance_col = columns.get("distance")
+            x_col = columns.get("x")
+            y_col = columns.get("y")
+
+            for _, row in corners.iterrows():
+                if number_col is None:
+                    continue
+
+                raw_number = row[number_col]
+                if _missing(raw_number):
+                    continue
+
+                try:
+                    label = str(int(float(raw_number)))
+                except Exception:
+                    label = str(raw_number).strip()
+
+                if letter_col is not None:
+                    raw_letter = row[letter_col]
+                    if not _missing(raw_letter):
+                        letter = str(raw_letter).strip()
+                        if letter:
+                            label = f"{label}{letter}"
+
+                rel_dist = None
+                distance_m = None
+
+                if distance_col is not None and not _missing(row[distance_col]):
+                    distance_val = float(row[distance_col])
+                    if distance_val <= 1.5:
+                        rel_dist = distance_val
+                        distance_m = rel_dist * lap_length_m
+                    else:
+                        distance_m = distance_val
+                        rel_dist = distance_m / lap_length_m
+
+                if distance_m is None and x_col is not None and y_col is not None:
+                    x_val = row[x_col]
+                    y_val = row[y_col]
+                    if not _missing(x_val) and not _missing(y_val):
+                        projected = self._project_xy_to_reference_distance(float(x_val), float(y_val))
+                        if projected is not None:
+                            if self._ref_total_length > 0:
+                                distance_m = (projected / self._ref_total_length) * lap_length_m
+                            else:
+                                distance_m = projected
+                            rel_dist = distance_m / lap_length_m
+
+                if distance_m is None and rel_dist is not None:
+                    distance_m = rel_dist * lap_length_m
+                if rel_dist is None and distance_m is not None and lap_length_m > 0:
+                    rel_dist = distance_m / lap_length_m
+
+                if distance_m is None:
+                    continue
+
+                if distance_m < 0:
+                    continue
+                if distance_m > lap_length_m:
+                    distance_m = distance_m % lap_length_m
+                if rel_dist is not None and rel_dist > 1:
+                    rel_dist = rel_dist % 1.0
+
+                markers.append(
+                    {
+                        "label": label,
+                        "distance_m": float(distance_m),
+                        "rel_dist": float(rel_dist) if rel_dist is not None else None,
+                    }
+                )
+        except Exception as e:
+            print(f"Could not extract qualifying corner markers: {e}")
+            return []
+
+        unique_by_label = {}
+        for marker in sorted(markers, key=lambda m: m.get("distance_m", 0.0)):
+            unique_by_label.setdefault(marker["label"], marker)
+        return list(unique_by_label.values())
+
+    def _draw_speed_corner_markers(
+        self,
+        chart_left: float,
+        chart_w: float,
+        speed_bottom: float,
+        speed_h: float,
+        full_d_min: float,
+        full_d_max: float,
+        vertical_padding: float,
+    ):
+        if not self.corner_markers_rel:
+            return
+        if full_d_max <= full_d_min:
+            return
+
+        line_color = (210, 210, 210, 85)
+        text_color = (230, 230, 230, 170)
+        y1 = speed_bottom + vertical_padding
+        y2 = speed_bottom + speed_h - vertical_padding
+
+        for marker in self.corner_markers_rel:
+            distance_m = marker.get("distance_m")
+            if distance_m is None:
+                rel_dist = marker.get("rel_dist")
+                if rel_dist is None:
+                    continue
+                distance_m = full_d_min + float(rel_dist) * (full_d_max - full_d_min)
+
+            nx = (float(distance_m) - full_d_min) / (full_d_max - full_d_min)
+            if nx < 0.0 or nx > 1.0:
+                continue
+
+            xpix = chart_left + nx * chart_w
+            arcade.draw_line(xpix, y1, xpix, y2, line_color, 1)
+            arcade.Text(
+                str(marker.get("label", "")),
+                xpix + 2,
+                y2 - 12,
+                text_color,
+                9,
+            ).draw()
+
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # If the segment-selector modal is visible (a driver selected), give it first chance
         # to handle the click (so its close button can work). If it handled the click,
@@ -800,7 +1205,7 @@ class QualifyingReplay(arcade.Window):
             self.toggle_drs_zones = not self.toggle_drs_zones
             return
         elif symbol == arcade.key.H:
-            # Toggle Controls popup with 'H' key — show anchored to bottom-left with 20px margin
+            # Toggle Controls popup with 'H' key - show anchored to bottom-left with 20px margin
             margin_x = 20
             margin_y = 20
             left_pos = float(margin_x)
