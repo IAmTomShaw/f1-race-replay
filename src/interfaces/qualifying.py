@@ -245,28 +245,34 @@ class QualifyingReplay(arcade.Window):
                 chart_w = max(10, chart_right - chart_left)
                 chart_h = max(10, chart_top - chart_bottom)
 
-                # Divide chart area into 3 sub-areas:
-                # - Top 50% of the chart area: Speed
-                # - Next 25%: Gears
-                # - Bottom 25%: Brake + Throttle
+                # Divide chart area into 4 sub-areas:
+                # - Speed (40%)
+                # - Gear (15%)
+                # - Throttle (22.5%)
+                # - Brake (22.5%)
 
                 M = 30 # margin between charts
                 VP = 5 # vertical padding between charts
-                total_margin = 2 * M
+                total_margin = 3 * M
                 effective_h = max(0, chart_h - total_margin)
 
-                speed_h = int(effective_h * 0.5)
-                gear_h = int(effective_h * 0.25)
-                ctrl_h = effective_h - speed_h - gear_h
+                speed_h = int(effective_h * 0.40)
+                gear_h = int(effective_h * 0.15)
+                # Remaining height split equally for throttle/brake
+                remainder = effective_h - speed_h - gear_h
+                throttle_h = int(remainder * 0.5)
+                brake_h = remainder - throttle_h
 
                 speed_top = chart_top
                 speed_bottom = speed_top - speed_h
                 gear_top = speed_bottom - M
                 gear_bottom = gear_top - gear_h
-                ctrl_top = gear_bottom - M
-                ctrl_bottom = ctrl_top - ctrl_h
+                throttle_top = gear_bottom - M
+                throttle_bottom = throttle_top - throttle_h
+                brake_top = throttle_bottom - M
+                brake_bottom = brake_top - brake_h
 
-                map_top = ctrl_bottom - 8
+                map_top = brake_bottom - 8
                 map_bottom = area_bottom
                 map_left = area_left
                 map_right = area_right
@@ -277,17 +283,20 @@ class QualifyingReplay(arcade.Window):
 
                 speed_bg = arcade.XYWH(chart_left + chart_w * 0.5, speed_bottom + speed_h * 0.5, chart_w, speed_h)
                 gear_bg = arcade.XYWH(chart_left + chart_w * 0.5, gear_bottom + gear_h * 0.5, chart_w, gear_h)
-                ctrl_bg = arcade.XYWH(chart_left + chart_w * 0.5, ctrl_bottom + ctrl_h * 0.5, chart_w, ctrl_h)
+                throttle_bg = arcade.XYWH(chart_left + chart_w * 0.5, throttle_bottom + throttle_h * 0.5, chart_w, throttle_h)
+                brake_bg = arcade.XYWH(chart_left + chart_w * 0.5, brake_bottom + brake_h * 0.5, chart_w, brake_h)
 
                 arcade.draw_rect_filled(speed_bg, (40, 40, 40, 230))
                 arcade.draw_rect_filled(gear_bg, (40, 40, 40, 230))
-                arcade.draw_rect_filled(ctrl_bg, (40, 40, 40, 230))
+                arcade.draw_rect_filled(throttle_bg, (40, 40, 40, 230))
+                arcade.draw_rect_filled(brake_bg, (40, 40, 40, 230))
 
                 # Add Subtitles to the charts
 
                 arcade.Text("Speed (km/h)", chart_left + 10, speed_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
                 arcade.Text("Gear", chart_left + 10, gear_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
-                arcade.Text("Throttle / Brake (%)", chart_left + 10, ctrl_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
+                arcade.Text("Throttle (%)", chart_left + 10, throttle_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
+                arcade.Text("Brake (%)", chart_left + 10, brake_top + 10, arcade.color.ANTI_FLASH_WHITE, 14).draw()
 
                 # DRS key at right of the speed subtitle (green square + label)
                 key_size = 12
@@ -537,23 +546,83 @@ class QualifyingReplay(arcade.Window):
 
                 throttle_pts = []
                 brake_pts = []
-                for d, th, br in zip(draw_pos, draw_throttle, draw_brake):
+                
+                # Separate loop for Throttle (using throttle area)
+                for d, th in zip(draw_pos, draw_throttle):
+                    if th is None: continue
                     nx = (d - full_d_min) / (full_d_max - full_d_min)
                     xpix = chart_left + nx * chart_w
-                    if th is not None:
-                        ny = (th - th_min) / (th_max - th_min)
-                        ypix = ctrl_bottom + VP + ny * (ctrl_h - 2 * VP)
-                        throttle_pts.append((xpix, ypix))
-                    if br is not None:
-                        ny = (br - br_min) / (br_max - br_min)
-                        ypix = ctrl_bottom + VP + ny * (ctrl_h - 2 * VP)
-                        brake_pts.append((xpix, ypix))
+                    ny = (th - th_min) / (th_max - th_min)
+                    ypix = throttle_bottom + VP + ny * (throttle_h - 2 * VP)
+                    throttle_pts.append((xpix, ypix))
+
+                # Separate loop for Brake (using brake area)
+                for d, br in zip(draw_pos, draw_brake):
+                    if br is None: continue
+                    nx = (d - full_d_min) / (full_d_max - full_d_min)
+                    xpix = chart_left + nx * chart_w
+                    ny = (br - br_min) / (br_max - br_min)
+                    ypix = brake_bottom + VP + ny * (brake_h - 2 * VP)
+                    brake_pts.append((xpix, ypix))
+
+                # Comparison Driver Throttle/Brake
+                comp_throttle_pts = []
+                comp_brake_pts = []
+                for d, c_th in zip(draw_comparison_pos, draw_comparison_throttle):
+                    if c_th is None: continue
+                    nx = (d - full_d_min) / (full_d_max - full_d_min)
+                    xpix = chart_left + nx * chart_w
+                    ny = (c_th - th_min) / (th_max - th_min)
+                    ypix = throttle_bottom + VP + ny * (throttle_h - 2 * VP)
+                    comp_throttle_pts.append((xpix, ypix))
+
+                for d, c_br in zip(draw_comparison_pos, draw_comparison_brake):
+                    if c_br is None: continue
+                    nx = (d - full_d_min) / (full_d_max - full_d_min)
+                    xpix = chart_left + nx * chart_w
+                    ny = (c_br - br_min) / (br_max - br_min)
+                    ypix = brake_bottom + VP + ny * (brake_h - 2 * VP)
+                    comp_brake_pts.append((xpix, ypix))
 
                 try:
+                    if comparison_telemetry:
+                        if comp_throttle_pts:
+                             arcade.draw_line_strip(comp_throttle_pts, arcade.color.YELLOW, 2)
+                             c_cur_th = draw_comparison_throttle[-1] if draw_comparison_throttle else 0
+                             if c_cur_th is not None:
+                                arcade.Text(f"{int(c_cur_th)}%", comp_throttle_pts[-1][0] + 10, comp_throttle_pts[-1][1] - 15, arcade.color.YELLOW, 12).draw()
+
+                        if comp_brake_pts:
+                             arcade.draw_line_strip(comp_brake_pts, arcade.color.YELLOW, 2)
+                             c_cur_br = draw_comparison_brake[-1] if draw_comparison_brake else 0
+                             if c_cur_br is not None:
+                                 # For brake, it might be 0-100 or 0.0-1.0 depending on data, but usually 0-100 in F1 games or normalized
+                                 # The scale br_max defaults to 100, so assume %.
+                                 val_str = f"{int(c_cur_br)}%"
+                                 # if boolean, it was converted to 0.0 or 1.0. If 1.0 means ON, show ON/OFF?
+                                 # But we mapped it to 0-100 range implicitly or used 1.0 for boolean.
+                                 # Let's check logic: if boolean, we appended 1.0. but br_max=100.
+                                 # Wait, earlier code:
+                                 # if isinstance(br, (bool, int)): draw_brake.append(1.0 if br else 0.0) -> This would be very small on 0-100 scale!
+                                 # But user didn't complain about chart height. 
+                                 # NOTE: if self.br_max is 100, boolean brake (0/1) draws at bottom pixel. 
+                                 # Assuming user data is 0-100 for analog brake.
+                                 # If it is boolean 0/1, we might want to multiply by 100?
+                                 # Let's just print the value as integer %.
+                                 arcade.Text(val_str, comp_brake_pts[-1][0] + 10, comp_brake_pts[-1][1] - 15, arcade.color.YELLOW, 12).draw()
+
                     if throttle_pts:
                         arcade.draw_line_strip(throttle_pts, arcade.color.GREEN, 2)
+                        cur_th = draw_throttle[-1] if draw_throttle else 0
+                        if cur_th is not None:
+                            arcade.Text(f"{int(cur_th)}%", throttle_pts[-1][0] + 10, throttle_pts[-1][1] + 5, arcade.color.GREEN, 12).draw()
+
                     if brake_pts:
-                        arcade.draw_line_strip(brake_pts, arcade.color.RED, 2)
+                         arcade.draw_line_strip(brake_pts, arcade.color.RED, 2)
+                         cur_br = draw_brake[-1] if draw_brake else 0
+                         if cur_br is not None:
+                             arcade.Text(f"{int(cur_br)}%", brake_pts[-1][0] + 10, brake_pts[-1][1] + 5, arcade.color.RED, 12).draw()
+
                 except Exception as e:
                     print("Chart draw error (controls):", e)
                 
@@ -566,10 +635,6 @@ class QualifyingReplay(arcade.Window):
 
                 y_offset = map_top - 48
                 arcade.Text(f"Playback Speed: {self.playback_speed:.1f}x", map_left + 10, y_offset - 130, arcade.color.ANTI_FLASH_WHITE, 14).draw()
-
-                # Legends
-                legend_x = chart_right - 100
-                legend_y = ctrl_top - int(ctrl_h * 0.2)
 
                 # Draw circuit map in bottom half (fit inner/outer polylines into map area)
                 if getattr(self, "x_min", None) is not None and getattr(self, "x_max", None) is not None:
