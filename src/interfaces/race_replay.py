@@ -57,8 +57,6 @@ class F1RaceReplayWindow(arcade.Window):
         self.driver_colors = driver_colors or {}
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
-        self._paused_broadcast_timer = 0.0
-        self._paused_broadcast_interval = 0.25
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
@@ -186,7 +184,6 @@ class F1RaceReplayWindow(arcade.Window):
         self._ref_seg_len = diffs
         self._ref_cumdist = np.concatenate(([0.0], np.cumsum(diffs)))
         self._ref_total_length = float(self._ref_cumdist[-1]) if len(self._ref_cumdist) > 0 else 0.0
-        self.corner_markers = self._extract_corner_markers(session)
 
         # Pre-calculate interpolated world points ONCE (optimization)
         self.world_inner_points = self._interpolate_points(self.x_inner, self.y_inner)
@@ -269,7 +266,6 @@ class F1RaceReplayWindow(arcade.Window):
             "is_paused": self.paused,
             "total_frames": self.n_frames,
             "circuit_length_m": self.circuit_length_m,
-            "corner_markers": self.corner_markers,
             "session_data": {
                 "time": time_str,
                 "lap": leader_lap,
@@ -312,91 +308,6 @@ class F1RaceReplayWindow(arcade.Window):
         # Fallback: return the cumulative distance at the closest dense sample
         return float(self._ref_cumdist[idx])
 
-
-    def _extract_corner_markers(self, session):
-        """Extract circuit corners as along-track distances for telemetry overlays."""
-        markers = []
-        if session is None or self._ref_total_length <= 0:
-            return markers
-
-        def _missing(value):
-            if value is None:
-                return True
-            try:
-                return bool(np.isnan(value))
-            except Exception:
-                return False
-
-        try:
-            circuit_info = session.get_circuit_info()
-            corners = getattr(circuit_info, "corners", None)
-            if corners is None or len(corners) == 0:
-                return markers
-
-            columns = {str(col).lower(): col for col in corners.columns}
-            number_col = columns.get("number")
-            letter_col = columns.get("letter")
-            distance_col = columns.get("distance")
-            x_col = columns.get("x")
-            y_col = columns.get("y")
-
-            for _, row in corners.iterrows():
-                if number_col is None:
-                    continue
-
-                raw_number = row[number_col]
-                if _missing(raw_number):
-                    continue
-
-                try:
-                    label = str(int(float(raw_number)))
-                except Exception:
-                    label = str(raw_number).strip()
-
-                if letter_col is not None:
-                    raw_letter = row[letter_col]
-                    if not _missing(raw_letter):
-                        letter = str(raw_letter).strip()
-                        if letter:
-                            label = f"{label}{letter}"
-
-                distance_m = None
-                if distance_col is not None and not _missing(row[distance_col]):
-                    distance_m = float(row[distance_col])
-                    if distance_m <= 1.5:
-                        # Some sources may provide normalized values.
-                        distance_m *= self._ref_total_length
-
-                if distance_m is None and x_col is not None and y_col is not None:
-                    x_val = row[x_col]
-                    y_val = row[y_col]
-                    if not _missing(x_val) and not _missing(y_val):
-                        distance_m = self._project_to_reference(float(x_val), float(y_val))
-
-                if distance_m is None:
-                    continue
-
-                if distance_m < 0:
-                    continue
-                if distance_m > self._ref_total_length:
-                    distance_m = distance_m % self._ref_total_length
-
-                markers.append(
-                    {
-                        "label": label,
-                        "distance_m": float(distance_m),
-                        "rel_dist": float(distance_m / self._ref_total_length),
-                    }
-                )
-        except Exception as e:
-            print(f"Could not extract corner markers: {e}")
-            return []
-
-        unique_by_label = {}
-        for marker in sorted(markers, key=lambda m: m["distance_m"]):
-            unique_by_label.setdefault(marker["label"], marker)
-
-        return list(unique_by_label.values())
     def update_scaling(self, screen_w, screen_h):
         """
         Recalculates the scale and translation to fit the track 
@@ -786,33 +697,24 @@ class F1RaceReplayWindow(arcade.Window):
                     
     def on_update(self, delta_time: float):
         self.race_controls_comp.on_update(delta_time)
-
+        
         seek_speed = 3.0 * max(1.0, self.playback_speed) # Multiplier for seeking speed, scales with current playback speed
-        is_seeking = False
         if self.is_rewinding:
             self.frame_index = max(0.0, self.frame_index - delta_time * FPS * seek_speed)
             self.race_controls_comp.flash_button('rewind')
-            is_seeking = True
         elif self.is_forwarding:
             self.frame_index = min(self.n_frames - 1, self.frame_index + delta_time * FPS * seek_speed)
             self.race_controls_comp.flash_button('forward')
-            is_seeking = True
 
-        if self.paused and not is_seeking:
-            self._paused_broadcast_timer += delta_time
-            if self._paused_broadcast_timer >= self._paused_broadcast_interval:
-                self._broadcast_telemetry_state()
-                self._paused_broadcast_timer = 0.0
+        if self.paused:
             return
 
-        self._paused_broadcast_timer = 0.0
-        if not self.paused:
-            self.frame_index += delta_time * FPS * self.playback_speed
-
-            if self.frame_index >= self.n_frames:
-                self.frame_index = float(self.n_frames - 1)
-
-        # Broadcast telemetry state during playback and while seeking.
+        self.frame_index += delta_time * FPS * self.playback_speed
+        
+        if self.frame_index >= self.n_frames:
+            self.frame_index = float(self.n_frames - 1)
+            
+        # Broadcast telemetry state during playback
         self._broadcast_telemetry_state()
 
     def on_key_press(self, symbol: int, modifiers: int):
@@ -897,28 +799,23 @@ class F1RaceReplayWindow(arcade.Window):
         if symbol == arcade.key.RIGHT:
             self.is_forwarding = False
             self.paused = self.was_paused_before_hold
-            self._broadcast_telemetry_state()
         elif symbol == arcade.key.LEFT:
             self.is_rewinding = False
             self.paused = self.was_paused_before_hold
-            self._broadcast_telemetry_state()
 
     def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
         if self.is_forwarding or self.is_rewinding:
             self.is_forwarding = False
             self.is_rewinding = False
             self.paused = self.was_paused_before_hold
-            self._broadcast_telemetry_state()
 
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # forward to components; stop at first that handled it
         if self.controls_popup_comp.on_mouse_press(self, x, y, button, modifiers):
             return
         if self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers):
-            self._broadcast_telemetry_state()
             return
         if self.progress_bar_comp.on_mouse_press(self, x, y, button, modifiers):
-            self._broadcast_telemetry_state()
             return
         if self.leaderboard_comp.on_mouse_press(self, x, y, button, modifiers):
             return
