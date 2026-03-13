@@ -258,6 +258,10 @@ class F1RaceReplayWindow(arcade.Window):
         seconds = int(t % 60)
         time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
         
+        hex_driver_colors = {
+            code: "#{:02X}{:02X}{:02X}".format(*rgb)
+            for code, rgb in self.driver_colors.items()
+        }
         self.telemetry_stream.broadcast({
             "frame_index": int(self.frame_index),
             "frame": current_frame,
@@ -266,6 +270,7 @@ class F1RaceReplayWindow(arcade.Window):
             "is_paused": self.paused,
             "total_frames": self.n_frames,
             "circuit_length_m": self.circuit_length_m,
+            "driver_colors": hex_driver_colors,
             "session_data": {
                 "time": time_str,
                 "lap": leader_lap,
