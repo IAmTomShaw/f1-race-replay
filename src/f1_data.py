@@ -171,6 +171,63 @@ def get_circuit_rotation(session):
     return circuit.rotation
 
 
+def _compute_fastest_lap_holders(frames, session, global_t_min):
+    """
+    Compute which driver holds the fastest lap at each frame.
+
+    Iterates through all driver laps ordered by completion time.
+    For each frame, sets 'fastest_lap_holder' to the driver code that
+    held the overall fastest lap at that point in the race, along with
+    the formatted lap time.
+    """
+    # Build a list of (completion_time_seconds, driver_code, lap_time_seconds, lap_number)
+    # lap["Time"] is the session-elapsed Timedelta when the lap was completed
+    lap_completions = []
+    for driver_no in session.drivers:
+        driver_code = session.get_driver(driver_no)["Abbreviation"]
+        laps = session.laps.pick_drivers(driver_no)
+        for _, lap in laps.iterlaps():
+            lap_time = lap["LapTime"]
+            completion_time = lap["Time"]
+            if pd.isna(lap_time) or pd.isna(completion_time):
+                continue
+            lap_completions.append((
+                completion_time.total_seconds() - global_t_min,
+                driver_code,
+                lap_time.total_seconds(),
+                int(lap["LapNumber"]),
+            ))
+
+    # Sort by completion time
+    lap_completions.sort(key=lambda x: x[0])
+
+    # Walk through frames and lap completions together
+    current_fastest_code = None
+    current_fastest_time = float("inf")
+    current_fastest_lap_num = 0
+    lc_idx = 0
+
+    for frame in frames:
+        frame_t = frame["t"]
+        # Process any laps completed up to this frame time
+        while lc_idx < len(lap_completions) and lap_completions[lc_idx][0] <= frame_t:
+            _, code, lap_time_s, lap_num = lap_completions[lc_idx]
+            if lap_time_s < current_fastest_time:
+                current_fastest_time = lap_time_s
+                current_fastest_code = code
+                current_fastest_lap_num = lap_num
+            lc_idx += 1
+
+        if current_fastest_code:
+            mins = int(current_fastest_time // 60)
+            secs = current_fastest_time % 60
+            frame["fastest_lap"] = {
+                "driver": current_fastest_code,
+                "time": f"{mins}:{secs:06.3f}",
+                "lap": current_fastest_lap_num,
+            }
+
+
 def _compute_safety_car_positions(frames, track_statuses, session):
     """
     Simulate safety car (SC) positions for each frame based on track status.
@@ -828,6 +885,10 @@ def get_race_telemetry(session, session_type="R"):
 
     # 5d. Compute Safety Car positions for each frame
     _compute_safety_car_positions(frames, formatted_track_statuses, session)
+
+    # 5e. Compute fastest lap holder for each frame
+    _compute_fastest_lap_holders(frames, session, global_t_min)
+
     print("completed telemetry extraction...")
     print("Saving to cache file...")
     # If computed_data/ directory doesn't exist, create it

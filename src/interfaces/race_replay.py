@@ -660,6 +660,9 @@ class F1RaceReplayWindow(arcade.Window):
         # optionally expose weather_bottom for driver info layout
         self.weather_bottom = self.height - 170 - 130 if (weather_info or self.has_weather) else None
 
+        # Set fastest lap info for leaderboard highlighting
+        self.fastest_lap_info = frame.get("fastest_lap")
+
         # Draw leaderboard via component
         driver_list = []
         for code, pos in frame["drivers"].items():

@@ -390,10 +390,18 @@ class LeaderboardComponent(BaseComponent):
             right_x = self.x + self.width
             self.rects.append((code, left_x, bottom_y, right_x, top_y))
 
+            # Fastest lap holder gets a purple background (matching F1's official fastest lap colour)
+            fastest_lap_info = getattr(window, "fastest_lap_info", None)
+            is_fastest_lap_holder = fastest_lap_info and fastest_lap_info.get("driver") == code
+
             if code in self.selected:
                 rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
                 arcade.draw_rect_filled(rect, arcade.color.LIGHT_GRAY)
                 text_color = arcade.color.BLACK
+            elif is_fastest_lap_holder:
+                rect = arcade.XYWH((left_x + right_x)/2, (top_y + bottom_y)/2, right_x - left_x, top_y - bottom_y)
+                arcade.draw_rect_filled(rect, (90, 24, 120))  # Dark purple background
+                text_color = (200, 135, 255)  # Light purple text
             else:
                 text_color = color
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
