@@ -57,6 +57,7 @@ class InsightsMenu(QMainWindow):
             [
                 ("Telemetry Stream Viewer", "View raw telemetry data", self.launch_telemetry_viewer),
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
+                ("Tyre Hologram Room", "Live tyre degradation model and detailed tyre metrics", self.launch_tyre_hologram_room),
             ]
         ))
         
@@ -181,6 +182,17 @@ class InsightsMenu(QMainWindow):
         except Exception as e:
             print(f"Failed to launch telemetry viewer: {e}")
             self.show_placeholder_message("Telemetry Stream Viewer")
+
+    def launch_tyre_hologram_room(self):
+        print("Launching: Tyre Hologram Room")
+        try:
+            import subprocess
+            import sys
+            # Launch in a separate process so render crashes cannot close the main replay UI.
+            subprocess.Popen([sys.executable, "-m", "src.insights.tyre_hologram_room"])
+        except Exception as e:
+            print(f"Failed to launch Tyre Hologram Room: {e}")
+            self.show_placeholder_message("Tyre Hologram Room")
     
     def launch_speed_monitor(self):
         print("🚀 Launching: Speed Monitor")

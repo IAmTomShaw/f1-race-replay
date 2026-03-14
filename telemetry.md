@@ -51,13 +51,7 @@ The stream provides this data structure:
         "x": 5303.823151332268,
         "y": 554.943926757651
       },
-      "... other drivers"
-    },
-    "safety_car": {
-      "x": 3456.78,
-      "y": 1234.56,
-      "phase": "on_track",
-      "alpha": 1.0
+      ... other drivers
     },
     "lap": 1,
     "t": 84.88,
@@ -83,19 +77,6 @@ The stream provides this data structure:
   "track_status": "2"
 }
 ```
-
-### Safety Car Data
-
-The `safety_car` field in each frame contains the simulated Safety Car position data. It is `null` when no Safety Car is deployed.
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `x` | float | World X coordinate of the Safety Car |
-| `y` | float | World Y coordinate of the Safety Car |
-| `phase` | string | Current animation phase: `"deploying"`, `"on_track"`, or `"returning"` |
-| `alpha` | float | Opacity value `0.0`–`1.0` for fade animation |
-
-> **Note:** The Safety Car position is simulated (placed ~500m ahead of the race leader) since the F1 API does not provide real SC GPS data. The `phase` field is useful for triggering visual effects in custom tools.
 
 ## Technical Details
 
