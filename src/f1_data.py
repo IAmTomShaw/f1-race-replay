@@ -302,25 +302,6 @@ def get_driver_colors(session):
         rgb_colors[driver] = rgb
     return rgb_colors
 
-
-# def get_constructor_colors(session):
-#     # Get driver color mapping
-#     color_mapping = fastf1.plotting.get_driver_color_mapping(session)
-    
-#     # Map drivers to their team names
-#     constructor_colors = {}
-#     for driver in session.drivers:
-#         driver_info = session.get_driver(driver)
-#         team_name = driver_info["TeamName"]
-#         hex_color = color_mapping.get(driver, "#000000").lstrip("#")
-#         rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
-#         # Only add once per constructor (first driver encountered)
-#         if team_name not in constructor_colors:
-#             constructor_colors[team_name] = rgb
-    
-#     return constructor_colors
-
-
 def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
     return circuit.rotation
