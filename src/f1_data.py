@@ -36,19 +36,6 @@ def _get_current_championship_standings(session):
 
     ergast = Ergast()
 
-    CONSTRUCTOR_NAME_MAP = {
-    "red_bull": "Red Bull Racing",
-    "mclaren": "McLaren",
-    "alpine": "Alpine",
-    "aston_martin": "Aston Martin",
-    "mercedes": "Mercedes",
-    "ferrari": "Ferrari",
-    "williams": "Williams",
-    "sauber": "Kick Sauber",
-    "rb": "Racing Bulls",
-    "haas": "Haas F1 Team"
-    }   
-
     event_date = session.event.get("EventDate") if session.event is not None else None
     year = event_date.year if event_date is not None else session.event.get("EventYear")
     current_round = session.event.get("RoundNumber") if session.event is not None else None
@@ -75,7 +62,7 @@ def _get_current_championship_standings(session):
 
     if constructors_standings_df is not None:
         for _, row in constructors_standings_df.iterrows():
-            team_name = CONSTRUCTOR_NAME_MAP.get(row["constructorId"], row["constructorId"])
+            team_name = row["constructorName"]
             current_constructor_standings[team_name] = float(row["points"])
 
     return current_driver_standings, current_constructor_standings

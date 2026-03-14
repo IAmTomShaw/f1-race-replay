@@ -44,7 +44,7 @@ class LegendComponent(BaseComponent):
         self.lines = ["Help (Click or 'H')"]
         
         self.controls_text_offset = 180
-        self._text = arcade.Text("", self.x + 60, self.y, arcade.color.CYAN, 14)
+        self._text = arcade.Text("", self.x, self.y, arcade.color.CYAN, 14)
     
     @property
     def visible(self) -> bool:

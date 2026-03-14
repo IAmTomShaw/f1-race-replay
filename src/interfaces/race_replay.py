@@ -700,13 +700,13 @@ class F1RaceReplayWindow(arcade.Window):
             return
         # Show Drivers Championship
         if symbol == arcade.key.C:
-            self.show_drivers_championship = True
+            self.show_drivers_championship = not self.show_drivers_championship
             self.show_constructors_championship = False
 
         # Show Constructors Championship
         if symbol == arcade.key.A:
+            self.show_constructors_championship = not self.show_constructors_championship
             self.show_drivers_championship = False
-            self.show_constructors_championship = True
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
             self._broadcast_telemetry_state()
