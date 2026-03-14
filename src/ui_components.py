@@ -4,6 +4,7 @@ from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
 import numpy as np
 import pandas as pd
+import fastf1.plotting
 import os
 from src.tyre_degradation_integration import (
     format_tyre_health_bar, 
@@ -1118,13 +1119,14 @@ class ControlsPopupComponent(BaseComponent):
     
 class ConstructorsChampionshipOverlay:
 
-    def __init__(self, live_constructors_standings=None, current_constructors_standings=None, team_colors=None,
-                 x=20, y=300, visible=True):
+    def __init__(self, live_constructors_standings=None, current_constructors_standings=None,
+                 x=20, y=300, visible=True, session=None):
 
         self.live_constructors_standings = live_constructors_standings or {}
         self.current_constructors_standings = current_constructors_standings or {}
-        self.team_colors = team_colors or {}
+        self.team_colors = {}
         self.visible = visible
+        self.session = session
 
         self.x = x
         self.y = y
@@ -1154,17 +1156,31 @@ class ConstructorsChampionshipOverlay:
 
         y -= 25
 
+        self.team_colors = {}
+
+        for driver in self.session.drivers:
+            team = self.session.get_driver(driver)["TeamName"]
+
+            if team not in self.team_colors:
+                try:
+                    color_hex = fastf1.plotting.get_team_color(team, self.session)
+                    hex_color = color_hex.lstrip("#")
+                    rgb = tuple(int(hex_color[i:i+2], 16) for i in (0,2,4))
+                    self.team_colors[team] = rgb
+                except:
+                    self.team_colors[team] = (200,200,200)
+
+
         for pos, (team, pts) in enumerate(self.cached_lap_standings.items(), start=1):
 
             base_pts = self.current_constructors_standings.get(team, 0)
             gained = pts - base_pts
 
-            # team color
             color = self.team_colors.get(team, (200,200,200))
 
             # team bar
             arcade.draw_rect_filled(
-            arcade.XYWH(self.x - 6, y+1, 4, 16),
+            arcade.XYWH(self.x - 6, y+6, 4, 16),
             color
             )
 
@@ -1279,7 +1295,7 @@ class DriversChampionshipOverlay:
 
             # team bar
             arcade.draw_rect_filled(
-            arcade.XYWH(self.x - 6, y+1, 4, 16),
+            arcade.XYWH(self.x - 6, y+6, 4, 16),
             color
             )
 
@@ -1340,7 +1356,7 @@ class DriversChampionshipOverlay:
 
             arcade.draw_text(
             arrow,
-            self.x + 60,
+            self.x + 200,
             y,
             arrow_color,
             12

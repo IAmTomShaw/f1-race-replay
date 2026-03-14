@@ -66,6 +66,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+        self.session = session
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -151,7 +152,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.constructors_champ_comp = ConstructorsChampionshipOverlay(
             live_constructors_standings=self.live_constructors_standings,
             current_constructors_standings=self.current_constructors_standings,
-            team_colors=self.team_colors,
+            session=self.session,
             x=40,
             y=450,
             visible=visible_hud
