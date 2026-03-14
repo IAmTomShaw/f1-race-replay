@@ -65,7 +65,9 @@ class TelemetryStreamServer:
       try:
         client.sendall(message + b'\n')
       except Exception as e:
-        print(f"Error sending to client: {e}")
+        # Expected when a client process/window is closed or crashes.
+        if not (isinstance(e, OSError) and getattr(e, "winerror", None) in (10053, 10054, 10058)):
+          print(f"Error sending to client: {e}")
         client.close()
         dead_clients.append(client)
     
