@@ -1225,7 +1225,7 @@ class ConstructorsChampionshipOverlay:
 
             y -= 20
 
-            if pos >= 10:
+            if pos >= 11:
                 break
 
             previous_pos = list(self.current_constructors_standings.keys()).index(team) + 1 if team in self.current_constructors_standings else pos
@@ -1340,7 +1340,7 @@ class DriversChampionshipOverlay:
 
             y -= 20
 
-            if pos >= 20:
+            if pos >= 22:
                 break
 
             previous_pos = list(self.current_driver_standings.keys()).index(driver) + 1 if driver in self.current_driver_standings else pos
