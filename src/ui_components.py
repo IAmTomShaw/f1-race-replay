@@ -1014,6 +1014,8 @@ class ControlsPopupComponent(BaseComponent):
             ("B", "Toggle Progress Bar"),
             ("L", "Toggle Driver Labels"),
             ("H", "Toggle Help Popup"),
+            ("C", "Toggle Drivers points table"),
+            ("A", "Toggle Constructors points table")
         ]
 
     def set_lines(self, lines: Optional[list[str]]):

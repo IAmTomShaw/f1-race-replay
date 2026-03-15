@@ -86,7 +86,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
 
-        self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
+        self.controls_popup_comp.set_size(380, 300) # width/height of the popup box
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
         self.degradation_integrator = None
         if session is not None:
@@ -246,7 +246,7 @@ class F1RaceReplayWindow(arcade.Window):
         self._broadcast_telemetry_state()
 
         # Championship overlays visibility state
-        self.show_drivers_championship = True
+        self.show_drivers_championship = False
         self.show_constructors_championship = False
 
     def _broadcast_telemetry_state(self):
