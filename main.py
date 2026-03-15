@@ -1,4 +1,5 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints, _get_current_championship_standings, get_live_standings
+from src.run_session import run_arcade_replay, launch_telemetry_viewer, launch_insights_menu
 from src.run_session import run_arcade_replay, launch_insights_menu
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
@@ -85,6 +86,16 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         'circuit_length_m': float(example_lap["Distance"].max()) if example_lap is not None and "Distance" in example_lap else None,
     }
 
+    # Get championship standings before race
+    current_driver_standings, current_constructors_standings = _get_current_championship_standings(session)
+
+    # Compute standings per lap
+    live_driver_standings, live_constructors_standings = get_live_standings(current_driver_standings, current_constructors_standings, session)
+
+    # Launch telemetry viewer if requested
+    if show_telemetry_viewer:
+      launch_telemetry_viewer()
+      print("Launching telemetry stream viewer...")
     # Launch insights menu (always shown with replay)
     launch_insights_menu()
     print("Launching insights menu...")
@@ -105,6 +116,10 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       ready_file=ready_file,
       session_info=session_info,
       session=session,
+      current_driver_standings=current_driver_standings,
+      current_constructors_standings=current_constructors_standings,
+      live_driver_standings=live_driver_standings,
+      live_constructors_standings=live_constructors_standings,
       enable_telemetry=True # This is now permanently enabled to support the telemetry insights menu if the user decides to use it
     )
 

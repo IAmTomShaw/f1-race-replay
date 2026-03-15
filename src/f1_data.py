@@ -1,3 +1,4 @@
+import math
 import os
 import pickle
 import sys
@@ -30,6 +31,130 @@ def enable_cache():
 FPS = 25
 DT = 1 / FPS
 
+def _get_current_championship_standings(session):
+    from fastf1.ergast import Ergast
+
+    ergast = Ergast()
+
+    event_date = session.event.get("EventDate") if session.event is not None else None
+    year = event_date.year if event_date is not None else session.event.get("EventYear")
+    current_round = session.event.get("RoundNumber") if session.event is not None else None
+
+    # For round 1, drivers and teams start on 0
+    standings_round = current_round - 1 if current_round and current_round > 1 else None
+
+    current_driver_standings = {}
+    current_constructor_standings = {}
+
+    # If round 1, just return zeros - no prior standings exist
+    if standings_round is None:
+        drivers = session.results["Abbreviation"].tolist() if session.results is not None else []
+        teams = session.results["TeamName"].unique().tolist() if session.results is not None else []
+        return {d: 0.0 for d in drivers}, {t: 0.0 for t in teams}
+
+    try:
+        driver_standings = ergast.get_driver_standings(year, standings_round)
+        constructor_standings = ergast.get_constructor_standings(year, standings_round)
+        drivers_standings_df = driver_standings.content[0]
+        constructors_standings_df = constructor_standings.content[0]
+
+    except Exception as e:
+        print(f"Could not fetch current driver standings: {e}")
+        return {}, {}
+
+    if drivers_standings_df is not None:
+        for _, row in drivers_standings_df.iterrows():
+            current_driver_standings[row["driverCode"]] = float(row["points"])
+
+    if constructors_standings_df is not None:
+        for _, row in constructors_standings_df.iterrows():
+            current_constructor_standings[row["constructorName"]] = float(row["points"])
+
+    return current_driver_standings, current_constructor_standings
+
+def get_live_standings(current_driver_standings, current_constructors_standings, session):
+    if not current_driver_standings:
+        return {}, {}
+    if not current_constructors_standings:
+        return {}, {}
+
+    pos_per_lap = session.laps
+    num_laps = session.total_laps
+    points_system = {
+        1.0: 25.0,
+        2.0: 18.0,
+        3.0: 15.0,
+        4.0: 12.0,
+        5.0: 10.0,
+        6.0: 8.0,
+        7.0: 6.0,
+        8.0: 4.0,
+        9.0: 2.0,
+        10.0: 1.0
+    }
+
+    driver_points_per_lap = {}
+    constructor_points_per_lap = {}
+
+    for _, row in pos_per_lap.iterrows():
+        driver = row["Driver"]
+        team = row["Team"]
+        position = row["Position"]
+        lap_number = int(row["LapNumber"]) - 1
+
+        if driver not in driver_points_per_lap:
+            driver_points_per_lap[driver] = []
+
+        if team not in constructor_points_per_lap:
+            constructor_points_per_lap[team] = {}
+
+        if position is None or (isinstance(position, float) and math.isnan(position)):
+            pos_value = None
+            points = 0.0
+        else:
+            pos_value = float(position)
+            points = points_system.get(pos_value, 0.0)
+
+        driver_points_per_lap[driver].append({
+            "position": pos_value,
+            "points": points
+        })
+
+        # Sum both drivers' points for the same lap
+        constructor_points_per_lap[team][lap_number] = (
+            constructor_points_per_lap[team].get(lap_number, 0.0) + points
+        )
+
+    live_driver_standings = {}
+    live_constructor_standings = {}
+
+    for lap in range(num_laps):
+        lap_points = {}
+        for driver, lap_data in driver_points_per_lap.items():
+            starting = current_driver_standings.get(driver, 0.0)
+            race_points = lap_data[lap]["points"] if lap < len(lap_data) else 0.0
+            lap_points[driver] = starting + race_points
+
+        lap_points_sorted = dict(
+            sorted(lap_points.items(), key=lambda x: x[1], reverse=True)
+        )
+        live_driver_standings[lap + 1] = lap_points_sorted
+
+    for lap in range(num_laps):
+        lap_points = {}
+        for constructor, lap_data in constructor_points_per_lap.items():
+            starting = current_constructors_standings.get(constructor, 0.0)
+            race_points = lap_data.get(lap, 0.0)
+            lap_points[constructor] = starting + race_points
+
+        lap_points_sorted = dict(
+            sorted(lap_points.items(), key=lambda x: x[1], reverse=True)
+        )
+        live_constructor_standings[lap + 1] = lap_points_sorted
+
+    return live_driver_standings, live_constructor_standings
+
+        
 
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
@@ -164,7 +289,6 @@ def get_driver_colors(session):
         rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
         rgb_colors[driver] = rgb
     return rgb_colors
-
 
 def get_circuit_rotation(session):
     circuit = session.get_circuit_info()
