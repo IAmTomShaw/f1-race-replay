@@ -1,0 +1,9 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: 📖 Check the Roadmap
+    url: https://github.com/thealxlabs/f1-race-replay/blob/main/roadmap.md
+    about: See what features are already planned before requesting something new.
+  - name: 💬 Ask a Question / Get Help
+    url: https://github.com/thealxlabs/f1-race-replay/discussions
+    about: Not a bug, not a feature — just a question? Start a discussion.
