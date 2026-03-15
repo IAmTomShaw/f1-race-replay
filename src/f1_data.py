@@ -1318,6 +1318,61 @@ def get_quali_telemetry(session, session_type="Q"):
     }
 
 
+def inject_drs_from_previous_year(example_lap, event_name, year):
+    """Inject DRS zone data from the previous year's qualifying into example_lap.
+
+    When a session's telemetry lacks DRS activation data (e.g. 2025 Las Vegas GP),
+    this loads the previous year's qualifying for the same circuit and maps its DRS
+    values onto the current example_lap using RelativeDistance.
+
+    Returns the example_lap with DRS data injected, or unchanged if unavailable.
+    """
+    has_active_drs = (
+        'DRS' in example_lap.columns
+        and np.any(np.isin(example_lap['DRS'].to_numpy(), [10, 12, 14]))
+    )
+    if has_active_drs:
+        return example_lap
+
+    enable_cache()
+    prev_year = year - 1
+    print(f"No DRS activations in example lap. Trying {prev_year} qualifying for '{event_name}'...")
+    try:
+        schedule = fastf1.get_event_schedule(prev_year)
+        matching = schedule[schedule['EventName'] == event_name]
+        if matching.empty:
+            return example_lap
+        round_number = int(matching.iloc[0]['RoundNumber'])
+        prev_session = load_session(prev_year, round_number, 'Q')
+        if prev_session is None or len(prev_session.laps) == 0:
+            return example_lap
+        fastest = prev_session.laps.pick_fastest()
+        if fastest is None:
+            return example_lap
+        telemetry = fastest.get_telemetry()
+        if 'DRS' not in telemetry.columns:
+            return example_lap
+        prev_drs = telemetry['DRS'].to_numpy()
+        if not np.any(np.isin(prev_drs, [10, 12, 14])):
+            return example_lap
+
+        prev_rel = telemetry['RelativeDistance'].to_numpy()
+        order = np.argsort(prev_rel)
+        prev_rel_sorted = prev_rel[order]
+        prev_drs_sorted = prev_drs[order]
+
+        curr_rel = example_lap['RelativeDistance'].to_numpy()
+        idxs = np.clip(np.searchsorted(prev_rel_sorted, curr_rel, side='right') - 1, 0, len(prev_rel_sorted) - 1)
+
+        example_lap = example_lap.copy()
+        example_lap['DRS'] = prev_drs_sorted[idxs]
+        print(f"DRS zones mapped from {prev_year} qualifying onto current track layout")
+        return example_lap
+    except Exception as e:
+        print(f"Could not load {prev_year} qualifying for DRS fallback: {e}")
+        return example_lap
+
+
 def get_race_weekends_by_year(year):
     """Returns a list of race weekends for a given year."""
     enable_cache()
