@@ -134,11 +134,25 @@ class QualifyingReplay(arcade.Window):
         self._ref_xs = np.array([p[0] for p in ref_points])
         self._ref_ys = np.array([p[1] for p in ref_points])
 
+        # Precompute outward normals on the dense reference polyline.
+        dx = np.gradient(self._ref_xs)
+        dy = np.gradient(self._ref_ys)
+        norm = np.sqrt(dx**2 + dy**2)
+        norm[norm == 0] = 1.0
+        self._ref_nx = -dy / norm
+        self._ref_ny = dx / norm
+
         # cumulative distances along the reference polyline (metres)
         diffs = np.sqrt(np.diff(self._ref_xs)**2 + np.diff(self._ref_ys)**2)
         self._ref_seg_len = diffs
         self._ref_cumdist = np.concatenate(([0.0], np.cumsum(diffs)))
         self._ref_total_length = float(self._ref_cumdist[-1]) if len(self._ref_cumdist) > 0 else 0.0
+        # Flip normals for CCW tracks so labels are pushed outside the circuit.
+        signed_area = np.sum(self._ref_xs[:-1] * self._ref_ys[1:] - self._ref_xs[1:] * self._ref_ys[:-1])
+        signed_area += (self._ref_xs[-1] * self._ref_ys[0] - self._ref_xs[0] * self._ref_ys[-1])
+        if signed_area > 0:
+            self._ref_nx = -self._ref_nx
+            self._ref_ny = -self._ref_ny
         if not self._chart_lap_length_m or self._chart_lap_length_m <= 0:
             self._chart_lap_length_m = self._ref_total_length if self._ref_total_length > 0 else None
         self.corner_markers_rel = self._extract_corner_markers_rel()
@@ -698,6 +712,15 @@ class QualifyingReplay(arcade.Window):
                             except Exception as e:
                                 print(f"DRS zone draw error: {e}")
 
+                    self._draw_track_corner_labels(
+                        world_to_map=world_to_map,
+                        world_scale=world_scale,
+                        map_left=map_left,
+                        map_right=map_left + map_w,
+                        map_bottom=map_bottom,
+                        map_top=map_top,
+                    )
+
                     # Draw current driver's position marker (sync with frame_index)
                     current_frame = frames[self.frame_index]
                     tel = current_frame.get("telemetry", {}) if isinstance(current_frame.get("telemetry", {}), dict) else {}
@@ -1006,6 +1029,102 @@ class QualifyingReplay(arcade.Window):
             return float(self._ref_cumdist[idx])
         except Exception:
             return None
+
+    def _reference_point_and_normal_at_distance(self, distance_m: float):
+        if self._ref_total_length <= 0:
+            return None
+        lap_length = self._chart_lap_length_m or self._ref_total_length
+        if lap_length is None or lap_length <= 0:
+            return None
+
+        try:
+            ref_distance = (float(distance_m) / float(lap_length)) * self._ref_total_length
+        except Exception:
+            return None
+
+        if self._ref_total_length > 0:
+            ref_distance = ref_distance % self._ref_total_length
+
+        idx = int(np.searchsorted(self._ref_cumdist, ref_distance, side="left"))
+        idx = max(1, min(idx, len(self._ref_cumdist) - 1))
+        prev_idx = idx - 1
+
+        seg_start = float(self._ref_cumdist[prev_idx])
+        seg_end = float(self._ref_cumdist[idx])
+        if seg_end <= seg_start:
+            frac = 0.0
+        else:
+            frac = float((ref_distance - seg_start) / (seg_end - seg_start))
+
+        x = float(self._ref_xs[prev_idx] + frac * (self._ref_xs[idx] - self._ref_xs[prev_idx]))
+        y = float(self._ref_ys[prev_idx] + frac * (self._ref_ys[idx] - self._ref_ys[prev_idx]))
+        nx = float(self._ref_nx[idx])
+        ny = float(self._ref_ny[idx])
+        return x, y, nx, ny
+
+    def _draw_track_corner_labels(
+        self,
+        world_to_map,
+        world_scale: float,
+        map_left: float,
+        map_right: float,
+        map_bottom: float,
+        map_top: float,
+    ):
+        if not self.corner_markers_rel:
+            return
+        if world_scale <= 0:
+            return
+
+        placed_points = []
+        label_offset_px = 22.0
+        min_spacing_px = 18.0
+
+        for marker in sorted(self.corner_markers_rel, key=lambda m: m.get("distance_m", 0.0)):
+            label = str(marker.get("label", "")).strip()
+            if not label:
+                continue
+
+            distance_m = marker.get("distance_m")
+            if distance_m is None:
+                rel_dist = marker.get("rel_dist")
+                if rel_dist is None:
+                    continue
+                lap_length = self._chart_lap_length_m or self._ref_total_length
+                if lap_length is None:
+                    continue
+                distance_m = float(rel_dist) * float(lap_length)
+
+            point = self._reference_point_and_normal_at_distance(distance_m)
+            if point is None:
+                continue
+            x, y, nx, ny = point
+
+            offset_world = label_offset_px / world_scale
+            sx, sy = world_to_map(x + nx * offset_world, y + ny * offset_world)
+
+            # Keep labels inside the mini-map area; fallback to the opposite side if needed.
+            if sx < map_left + 6 or sx > map_right - 6 or sy < map_bottom + 6 or sy > map_top - 6:
+                sx, sy = world_to_map(x - nx * offset_world * 0.6, y - ny * offset_world * 0.6)
+
+            if sx < map_left + 4 or sx > map_right - 4 or sy < map_bottom + 4 or sy > map_top - 4:
+                continue
+
+            too_close = any(((sx - px) ** 2 + (sy - py) ** 2) < (min_spacing_px ** 2) for px, py in placed_points)
+            if too_close:
+                continue
+            placed_points.append((sx, sy))
+
+            arcade.Text(
+                label,
+                sx,
+                sy,
+                arcade.color.ANTI_FLASH_WHITE,
+                10,
+                anchor_x="center",
+                anchor_y="center",
+                bold=True,
+            ).draw()
 
     def _extract_corner_markers_rel(self):
         """Extract corner labels for speed-chart overlays using both rel and distance axes."""
