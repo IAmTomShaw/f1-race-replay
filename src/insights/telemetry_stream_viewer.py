@@ -256,10 +256,15 @@ class TelemetryStreamViewer(QMainWindow):
         
     def closeEvent(self, event):
         """Handle window close event."""
-        if self.client.isRunning():
-            self.client.stop()
-            self.client.wait()
-        event.accept()
+        try:
+            if self.client.isRunning():
+                self.client.stop()
+                if not self.client.wait(2000):  # Wait max 2 seconds
+                    print("Warning: Telemetry client did not stop in time")
+        except Exception as e:
+            print(f"Error during telemetry cleanup: {e}")
+        finally:
+            event.accept()
 
 
 def main():
