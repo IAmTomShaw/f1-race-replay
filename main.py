@@ -22,8 +22,11 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   if session_type == 'Q' or session_type == 'SQ':
 
     # Get the drivers who participated and their lap times
-
-    qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+    try:
+        qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+    except ValueError as e:
+        print(f"\n[ERROR] Failed to process qualifying telemetry: {e}")
+        sys.exit(1)
 
     # Run the arcade screen showing qualifying results
 
@@ -39,8 +42,11 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   else:
 
     # Get the drivers who participated in the race
-
-    race_telemetry = get_race_telemetry(session, session_type=session_type)
+    try:
+        race_telemetry = get_race_telemetry(session, session_type=session_type)
+    except ValueError as e:
+        print(f"\n[ERROR] Failed to process race telemetry: {e}")
+        sys.exit(1)
 
     # Get example lap for track layout
     # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
