@@ -1,9 +1,16 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints, get_sector_boundaries
 from src.arcade_replay import run_arcade_replay
 
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
-from src.cli.race_selection import cli_load
+
+try:
+    from src.cli.race_selection import cli_load  # type: ignore
+    HAS_CLI = True
+except ImportError:
+    HAS_CLI = False
+    cli_load = None
+
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
 
@@ -72,6 +79,29 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
 
     circuit_rotation = get_circuit_rotation(session)
 
+    # Get sector boundaries for sector time visualization
+    sector_boundaries = None
+    try:
+        sector_boundaries = get_sector_boundaries(session)
+        if sector_boundaries:
+            print(f"Loaded sector boundaries: S1={sector_boundaries.get('sector_1_distance', 0):.0f}m, "
+                  f"S2={sector_boundaries.get('sector_2_distance', 0):.0f}m, "
+                  f"S3={sector_boundaries.get('sector_3_distance', 0):.0f}m")
+    except Exception as e:
+        print(f"Could not extract sector boundaries: {e}")
+
+    # Determine title based on session type
+    session_titles = {
+        'R': 'Race',
+        'S': 'Sprint',
+        'SQ': 'Sprint Qualifying',
+        'Q': 'Qualifying',
+        'FP1': 'Free Practice 1',
+        'FP2': 'Free Practice 2',
+        'FP3': 'Free Practice 3',
+    }
+    session_title = session_titles.get(session_type, 'Race')
+
     # Run the arcade replay
 
     run_arcade_replay(
@@ -81,11 +111,12 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       drivers=drivers,
       playback_speed=playback_speed,
       driver_colors=race_telemetry['driver_colors'],
-      title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
+      title=f"{session.event['EventName']} - {session_title}",
       total_laps=race_telemetry['total_laps'],
       circuit_rotation=circuit_rotation,
-      visible_hud=visible_hud
-      ,ready_file=ready_file
+      visible_hud=visible_hud,
+      ready_file=ready_file,
+      sector_boundaries=sector_boundaries,
     )
 
 if __name__ == "__main__":
@@ -112,19 +143,40 @@ if __name__ == "__main__":
     list_rounds(year)
   elif "--list-sprints" in sys.argv:
     list_sprints(year)
-  else:
+  elif "--viewer" in sys.argv:
     playback_speed = 1
-
-  if "--viewer" in sys.argv:
-  
     visible_hud = True
     if "--no-hud" in sys.argv:
       visible_hud = False
 
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+    session_type_map = {
+        '--sprint-qualifying': 'SQ',
+        '--sprint': 'S',
+        '--qualifying': 'Q',
+        '--fp1': 'FP1',
+        '--fp2': 'FP2',
+        '--fp3': 'FP3',
+    }
+    session_type = 'R'  # Default to Race
+    for flag, stype in session_type_map.items():
+        if flag in sys.argv:
+            session_type = stype
+            break
 
-    # Optional ready-file path used when spawned from the GUI to signal ready state
+    title_session = session_type
+    if session_type == 'FP1':
+        title_session = 'Free Practice 1'
+    elif session_type == 'FP2':
+        title_session = 'Free Practice 2'
+    elif session_type == 'FP3':
+        title_session = 'Free Practice 3'
+    elif session_type == 'S':
+        title_session = 'Sprint'
+    elif session_type == 'SQ':
+        title_session = 'Sprint Qualifying'
+    elif session_type == 'Q':
+        title_session = 'Qualifying'
+
     ready_file = None
     if "--ready-file" in sys.argv:
       idx = sys.argv.index("--ready-file") + 1
@@ -132,8 +184,9 @@ if __name__ == "__main__":
         ready_file = sys.argv[idx]
 
     main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
-
-  # Run the CLI
-
-  cli_load()
-  sys.exit(0)
+  else:
+    if cli_load is not None:
+      cli_load()
+    else:
+      print("No valid mode specified. Use --gui, --viewer, --list-rounds, or --list-sprints")
+    sys.exit(0)

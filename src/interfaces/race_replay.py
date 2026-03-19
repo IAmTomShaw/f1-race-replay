@@ -24,7 +24,8 @@ PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 2
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True):
+                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
+                 sector_boundaries=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -50,6 +51,11 @@ class F1RaceReplayWindow(arcade.Window):
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
         self.toggle_drs_zones = True 
+        self.toggle_sector_colors = False
+        self.sector_boundaries = sector_boundaries
+        self.sector_colors = []
+        if sector_boundaries:
+            self._compute_sector_colors()
         # UI components
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
@@ -175,6 +181,81 @@ class F1RaceReplayWindow(arcade.Window):
         # Fallback: return the cumulative distance at the closest dense sample
         return float(self._ref_cumdist[idx])
 
+    def _compute_sector_colors(self):
+        """
+        Compute colored segments for each sector based on the selected driver's
+        sector times vs the fastest sector times in the session.
+        """
+        if not self.sector_boundaries or not hasattr(self, '_ref_cumdist'):
+            return
+            
+        sb = self.sector_boundaries
+        if not all(k in sb for k in ['sector_1_distance', 'sector_2_distance', 'sector_3_distance']):
+            return
+            
+        s1_dist = sb['sector_1_distance']
+        s2_dist = sb['sector_2_distance']
+        total_dist = sb['sector_3_distance']
+        
+        fastest = [sb.get('fastest_s1'), sb.get('fastest_s2'), sb.get('fastest_s3')]
+        if None in fastest:
+            return
+            
+        threshold_green = 1.02
+        threshold_yellow = 1.05
+        
+        self.sector_colors = []
+        
+        for i, (start_dist, end_dist) in enumerate([
+            (0, s1_dist),
+            (s1_dist, s2_dist),
+            (s2_dist, total_dist)
+        ]):
+            idx_start = np.searchsorted(self._ref_cumdist, start_dist)
+            idx_end = np.searchsorted(self._ref_cumdist, end_dist)
+            idx_start = max(0, min(idx_start, len(self._ref_xs) - 1))
+            idx_end = max(0, min(idx_end, len(self._ref_xs) - 1))
+            
+            if idx_end <= idx_start:
+                continue
+                
+            self.sector_colors.append({
+                'start_idx': idx_start,
+                'end_idx': idx_end,
+                'color': (100, 100, 100)
+            })
+        
+    def update_sector_colors_for_driver(self, driver_code):
+        """Update sector colors based on the selected driver's sector times."""
+        if not self.sector_boundaries or not self.frames:
+            return
+            
+        sb = self.sector_boundaries
+        fastest = [sb.get('fastest_s1'), sb.get('fastest_s2'), sb.get('fastest_s3')]
+        if None in fastest:
+            return
+        
+        threshold_green = 1.02
+        threshold_yellow = 1.08
+        
+        driver_sectors = self._get_driver_sector_times(driver_code)
+        
+        for i, sector_info in enumerate(self.sector_colors):
+            if i < len(driver_sectors) and driver_sectors[i] is not None:
+                ratio = driver_sectors[i] / fastest[i]
+                if ratio <= threshold_green:
+                    sector_info['color'] = (50, 200, 50)
+                elif ratio <= threshold_yellow:
+                    sector_info['color'] = (255, 255, 0)
+                else:
+                    sector_info['color'] = (255, 50, 50)
+            else:
+                sector_info['color'] = (100, 100, 100)
+    
+    def _get_driver_sector_times(self, driver_code):
+        """Get sector times for a driver from the session data."""
+        return [None, None, None]
+    
     def update_scaling(self, screen_w, screen_h):
         """
         Recalculates the scale and translation to fit the track 
@@ -342,6 +423,21 @@ class F1RaceReplayWindow(arcade.Window):
                 # Draw the DRS zone segment
                 if len(drs_outer_points) > 1:
                     arcade.draw_line_strip(drs_outer_points, drs_color, 6)
+
+        # 2.7 Draw Sector Colors (if enabled and available)
+        if self.toggle_sector_colors and self.sector_colors:
+            for sector in self.sector_colors:
+                start_idx = sector['start_idx']
+                end_idx = sector['end_idx']
+                color = sector['color']
+                
+                sector_points = []
+                for i in range(start_idx, min(end_idx + 1, len(self._ref_xs))):
+                    sx, sy = self.world_to_screen(self._ref_xs[i], self._ref_ys[i])
+                    sector_points.append((sx, sy))
+                
+                if len(sector_points) > 1:
+                    arcade.draw_line_strip(sector_points, color, 8)
 
         draw_finish_line(self)
         # 3. Draw Cars
@@ -534,7 +630,9 @@ class F1RaceReplayWindow(arcade.Window):
             else:
                 self.controls_popup_comp.show_over(left_pos, top_pos)
         elif symbol == arcade.key.B:
-            self.progress_bar_comp.toggle_visibility() # toggle progress bar visibility
+            self.progress_bar_comp.toggle_visibility()
+        elif symbol == arcade.key.N:
+            self.toggle_sector_colors = not self.toggle_sector_colors
 
     def on_key_release(self, symbol: int, modifiers: int):
         if symbol == arcade.key.RIGHT:

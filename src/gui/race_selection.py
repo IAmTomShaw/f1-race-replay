@@ -1,6 +1,6 @@
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog
+    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox, QInputDialog, QSizePolicy
 )
 from PySide6.QtWidgets import QProgressDialog
 from PySide6.QtCore import QThread, Signal, Qt, QTimer
@@ -11,6 +11,13 @@ import subprocess
 import tempfile
 import uuid
 from src.f1_data import get_race_weekends_by_year, load_session
+
+try:
+    from src.gui.youtube_player import YouTubePanel
+    YOUTUBE_AVAILABLE = True
+except ImportError as e:
+    YOUTUBE_AVAILABLE = False
+    print(f"YouTube panel not available: {e}")
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -81,7 +88,8 @@ class RaceSelectionWindow(QMainWindow):
         year_layout.addWidget(self.year_combo)
         main_layout.addLayout(year_layout)
 
-        # Main content: left = schedule, right = session list
+
+        # Main content: left = schedule, center = session list, right = YouTube
         content_layout = QHBoxLayout()
 
         # Schedule tree (left)
@@ -91,7 +99,7 @@ class RaceSelectionWindow(QMainWindow):
         content_layout.addWidget(self.schedule_tree, 3)
         self.schedule_tree.setColumnWidth(2, 180)
 
-        # Session panel (right)
+        # Session panel (center)
         self.session_panel = QWidget()
         self.session_panel_layout = QVBoxLayout()
         self.session_panel.setLayout(self.session_panel_layout)
@@ -110,6 +118,18 @@ class RaceSelectionWindow(QMainWindow):
         self.session_panel_layout.addWidget(self.session_list_container)
 
         content_layout.addWidget(self.session_panel, 1)
+
+        # YouTube panel (right) - search and video player
+        self.youtube_panel = None
+        if YOUTUBE_AVAILABLE:
+            self.youtube_panel = YouTubePanel()
+            self.youtube_panel.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Expanding)
+            content_layout.addWidget(self.youtube_panel, 2)
+        else:
+            self.youtube_panel_placeholder = QLabel("YouTube Search\n(Install dependencies)")
+            self.youtube_panel_placeholder.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            self.youtube_panel_placeholder.setStyleSheet("color: #888; background-color: #1a1a1a; padding: 20px;")
+            content_layout.addWidget(self.youtube_panel_placeholder, 2)
 
         main_layout.addLayout(content_layout)
 
@@ -163,13 +183,19 @@ class RaceSelectionWindow(QMainWindow):
             self.session_panel.show()
         except Exception:
             pass
+        
+        # Search YouTube for race replays
+        event_name = ev.get('event_name', '')
+        year = int(self.year_combo.currentText()) if self.year_combo.currentText() else 2025
+        
+        if YOUTUBE_AVAILABLE and self.youtube_panel and event_name:
+            self.youtube_panel.search_videos(event_name, year)
+        
         # determine sessions to show
         ev_type = (ev.get('type') or '').lower()
-        sessions = ["Qualifying", "Race"]
+        sessions = ["FP1", "FP2", "FP3", "Qualifying", "Race"]
         if 'sprint' in ev_type:
-            sessions.insert(0, "Sprint Qualifying")
-            # show sprint-related session
-            sessions.insert(2, "Sprint")
+            sessions = ["FP1", "FP2", "FP3", "Sprint Qualifying", "Sprint", "Qualifying", "Race"]
 
         # clear existing session widgets
         for i in reversed(range(self.session_list_layout.count())):
@@ -208,6 +234,12 @@ class RaceSelectionWindow(QMainWindow):
             flag = "--sprint-qualifying"
         elif session_label == "Sprint":
             flag = "--sprint"
+        elif session_label == "FP1":
+            flag = "--fp1"
+        elif session_label == "FP2":
+            flag = "--fp2"
+        elif session_label == "FP3":
+            flag = "--fp3"
 
         main_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'main.py'))
         cmd = [sys.executable, main_path, "--viewer"]
@@ -229,13 +261,15 @@ class RaceSelectionWindow(QMainWindow):
         QApplication.processEvents()
 
         # Map label -> fastf1 session type code
-        session_code = 'R'
-        if session_label == "Qualifying":
-            session_code = 'Q'
-        elif session_label == "Sprint Qualifying":
-            session_code = 'SQ'
-        elif session_label == "Sprint":
-            session_code = 'S'
+        session_code_map = {
+            "Qualifying": 'Q',
+            "Sprint Qualifying": 'SQ',
+            "Sprint": 'S',
+            "FP1": 'FP1',
+            "FP2": 'FP2',
+            "FP3": 'FP3',
+        }
+        session_code = session_code_map.get(session_label, 'R')
 
         class FetchSessionWorker(QThread):
             result = Signal(object)

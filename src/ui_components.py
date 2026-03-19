@@ -320,6 +320,10 @@ class LeaderboardComponent(BaseComponent):
                 text_color = color
             text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
             arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+            
+            # PIT indicator
+            if pos.get("in_pit", False):
+                arcade.Text("PIT", left_x + 90, top_y, arcade.color.ORANGE, 14, anchor_x="left", anchor_y="top")
 
              # Tyre Icons
             tyre_texture = self._tyre_textures.get(str(pos.get("tyre", "?")).upper())

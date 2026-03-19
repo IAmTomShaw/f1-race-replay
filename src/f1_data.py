@@ -180,6 +180,23 @@ def get_race_telemetry(session, session_type='R'):
         for num in drivers
     }
 
+    # Extract pit stop data for each driver
+    driver_pit_stops = {code: [] for code in driver_codes.values()}
+    try:
+        pit_stops = get_pit_stops(session)
+        lap_start = session.laps['LapStartTime'].iloc[0]
+        global_start = lap_start.total_seconds()
+        for pit in pit_stops:
+            driver = pit['driver']
+            if driver in driver_pit_stops:
+                driver_pit_stops[driver].append({
+                    'pit_in': pit['pit_in_time'],
+                    'pit_out': pit['pit_out_time'],
+                    'duration': pit['pit_duration'],
+                })
+    except Exception as e:
+        print(f"Could not extract pit stops: {e}")
+
     driver_data = {}
 
     global_t_min = None
@@ -371,6 +388,16 @@ def get_race_telemetry(session, session_type='R'):
             code = car["code"]
             position = idx + 1
 
+            # Check if driver is currently in pit
+            in_pit = False
+            current_time = t + global_t_min  # Current time in session time
+            for pit in driver_pit_stops.get(code, []):
+                pit_in = pit.get('pit_in', 0)
+                pit_out = pit.get('pit_out')
+                if pit_in <= current_time and (pit_out is None or current_time <= pit_out):
+                    in_pit = True
+                    break
+
             # include speed, gear, drs_active in frame driver dict
             frame_data[code] = {
                 "x": car["x"],
@@ -385,6 +412,7 @@ def get_race_telemetry(session, session_type='R'):
                 "drs": car['drs'],
                 "throttle": car['throttle'],
                 "brake": car['brake'],
+                "in_pit": in_pit,
             }
 
         weather_snapshot = {}
@@ -876,3 +904,127 @@ def list_sprints(year):
     else:
         for _, event in sprints.iterrows():
             print(f"{event['RoundNumber']}: {event['EventName']}")
+
+
+def get_sector_boundaries(session):
+    """
+    Extract sector boundaries and fastest sector times from a session.
+    Returns dict with:
+    - sector_1_distance: Distance along track where S1 ends
+    - sector_2_distance: Distance along track where S2 ends  
+    - sector_3_distance: Total lap distance
+    - fastest_sector_1: Fastest S1 time in session
+    - fastest_sector_2: Fastest S2 time in session
+    - fastest_sector_3: Fastest S3 time in session
+    """
+    try:
+        laps = session.laps
+        if laps is None or laps.empty:
+            return None
+        
+        fastest_lap = laps.pick_fastest()
+        if fastest_lap is None:
+            return None
+            
+        tel = fastest_lap.get_telemetry()
+        if tel is None or tel.empty:
+            return None
+        
+        lap_start_time = tel['SessionTime'].iloc[0]
+        
+        s1_time = fastest_lap['Sector1Time']
+        s2_time = fastest_lap['Sector2Time']
+        s3_time = fastest_lap['Sector3Time']
+        
+        if pd.isna(s1_time) or pd.isna(s2_time) or pd.isna(s3_time):
+            return None
+            
+        s1_end = lap_start_time.total_seconds() + s1_time.total_seconds()
+        s2_end = s1_end + s2_time.total_seconds()
+        
+        tel_times = np.array([(t - lap_start_time).total_seconds() for t in tel['SessionTime']])
+        
+        idx_s1 = np.abs(tel_times - (s1_end - lap_start_time.total_seconds())).argmin()
+        idx_s2 = np.abs(tel_times - (s2_end - lap_start_time.total_seconds())).argmin()
+        
+        sector_1_dist = float(tel['Distance'].iloc[idx_s1])
+        sector_2_dist = float(tel['Distance'].iloc[idx_s2])
+        sector_3_dist = float(tel['Distance'].max())
+        
+        fastest_s1 = float('inf')
+        fastest_s2 = float('inf')
+        fastest_s3 = float('inf')
+        
+        for _, lap in laps.iterlaps():
+            s1 = lap['Sector1Time']
+            s2 = lap['Sector2Time']
+            s3 = lap['Sector3Time']
+            if not pd.isna(s1) and s1.total_seconds() < fastest_s1:
+                fastest_s1 = s1.total_seconds()
+            if not pd.isna(s2) and s2.total_seconds() < fastest_s2:
+                fastest_s2 = s2.total_seconds()
+            if not pd.isna(s3) and s3.total_seconds() < fastest_s3:
+                fastest_s3 = s3.total_seconds()
+        
+        return {
+            'sector_1_distance': sector_1_dist,
+            'sector_2_distance': sector_2_dist,
+            'sector_3_distance': sector_3_dist,
+            'fastest_s1': fastest_s1 if fastest_s1 < float('inf') else None,
+            'fastest_s2': fastest_s2 if fastest_s2 < float('inf') else None,
+            'fastest_s3': fastest_s3 if fastest_s3 < float('inf') else None,
+        }
+    except Exception as e:
+        print(f"Could not extract sector boundaries: {e}")
+        return None
+
+
+def get_pit_stops(session):
+    """
+    Extract pit stop data from a session.
+    Returns list of dicts with driver code, pit in time, pit out time, and duration.
+    """
+    try:
+        laps = session.laps
+        if laps is None or laps.empty:
+            return []
+        
+        pit_stops = []
+        lap_start = session.laps['LapStartTime'].iloc[0]
+        if lap_start is None:
+            return []
+        
+        global_start = lap_start.total_seconds()
+        
+        for _, lap in laps.iterrows():
+            pit_in = lap['PitInTime']
+            pit_out = lap['PitOutTime']
+            
+            if pd.isna(pit_in):
+                continue
+                
+            pit_in_sec = pit_in.total_seconds() - global_start
+            
+            pit_out_sec = None
+            pit_duration = None
+            if not pd.isna(pit_out):
+                pit_out_sec = pit_out.total_seconds() - global_start
+                pit_duration = pit_out_sec - pit_in_sec
+            
+            driver_num = lap['Driver']
+            driver_info = session.get_driver(driver_num)
+            driver_code = driver_info['Abbreviation'] if driver_info is not None else str(driver_num)
+            
+            pit_stops.append({
+                'driver': driver_code,
+                'lap': int(lap['LapNumber']) if not pd.isna(lap['LapNumber']) else None,
+                'pit_in_time': pit_in_sec,
+                'pit_out_time': pit_out_sec,
+                'pit_duration': pit_duration,
+                'new_compound': lap['Compound'] if 'Compound' in lap else None,
+            })
+        
+        return pit_stops
+    except Exception as e:
+        print(f"Could not extract pit stop data: {e}")
+        return []
