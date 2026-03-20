@@ -63,7 +63,7 @@ class InsightsMenu(QMainWindow):
         content_layout.addWidget(self.create_category_section(
             "Track",
             [
-                ("Track Position Map", "Live driver positions plotted on a circular track map", self.launch_track_position),
+                ("Track Position Map", "Live driver positions on real or circular track map", self.launch_track_position),
             ]
         ))
         

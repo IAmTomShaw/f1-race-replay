@@ -262,7 +262,7 @@ class F1RaceReplayWindow(arcade.Window):
             code: "#{:02X}{:02X}{:02X}".format(*rgb)
             for code, rgb in self.driver_colors.items()
         }
-        self.telemetry_stream.broadcast({
+        payload = {
             "frame_index": int(self.frame_index),
             "frame": current_frame,
             "track_status": current_track_status,
@@ -277,7 +277,21 @@ class F1RaceReplayWindow(arcade.Window):
                 "leader": leader_code,
                 "total_laps": self.total_laps
             }
-        })
+        }
+
+        # Send every ~2s so reconnecting clients receive geometry without special handling
+        if hasattr(self, 'plot_x_ref') and int(self.frame_index) % 120 == 0:
+            payload["track_geometry"] = {
+                "x": self.plot_x_ref.tolist(),
+                "y": self.plot_y_ref.tolist(),
+                "x_inner": self.x_inner.tolist(),
+                "y_inner": self.y_inner.tolist(),
+                "x_outer": self.x_outer.tolist(),
+                "y_outer": self.y_outer.tolist(),
+                "rotation_deg": self.circuit_rotation,
+            }
+
+        self.telemetry_stream.broadcast(payload)
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))
