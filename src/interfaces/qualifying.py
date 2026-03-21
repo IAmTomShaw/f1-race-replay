@@ -15,27 +15,22 @@ from src.ui_components import (
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
-
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
-SCREEN_TITLE = "F1 Qualifying Telemetry"
-
-H_ROW = 38
-HEADER_H = 56
-LEFT_MARGIN = 40
-RIGHT_MARGIN = 40
-TOP_MARGIN = 40
-BOTTOM_MARGIN = 40
+from src.config import UIConfig
 
 class QualifyingReplay(arcade.Window):
-    def __init__(self, session, data, circuit_rotation=0, left_ui_margin=340, right_ui_margin=0, title="Qualifying Results"):
-        super().__init__(width=SCREEN_WIDTH, height=SCREEN_HEIGHT, title=title, resizable=True)
+    def __init__(self, session, data, circuit_rotation=0, left_ui_margin=None, right_ui_margin=None, title="Qualifying Results"):
+        if left_ui_margin is None:
+            left_ui_margin = UIConfig.QUALIFYING_LEFT_MARGIN
+        if right_ui_margin is None:
+            right_ui_margin = UIConfig.QUALIFYING_RIGHT_MARGIN
+        
+        super().__init__(width=UIConfig.SCREEN_WIDTH, height=UIConfig.SCREEN_HEIGHT, title=title, resizable=True)
         self.maximize()
         
         self.session = session
         self.data = data
         self.leaderboard = LapTimeLeaderboardComponent(
-            x=LEFT_MARGIN,
+            x=UIConfig.LEFT_MARGIN,
         )
         self.race_controls_comp = RaceControlsComponent(
             center_x= self.width // 2 + 100,
@@ -127,7 +122,7 @@ class QualifyingReplay(arcade.Window):
          self.x_min, self.x_max,
          self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap.get_telemetry())
          
-        ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
+        ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=UIConfig.REFERENCE_POINT_INTERPOLATION)
         self._ref_xs = np.array([p[0] for p in ref_points])
         self._ref_ys = np.array([p[1] for p in ref_points])
 
@@ -230,9 +225,9 @@ class QualifyingReplay(arcade.Window):
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
-                area_right = self.width - RIGHT_MARGIN
-                area_top = self.height - TOP_MARGIN
-                area_bottom = BOTTOM_MARGIN
+                area_right = self.width - UIConfig.RIGHT_MARGIN
+                area_top = self.height - UIConfig.TOP_MARGIN
+                area_bottom = UIConfig.BOTTOM_MARGIN
                 area_w = max(10, area_right - area_left)
                 area_h = max(10, area_top - area_bottom)
 

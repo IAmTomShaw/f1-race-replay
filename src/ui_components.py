@@ -9,6 +9,7 @@ from src.tyre_degradation_integration import (
     format_tyre_health_bar, 
     format_degradation_text
 )
+from src.config import UIConfig
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
   if degrees is None:
@@ -1446,8 +1447,8 @@ class RaceProgressBarComponent(BaseComponent):
             size = 6
             color = self.COLORS["dnf"]
             y = marker_top - size
-            arcade.draw_line(x - size, y - size, x + size, y + size, color, 2)
-            arcade.draw_line(x - size, y + size, x + size, y - size, color, 2)
+            arcade.draw_line(x - size, y - size, x + size, y + size, color, UIConfig.TRACK_LINE_WIDTH)
+            arcade.draw_line(x - size, y + size, x + size, y - size, color, UIConfig.TRACK_LINE_WIDTH)
             
         elif event_type == self.EVENT_YELLOW_FLAG:
             # Draw yellow flag indicator on the bar
@@ -1633,9 +1634,11 @@ class RaceControlsComponent(BaseComponent):
     - Forward button (right)
     """
     
-    PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
+    PLAYBACK_SPEEDS = UIConfig.PLAYBACK_SPEEDS
 
-    def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = 40, visible=True):
+    def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = None, visible=True):
+        if button_size is None:
+            button_size = UIConfig.BUTTON_SIZE
         self.center_x = center_x
         self.center_y = center_y
         self.button_size = button_size

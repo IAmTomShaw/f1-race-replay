@@ -7,12 +7,17 @@ import json
 import threading
 import time
 from PySide6.QtCore import QThread, Signal
+from src.config import NetworkConfig
 
 class TelemetryStreamServer:
 
   # This class is going to be hosted by the race_replay window process, which is the primary consumer of telemetry data. It will broadcast the telemetry frames
 
-  def __init__(self, host='localhost', port=9999):
+  def __init__(self, host=None, port=None):
+    if host is None:
+        host = NetworkConfig.TELEMETRY_HOST
+    if port is None:
+        port = NetworkConfig.TELEMETRY_PORT
     self.host = host
     self.port = port
     self.clients = []
@@ -55,7 +60,7 @@ class TelemetryStreamServer:
           pass  # Already removed by broadcast() or stop()
 
   def broadcast(self, data):
-    message = json.dumps(data).encode('utf-8')
+    message = json.dumps(data).encode(NetworkConfig.DATA_ENCODING)
     dead_clients = []
     
     with self.clients_lock:
@@ -63,7 +68,7 @@ class TelemetryStreamServer:
     
     for client in clients_copy:
       try:
-        client.sendall(message + b'\n')
+        client.sendall(message + NetworkConfig.MESSAGE_SEPARATOR.encode(NetworkConfig.DATA_ENCODING))
       except Exception as e:
         print(f"Error sending to client: {e}")
         client.close()
@@ -92,8 +97,12 @@ class TelemetryStreamClient(QThread):
   connection_status = Signal(str)
   error_occurred = Signal(str) 
   
-  def __init__(self, host='localhost', port=9999):
+  def __init__(self, host=None, port=None):
     super().__init__()
+    if host is None:
+        host = NetworkConfig.TELEMETRY_HOST
+    if port is None:
+        port = NetworkConfig.TELEMETRY_PORT
     self.host = host
     self.port = port
     self.socket = None
@@ -116,7 +125,7 @@ class TelemetryStreamClient(QThread):
         self.connection_status.emit("Disconnected")
         
         # Wait before attempting to reconnect
-        self.sleep(2)
+        self.sleep(int(NetworkConfig.CONNECTION_RETRY_DELAY * 1000))
               
   def _connect_to_server(self):
     # Establish connection to the telemetry stream server.
@@ -125,7 +134,7 @@ class TelemetryStreamClient(QThread):
         
     self.connection_status.emit("Connecting...")
     self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.socket.settimeout(5.0)  # 5 second timeout
+    self.socket.settimeout(NetworkConfig.SOCKET_TIMEOUT)
     
     try:
       self.socket.connect((self.host, self.port))
@@ -145,7 +154,7 @@ class TelemetryStreamClient(QThread):
     while self.running and self.connected:
       try:
         # Receive data in chunks
-        chunk = self.socket.recv(4096).decode('utf-8')
+        chunk = self.socket.recv(NetworkConfig.SOCKET_BUFFER_SIZE).decode(NetworkConfig.DATA_ENCODING)
         if not chunk:
           # Server closed connection
           self.connected = False
@@ -154,8 +163,8 @@ class TelemetryStreamClient(QThread):
         buffer += chunk
         
         # Process complete messages (separated by newlines)
-        while '\n' in buffer:
-          line, buffer = buffer.split('\n', 1)
+        while NetworkConfig.MESSAGE_SEPARATOR in buffer:
+          line, buffer = buffer.split(NetworkConfig.MESSAGE_SEPARATOR, 1)
           if line.strip():
             try:
               data = json.loads(line.strip())

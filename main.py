@@ -6,6 +6,7 @@ from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
 from src.lib.season import get_season
+from src.config import CLIConfig
 import logging
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
@@ -128,7 +129,7 @@ if __name__ == "__main__":
     round_index = sys.argv.index("--round") + 1
     round_number = int(sys.argv[round_index])
   else:
-    round_number = 12  # Default round number
+    round_number = CLIConfig.DEFAULT_ROUND
 
   if "--list-rounds" in sys.argv:
     list_rounds(year)

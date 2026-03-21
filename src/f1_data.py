@@ -12,6 +12,7 @@ import pandas as pd
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
+from src.config import DataConfig
 
 
 def enable_cache():
@@ -27,8 +28,8 @@ def enable_cache():
     fastf1.Cache.enable_cache(cache_path)
 
 
-FPS = 25
-DT = 1 / FPS
+FPS = DataConfig.FPS
+DT = DataConfig.DT
 
 
 def _process_single_driver(args):
