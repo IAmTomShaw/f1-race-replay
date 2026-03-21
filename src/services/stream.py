@@ -7,6 +7,9 @@ import json
 import threading
 import time
 from PySide6.QtCore import QThread, Signal
+from src.lib.logging import get_logger
+
+logger = get_logger(__name__)
 
 class TelemetryStreamServer:
 
@@ -31,13 +34,13 @@ class TelemetryStreamServer:
     while self.running:
       try:
         client_socket, addr = self.server_socket.accept()
-        print(f"Client connected from {addr}")
+        logger.info("Client connected from %s", addr)
         with self.clients_lock:
           self.clients.append(client_socket)
         threading.Thread(target=self.handle_client, args=(client_socket,), daemon=True).start()
       except Exception as e:
         if self.running:
-          print(f"Error accepting client: {e}")
+          logger.error("Error accepting client: %s", e)
         break
 
   def handle_client(self, client_socket):
@@ -45,7 +48,7 @@ class TelemetryStreamServer:
       while self.running:
         time.sleep(1)  # Keep the connection alive
     except Exception as e:
-      print(f"Client connection error: {e}")
+      logger.error("Client connection error: %s", e)
     finally:
       client_socket.close()
       with self.clients_lock:
@@ -65,7 +68,7 @@ class TelemetryStreamServer:
       try:
         client.sendall(message + b'\n')
       except Exception as e:
-        print(f"Error sending to client: {e}")
+        logger.error("Error sending to client: %s", e)
         client.close()
         dead_clients.append(client)
     
