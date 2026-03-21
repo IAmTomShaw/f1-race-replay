@@ -59,6 +59,13 @@ class InsightsMenu(QMainWindow):
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
             ]
         ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Track",
+            [
+                ("Track Position Map", "Live driver positions plotted on a circular track map", self.launch_track_position),
+            ]
+        ))
         
         content_layout.addStretch()
         
@@ -169,6 +176,13 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Driver Live Telemetry")
         from src.insights.driver_telemetry_window import DriverTelemetryWindow
         window = DriverTelemetryWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_track_position(self):
+        print("🚀 Launching: Track Position Map")
+        from src.insights.track_position_window import TrackPositionWindow
+        window = TrackPositionWindow()
         window.show()
         self.opened_windows.append(window)
 
