@@ -21,6 +21,23 @@ def cli_load():
     console = Console()
     console.print(Markdown("# F1 Race Replay 🏎️"))
 
+    # Offer Watch Live as the first option
+    mode_choices = [
+        Choice(title="Watch Live  (connect to live timing)", value="live"),
+        Choice(title="Watch Replay  (choose a past session)", value="replay"),
+    ]
+    mode = select("What would you like to do?", choices=mode_choices, qmark="🏁", style=style).ask()
+    if not mode:
+        sys.exit(0)
+
+    if mode == "live":
+        main_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'main.py'))
+        cmd = [sys.executable, main_path, "--live"]
+        if "--verbose" in sys.argv:
+            cmd.append("--verbose")
+        subprocess.run(cmd)
+        return
+
     years = [str(year) for year in range(current_year, 2009, -1)]
     year = select("Choose a year", choices=years, qmark="🗓️ ", style=style).ask()
     if not year:
