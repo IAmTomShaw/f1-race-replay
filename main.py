@@ -1,5 +1,5 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
-from src.run_session import run_arcade_replay, launch_insights_menu
+from src.run_session import run_arcade_replay, launch_insights_menu, run_live_arcade_replay
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 from src.cli.race_selection import cli_load
@@ -108,6 +108,143 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       enable_telemetry=True # This is now permanently enabled to support the telemetry insights menu if the user decides to use it
     )
 
+def live_main(ready_file=None):
+  """Entry point for live race viewing via OpenF1."""
+  import datetime
+  import time as _time
+  import fastf1
+  from src.live_f1_data import (
+      get_current_session, is_session_live,
+      get_session_drivers, get_driver_colors_from_openf1,
+      find_round_number, load_circuit_layout, LiveDataFeed,
+  )
+
+  print("Checking for a live F1 session via OpenF1…")
+  session_info = get_current_session()
+
+  if not session_info:
+    print("Error: Could not reach the OpenF1 API. Check your internet connection.")
+    return
+
+  location     = session_info.get("location", "Unknown")
+  session_name = session_info.get("session_name", "Unknown")
+  year         = int(session_info.get("year", get_season()))
+  session_key  = int(session_info["session_key"])
+
+  if not is_session_live(session_info):
+    date_start = session_info.get("date_start", "")
+    print(f"No live session right now.")
+    print(f"Most recent: {location} — {session_name}  ({date_start})")
+    print("Run with --live again when a session is in progress.")
+    return
+
+  print(f"Live session: {location} — {session_name}  (session key {session_key})")
+
+  # ---- Drivers --------------------------------------------------------
+  print("Fetching driver list…")
+  drivers_info  = get_session_drivers(session_key)
+  driver_colors = get_driver_colors_from_openf1(drivers_info)
+  drivers       = [info.get("name_acronym", num) for num, info in drivers_info.items()]
+  print(f"  {len(drivers_info)} drivers found")
+
+  # ---- Circuit layout from FastF1 -------------------------------------
+  enable_cache()
+  circuit_short = session_info.get("circuit_short_name", "")
+
+  print("Finding round number from FastF1 schedule…")
+  round_number = find_round_number(year, location, circuit_short)
+
+  example_lap      = None
+  circuit_rotation = 0.0
+  fastf1_session   = None
+
+  if round_number:
+    print(f"  Round {round_number} — loading circuit layout from FastF1…")
+    example_lap, fastf1_session = load_circuit_layout(year, round_number)
+    if example_lap is not None and fastf1_session is not None:
+      circuit_rotation = get_circuit_rotation(fastf1_session)
+      # Refine driver colours from FastF1 where possible
+      try:
+        from src.f1_data import get_driver_colors as _gdc
+        ff1_colors = _gdc(fastf1_session)
+        driver_colors.update(ff1_colors)
+      except Exception:
+        pass
+  else:
+    print("  Could not find round number — trying previous-year layout…")
+    for prev_year in range(year - 1, max(year - 4, 2018), -1):
+      rn = find_round_number(prev_year, location, circuit_short)
+      if rn:
+        example_lap, _ = load_circuit_layout(prev_year, rn)
+        if example_lap is not None:
+          print(f"  Using circuit layout from {prev_year} Round {rn}")
+          break
+
+  if example_lap is None:
+    print("Error: Could not load circuit layout. Cannot open the visualiser.")
+    return
+
+  # ---- Live data feed -------------------------------------------------
+  date_start_str = session_info.get("date_start", "")
+  try:
+    session_start = datetime.datetime.fromisoformat(date_start_str.replace("Z", "+00:00"))
+  except Exception:
+    session_start = datetime.datetime.now(datetime.timezone.utc)
+
+  print("Prefetching live data from OpenF1…")
+  live_feed = LiveDataFeed(session_key, drivers_info, session_start)
+  live_feed.prefetch()
+
+  # Retry briefly if no positions arrived yet (session may have just started)
+  retries = 0
+  while live_feed.frame_count() == 0 and retries < 5:
+    print(f"  Waiting for position data… ({retries + 1}/5)")
+    _time.sleep(2)
+    live_feed.prefetch()
+    retries += 1
+
+  if live_feed.frame_count() == 0:
+    print("Warning: No position data received — the session may not have started yet.")
+    print("The viewer will open and wait for data.")
+
+  # Start background polling
+  live_feed.start()
+
+  # ---- Session info banner --------------------------------------------
+  circuit_length = None
+  if "Distance" in example_lap.columns:
+    circuit_length = float(example_lap["Distance"].max())
+
+  session_display_info = {
+    "event_name":      location,
+    "circuit_name":    location,
+    "country":         session_info.get("country_name", ""),
+    "year":            year,
+    "round":           round_number,
+    "date":            "LIVE",
+    "total_laps":      None,
+    "circuit_length_m": circuit_length,
+  }
+
+  # ---- Launch insights menu and visualiser ----------------------------
+  launch_insights_menu()
+
+  title = f"[LIVE] {location} — {session_name}"
+  print(f"Launching live viewer: {title}")
+
+  run_live_arcade_replay(
+    live_feed=live_feed,
+    example_lap=example_lap,
+    drivers=drivers,
+    driver_colors=driver_colors,
+    title=title,
+    circuit_rotation=circuit_rotation,
+    session_info=session_display_info,
+    session=fastf1_session,
+    ready_file=ready_file,
+  )
+
+
 if __name__ == "__main__":
 
   if "--verbose" not in sys.argv:# fastf1 logging is disabled by default
@@ -116,6 +253,15 @@ if __name__ == "__main__":
   if "--cli" in sys.argv:
     # Run the CLI
     cli_load()
+    sys.exit(0)
+
+  if "--live" in sys.argv:
+    ready_file = None
+    if "--ready-file" in sys.argv:
+      idx = sys.argv.index("--ready-file") + 1
+      if idx < len(sys.argv):
+        ready_file = sys.argv[idx]
+    live_main(ready_file=ready_file)
     sys.exit(0)
 
   if "--year" in sys.argv:
