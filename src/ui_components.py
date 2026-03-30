@@ -2,7 +2,10 @@ import arcade
 from typing import List, Literal, Tuple, Optional
 from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
+from src.lib.logging import get_logger
 import numpy as np
+
+logger = get_logger(__name__)
 import pandas as pd
 import os
 from src.tyre_degradation_integration import (
@@ -802,7 +805,7 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
                         if hasattr(window, "leaderboard"):
                             window.leaderboard.selected = []
                     except Exception as e:
-                        print("Error starting telemetry load:", e)
+                        logger.error("Error starting telemetry load: %s", e)
                     return True
         return True # Consume all clicks when visible
 
@@ -953,7 +956,7 @@ class DriverInfoComponent(BaseComponent):
                                arcade.color.LIGHT_GRAY, 10, anchor_y="center").draw()
                     
             except (KeyError, AttributeError, TypeError) as e:
-                print(f"Error displaying driver info: {e}")
+                logger.error("Error displaying driver info: %s", e)
 
         # Graphs
         thr, brk = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
@@ -2266,7 +2269,7 @@ def plotDRSzones(example_lap):
 
 def draw_finish_line(self, session_type = 'R'):
     if(session_type not in ['R', 'Q']):
-        print("Invalid session type for finish line drawing...")
+        logger.warning("Invalid session type for finish line drawing...")
         return
 
     start_inner = None

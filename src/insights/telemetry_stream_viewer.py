@@ -8,7 +8,10 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QTextCursor
+from src.lib.logging import get_logger
 from src.services.stream import TelemetryStreamClient
+
+logger = get_logger(__name__)
 
 class TelemetryStreamViewer(QMainWindow):
     # This window is used to demonstrate the telemetry stream data being sent from the replay process. It connects to the telemetry stream server, receives real-time telemetry data, and displays it in a simple UI for debugging and demonstration purposes.
@@ -260,9 +263,9 @@ class TelemetryStreamViewer(QMainWindow):
             if self.client.isRunning():
                 self.client.stop()
                 if not self.client.wait(2000):  # Wait max 2 seconds
-                    print("Warning: Telemetry client did not stop in time")
+                    logger.warning("Warning: Telemetry client did not stop in time")
         except Exception as e:
-            print(f"Error during telemetry cleanup: {e}")
+            logger.error("Error during telemetry cleanup: %s", e)
         finally:
             event.accept()
 

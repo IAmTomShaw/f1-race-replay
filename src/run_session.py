@@ -4,7 +4,10 @@ import sys
 import threading
 import time
 import arcade
+from src.lib.logging import get_logger
 from src.interfaces.race_replay import F1RaceReplayWindow
+
+logger = get_logger(__name__)
 from src.insights.telemetry_stream_viewer import main as telemetry_viewer_main
 
 def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
@@ -43,7 +46,7 @@ def launch_telemetry_viewer():
       time.sleep(3)
       subprocess.run([sys.executable, "-m", "src.insights.telemetry_stream_viewer"], check=False)
     except Exception as e:
-      print(f"Failed to launch telemetry viewer: {e}")
+      logger.error("Failed to launch telemetry viewer: %s", e)
   
   viewer_thread = threading.Thread(target=start_viewer, daemon=True)
   viewer_thread.start()
@@ -56,7 +59,7 @@ def launch_insights_menu():
       time.sleep(1)
       subprocess.run([sys.executable, "-m", "src.gui.insights_menu"], check=False)
     except Exception as e:
-      print(f"Failed to launch insights menu: {e}")
+      logger.error("Failed to launch insights menu: %s", e)
   
   menu_thread = threading.Thread(target=start_menu, daemon=True)
   menu_thread.start()
