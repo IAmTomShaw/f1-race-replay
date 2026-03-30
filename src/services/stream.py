@@ -18,9 +18,9 @@ class TelemetryStreamServer:
 
   def __init__(self, host=None, port=None):
     if host is None:
-        host = NetworkConfig.TELEMETRY_HOST
+        host = NetworkConfig.telemetry_host
     if port is None:
-        port = NetworkConfig.TELEMETRY_PORT
+        port = NetworkConfig.telemetry_port
     self.host = host
     self.port = port
     self.clients = []
@@ -63,7 +63,7 @@ class TelemetryStreamServer:
           pass  # Already removed by broadcast() or stop()
 
   def broadcast(self, data):
-    message = json.dumps(data).encode(NetworkConfig.DATA_ENCODING)
+    message = json.dumps(data).encode(NetworkConfig.data_encoding)
     dead_clients = []
     
     with self.clients_lock:
@@ -71,7 +71,7 @@ class TelemetryStreamServer:
     
     for client in clients_copy:
       try:
-        client.sendall(message + NetworkConfig.MESSAGE_SEPARATOR.encode(NetworkConfig.DATA_ENCODING))
+        client.sendall(message + NetworkConfig.message_separator.encode(NetworkConfig.data_encoding))
       except Exception as e:
         logger.error("Error sending to client: %s", e)
         client.close()
@@ -103,9 +103,9 @@ class TelemetryStreamClient(QThread):
   def __init__(self, host=None, port=None):
     super().__init__()
     if host is None:
-        host = NetworkConfig.TELEMETRY_HOST
+        host = NetworkConfig.telemetry_host
     if port is None:
-        port = NetworkConfig.TELEMETRY_PORT
+        port = NetworkConfig.telemetry_port
     self.host = host
     self.port = port
     self.socket = None
@@ -128,7 +128,7 @@ class TelemetryStreamClient(QThread):
         self.connection_status.emit("Disconnected")
         
         # Wait before attempting to reconnect
-        self.sleep(int(NetworkConfig.CONNECTION_RETRY_DELAY * 1000))
+        self.sleep(int(NetworkConfig.connection_retry_delay * 1000))
               
   def _connect_to_server(self):
     # Establish connection to the telemetry stream server.
@@ -137,7 +137,7 @@ class TelemetryStreamClient(QThread):
         
     self.connection_status.emit("Connecting...")
     self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.socket.settimeout(NetworkConfig.SOCKET_TIMEOUT)
+    self.socket.settimeout(NetworkConfig.socket_timeout)
     
     try:
       self.socket.connect((self.host, self.port))
@@ -157,7 +157,7 @@ class TelemetryStreamClient(QThread):
     while self.running and self.connected:
       try:
         # Receive data in chunks
-        chunk = self.socket.recv(NetworkConfig.SOCKET_BUFFER_SIZE).decode(NetworkConfig.DATA_ENCODING)
+        chunk = self.socket.recv(NetworkConfig.socket_buffer_size).decode(NetworkConfig.data_encoding)
         if not chunk:
           # Server closed connection
           self.connected = False
@@ -166,8 +166,8 @@ class TelemetryStreamClient(QThread):
         buffer += chunk
         
         # Process complete messages (separated by newlines)
-        while NetworkConfig.MESSAGE_SEPARATOR in buffer:
-          line, buffer = buffer.split(NetworkConfig.MESSAGE_SEPARATOR, 1)
+        while NetworkConfig.message_separator in buffer:
+          line, buffer = buffer.split(NetworkConfig.message_separator, 1)
           if line.strip():
             try:
               data = json.loads(line.strip())

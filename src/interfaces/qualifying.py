@@ -23,17 +23,17 @@ logger = get_logger(__name__)
 class QualifyingReplay(arcade.Window):
     def __init__(self, session, data, circuit_rotation=0, left_ui_margin=None, right_ui_margin=None, title="Qualifying Results"):
         if left_ui_margin is None:
-            left_ui_margin = UIConfig.QUALIFYING_LEFT_MARGIN
+            left_ui_margin = UIConfig.qualifying_left_margin
         if right_ui_margin is None:
-            right_ui_margin = UIConfig.QUALIFYING_RIGHT_MARGIN
+            right_ui_margin = UIConfig.qualifying_right_margin
         
-        super().__init__(width=UIConfig.SCREEN_WIDTH, height=UIConfig.SCREEN_HEIGHT, title=title, resizable=True)
+        super().__init__(width=UIConfig.screen_width, height=UIConfig.screen_height, title=title, resizable=True)
         self.maximize()
         
         self.session = session
         self.data = data
         self.leaderboard = LapTimeLeaderboardComponent(
-            x=UIConfig.LEFT_MARGIN,
+            x=UIConfig.left_margin,
         )
         self.race_controls_comp = RaceControlsComponent(
             center_x= self.width // 2 + 100,
@@ -125,7 +125,7 @@ class QualifyingReplay(arcade.Window):
          self.x_min, self.x_max,
          self.y_min, self.y_max, self.drs_zones_xy) = build_track_from_example_lap(example_lap.get_telemetry())
          
-        ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=UIConfig.REFERENCE_POINT_INTERPOLATION)
+        ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=UIConfig.reference_point_interpolation)
         self._ref_xs = np.array([p[0] for p in ref_points])
         self._ref_ys = np.array([p[1] for p in ref_points])
 
@@ -228,9 +228,9 @@ class QualifyingReplay(arcade.Window):
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
-                area_right = self.width - UIConfig.RIGHT_MARGIN
-                area_top = self.height - UIConfig.TOP_MARGIN
-                area_bottom = UIConfig.BOTTOM_MARGIN
+                area_right = self.width - UIConfig.right_margin
+                area_top = self.height - UIConfig.top_margin
+                area_bottom = UIConfig.bottom_margin
                 area_w = max(10, area_right - area_left)
                 area_h = max(10, area_top - area_bottom)
 

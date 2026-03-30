@@ -1,77 +1,59 @@
-"""Centralized logging configuration for F1 Race Replay.
+"""Centralized logging configuration for F1 Race Replay using Loguru.
 
 This module provides a standardized logging setup with support for:
 - Debug mode for verbose output
 - Separate loggers for different modules
 - Consistent formatting across the application
+- Automatic file rotation and retention
 """
 
-import logging
+from loguru import logger
 import sys
-from typing import Optional
 
-
-# Global logger instance
-_root_logger: Optional[logging.Logger] = None
+# Global debug mode
 _debug_mode: bool = False
 
 
-def configure_logging(debug: bool = False, name: str = "f1_replay") -> logging.Logger:
+def configure_logging(debug: bool = False, name: str = "f1_replay") -> None:
     """Configure the logging system for the application.
     
     Args:
         debug: If True, sets logging to DEBUG level. Otherwise INFO level.
-        name: Root logger name.
-        
-    Returns:
-        The configured root logger.
+        name: Root logger name (kept for API compatibility).
     """
-    global _root_logger, _debug_mode
-    
+    global _debug_mode
     _debug_mode = debug
-    level = logging.DEBUG if debug else logging.INFO
     
-    # Create formatter
-    formatter = logging.Formatter(
-        fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
+    # Remove default handler
+    logger.remove()
+    
+    # Set log level
+    log_level = "DEBUG" if debug else "INFO"
+    
+    # Add console handler with custom format
+    logger.add(
+        sys.stderr,
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name: <15} | {message}",
+        level=log_level,
     )
     
-    # Create and configure root logger
-    _root_logger = logging.getLogger(name)
-    _root_logger.setLevel(level)
-    
-    # Remove existing handlers to avoid duplicates
-    _root_logger.handlers = []
-    
-    # Add console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(level)
-    console_handler.setFormatter(formatter)
-    _root_logger.addHandler(console_handler)
-    
     # Suppress verbose third-party logging
-    logging.getLogger("fastf1").setLevel(logging.CRITICAL)
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("requests").setLevel(logging.WARNING)
-    
-    return _root_logger
+    logger.disable("fastf1")
+    logger.disable("urllib3")
+    logger.disable("requests")
+    logger.disable("matplotlib")
 
 
-def get_logger(name: str) -> logging.Logger:
-    """Get or create a logger for a specific module.
+def get_logger(name: str):
+    """Get a logger for a specific module.
     
     Args:
         name: Logger name (typically __name__ of the module).
         
     Returns:
-        A configured logger instance.
+        A configured loguru logger instance.
     """
-    if _root_logger is None:
-        configure_logging()
-    
-    logger = logging.getLogger(f"f1_replay.{name}")
-    return logger
+    return logger.bind(name=name)
 
 
 def is_debug_mode() -> bool:

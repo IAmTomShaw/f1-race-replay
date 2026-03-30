@@ -31,8 +31,8 @@ def enable_cache():
     fastf1.Cache.enable_cache(cache_path)
 
 
-FPS = DataConfig.FPS
-DT = DataConfig.DT
+FPS = DataConfig.fps
+DT = DataConfig.dt
 
 
 def _process_single_driver(args):

@@ -1,6 +1,6 @@
 import arcade
-from typing import List, Literal, Tuple, Optional
-from typing import Sequence, Optional, Tuple
+from typing import List, Tuple, Optional
+from typing import Optional, Tuple
 from src.lib.time import format_time
 from src.lib.logging import get_logger
 import numpy as np
@@ -1450,8 +1450,8 @@ class RaceProgressBarComponent(BaseComponent):
             size = 6
             color = self.COLORS["dnf"]
             y = marker_top - size
-            arcade.draw_line(x - size, y - size, x + size, y + size, color, UIConfig.TRACK_LINE_WIDTH)
-            arcade.draw_line(x - size, y + size, x + size, y - size, color, UIConfig.TRACK_LINE_WIDTH)
+            arcade.draw_line(x - size, y - size, x + size, y + size, color, UIConfig.track_line_width)
+            arcade.draw_line(x - size, y + size, x + size, y - size, color, UIConfig.track_line_width)
             
         elif event_type == self.EVENT_YELLOW_FLAG:
             # Draw yellow flag indicator on the bar
@@ -1637,11 +1637,11 @@ class RaceControlsComponent(BaseComponent):
     - Forward button (right)
     """
     
-    PLAYBACK_SPEEDS = UIConfig.PLAYBACK_SPEEDS
+    PLAYBACK_SPEEDS = UIConfig.playback_speeds
 
     def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = None, visible=True):
         if button_size is None:
-            button_size = UIConfig.BUTTON_SIZE
+            button_size = UIConfig.button_size
         self.center_x = center_x
         self.center_y = center_y
         self.button_size = button_size

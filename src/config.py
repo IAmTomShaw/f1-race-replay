@@ -1,115 +1,126 @@
-"""Centralized configuration constants for F1 Race Replay.
+"""Centralized configuration for F1 Race Replay using Pydantic Settings.
 
 This module provides a single source of truth for all configuration values,
-making it easy to tune application behavior without modifying code logic.
+with support for loading from .env files and environment variables.
+All values use snake_case (Pythonic) instead of UPPER_CASE.
 """
 
+from pydantic_settings import BaseSettings
+from pydantic import Field
+from typing import List, Dict, Optional
 
-class UIConfig:
+
+class UIConfig(BaseSettings):
     """User interface display constants."""
     
     # Window dimensions
-    SCREEN_WIDTH = 1280
-    SCREEN_HEIGHT = 720
-    SCREEN_TITLE = "F1 Race Replay"
+    screen_width: int = 1280
+    screen_height: int = 720
+    screen_title: str = "F1 Race Replay"
     
     # Layout dimensions
-    DEFAULT_MARGIN = 40
-    LEFT_MARGIN = 40
-    RIGHT_MARGIN = 40
-    TOP_MARGIN = 40
-    BOTTOM_MARGIN = 40
+    default_margin: int = 40
+    left_margin: int = 40
+    right_margin: int = 40
+    top_margin: int = 40
+    bottom_margin: int = 40
     
     # Row heights and spacing
-    H_ROW = 38
-    HEADER_H = 56
+    h_row: int = 38
+    header_h: int = 56
     
     # Qualifying interface specific
-    QUALIFYING_LEFT_MARGIN = 340
-    QUALIFYING_RIGHT_MARGIN = 0
+    qualifying_left_margin: int = 340
+    qualifying_right_margin: int = 0
     
     # Playback controls
-    PLAYBACK_SPEEDS = [0.5, 1.0, 2.0, 4.0]
-    DEFAULT_PLAYBACK_SPEED = 1.0
-    SPEED_INCREASE_FACTOR = 1.5
-    SPEED_DECREASE_FACTOR = 0.67
+    playback_speeds: List[float] = [0.5, 1.0, 2.0, 4.0]
+    default_playback_speed: float = 1.0
+    speed_increase_factor: float = 1.5
+    speed_decrease_factor: float = 0.67
     
     # Component sizing
-    BUTTON_SIZE = 40
-    CONTROL_BUTTON_SIZE = 40
+    button_size: int = 40
+    control_button_size: int = 40
     
     # Line and shape styling
-    TRACK_LINE_WIDTH = 2
-    TELEMETRY_LINE_WIDTH = 2
-    GEAR_CHART_LINE_WIDTH = 2
-    CHART_LINE_WIDTH = 2
+    track_line_width: int = 2
+    telemetry_line_width: int = 2
+    gear_chart_line_width: int = 2
+    chart_line_width: int = 2
     
     # Colors (arcade colors)
-    DEFAULT_COLOR = (255, 255, 255)  # White
-    ERROR_COLOR = (255, 0, 0)  # Red
-    WARNING_COLOR = (255, 165, 0)  # Orange
-    SUCCESS_COLOR = (0, 255, 0)  # Green
-    INFO_COLOR = (135, 206, 235)  # Sky Blue
+    default_color: tuple = (255, 255, 255)  # White
+    error_color: tuple = (255, 0, 0)  # Red
+    warning_color: tuple = (255, 165, 0)  # Orange
+    success_color: tuple = (0, 255, 0)  # Green
+    info_color: tuple = (135, 206, 235)  # Sky Blue
     
     # Safety Car styling
-    SAFETY_CAR_RADIUS = 8  # pixels
-    REGULAR_CAR_RADIUS = 6  # pixels
-    SAFETY_CAR_GLOW_ALPHA = 128
+    safety_car_radius: int = 8  # pixels
+    regular_car_radius: int = 6  # pixels
+    safety_car_glow_alpha: int = 128
     
     # Animation durations (in seconds)
-    SAFETY_CAR_DEPLOY_TIME = 3.0
-    SAFETY_CAR_RETURN_TIME = 3.0
+    safety_car_deploy_time: float = 3.0
+    safety_car_return_time: float = 3.0
     
     # Reference point interpolation
-    REFERENCE_POINT_INTERPOLATION = 4000
+    reference_point_interpolation: int = 4000
+    
+    class Config:
+        env_prefix = "UI_"
 
 
-class NetworkConfig:
+class NetworkConfig(BaseSettings):
     """Network and telemetry streaming constants."""
     
     # Telemetry stream server
-    TELEMETRY_HOST = 'localhost'
-    TELEMETRY_PORT = 9999
+    telemetry_host: str = "localhost"
+    telemetry_port: int = 9999
     
     # Socket configuration
-    SOCKET_TIMEOUT = 5.0  # seconds
-    SOCKET_BUFFER_SIZE = 4096
+    socket_timeout: float = 5.0  # seconds
+    socket_buffer_size: int = 4096
     
     # Connection retry
-    CONNECTION_RETRY_DELAY = 2.0  # seconds
-    CONNECTION_MAX_RETRIES = 10
+    connection_retry_delay: float = 2.0  # seconds
+    connection_max_retries: int = 10
     
     # Data transmission
-    MESSAGE_SEPARATOR = '\n'
-    DATA_ENCODING = 'utf-8'
+    message_separator: str = "\n"
+    data_encoding: str = "utf-8"
+    
+    class Config:
+        env_prefix = "NETWORK_"
 
 
-class DataConfig:
+class DataConfig(BaseSettings):
     """Data processing and caching constants."""
     
     # Cache settings
-    CACHE_ENABLED = True
-    DEFAULT_CACHE_LOCATION = '.cache/fastf1'
+    cache_enabled: bool = True
+    default_cache_location: str = ".cache/fastf1"
     
     # Driver data
-    MAX_DRIVERS = 20
-    DEFAULT_DRIVERS_TO_DISPLAY = 20
+    max_drivers: int = 20
+    default_drivers_to_display: int = 20
     
     # Telemetry frame rate
-    FPS = 25  # frames per second
-    DT = 1.0 / FPS  # time delta between frames
+    fps: int = 25  # frames per second
+    dt: float = Field(default_factory=lambda: 1.0 / 25)  # time delta between frames
     
     # Data processing
-    MULTIPROCESSING_ENABLED = True
+    multiprocessing_enabled: bool = True
     
     # Safety Car data
-    SAFETY_CAR_BUFFER_DISTANCE = 500  # meters ahead of leader
+    safety_car_buffer_distance: int = 500  # meters ahead of leader
     
     # Weather data
-    WEATHER_PROCESSING_TIMEOUT = 30  # seconds
+    weather_processing_timeout: int = 30  # seconds
     
     # Session types
-    SESSION_TYPES = {
+    session_types: Dict[str, str] = {
         'R': 'Race',
         'Q': 'Qualifying',
         'S': 'Sprint',
@@ -118,53 +129,62 @@ class DataConfig:
         'FP2': 'Free Practice 2',
         'FP3': 'Free Practice 3',
     }
+    
+    class Config:
+        env_prefix = "DATA_"
 
 
-class QueryConfig:
+class QueryConfig(BaseSettings):
     """Query and visualization parameters."""
     
     # Chart display
-    CHART_HEIGHT_RATIO = 0.25
-    CHART_LEFT_MARGIN = 50
-    CHART_BOTTOM_MARGIN = 50
-    CHART_RIGHT_MARGIN = 50
+    chart_height_ratio: float = 0.25
+    chart_left_margin: int = 50
+    chart_bottom_margin: int = 50
+    chart_right_margin: int = 50
     
     # Min/max bounds for telemetry charts
-    SPEED_MAX = 400  # km/h (approximate F1 top speed)
-    GEAR_MAX = 9
+    speed_max: int = 400  # km/h (approximate F1 top speed)
+    gear_max: int = 9
     
     # Track geometry
-    TRACK_WALL_OUTER_SCALE = 1.1
-    TRACK_WALL_INNER_SCALE = 0.9
+    track_wall_outer_scale: float = 1.1
+    track_wall_inner_scale: float = 0.9
+    
+    class Config:
+        env_prefix = "QUERY_"
 
 
-class PerformanceConfig:
+class PerformanceConfig(BaseSettings):
     """Performance and optimization constants."""
     
     # Frame limiting
-    TARGET_FPS = 60
+    target_fps: int = 60
     
     # Memory optimization
-    TELEMETRY_CACHE_SIZE_MB = 500
+    telemetry_cache_size_mb: int = 500
     
     # Threading
-    WORKER_THREAD_TIMEOUT = 30  # seconds
+    worker_thread_timeout: int = 30  # seconds
     
     # Display updates
-    POSITION_UPDATE_INTERVAL = 0.1  # seconds
+    position_update_interval: float = 0.1  # seconds
+    
+    class Config:
+        env_prefix = "PERF_"
 
 
-class CLIConfig:
+class CLIConfig(BaseSettings):
     """Command-line interface constants."""
     
     # Default CLI values
-    DEFAULT_YEAR = None  # Will use current season
-    DEFAULT_ROUND = 12
-    DEFAULT_SESSION_TYPE = 'R'
-    DEFAULT_PLAYBACK_SPEED = 1.0
+    default_year: Optional[int] = None
+    default_round: int = 12
+    default_session_type: str = "R"
+    default_playback_speed: float = 1.0
     
     # CLI flags
-    SUPPORTED_FLAGS = [
+    supported_flags: List[str] = [
         '--cli',
         '--viewer',
         '--debug',
@@ -179,39 +199,46 @@ class CLIConfig:
         '--list-sprints',
         '--ready-file',
     ]
+    
+    class Config:
+        env_prefix = "CLI_"
 
 
-class LoggingConfig:
+class LoggingConfig(BaseSettings):
     """Logging configuration constants."""
     
     # Log levels
-    DEFAULT_LOG_LEVEL = 'INFO'
-    DEBUG_LOG_LEVEL = 'DEBUG'
+    default_log_level: str = "INFO"
+    debug_log_level: str = "DEBUG"
     
     # Third-party logger suppression
-    SUPPRESS_LOGGERS = [
+    suppress_loggers: List[str] = [
         'fastf1',
         'urllib3',
         'requests',
         'matplotlib',
     ]
     
-    # Log format
-    LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    LOG_DATE_FORMAT = '%Y-%m-%d %H:%M:%S'
+    class Config:
+        env_prefix = "LOGGING_"
 
 
-# Convenience functions for accessing config by category
-def get_ui_config() -> dict:
-    """Get UI configuration as dictionary."""
-    return {k: v for k, v in UIConfig.__dict__.items() if not k.startswith('_')}
+# Global configuration instances - instantiate for use
+# Import these and access attributes in snake_case (e.g., ui_config.screen_width)
+ui_config = UIConfig()
+network_config = NetworkConfig()
+data_config = DataConfig()
+query_config = QueryConfig()
+performance_config = PerformanceConfig()
+cli_config = CLIConfig()
+logging_config = LoggingConfig()
 
-
-def get_network_config() -> dict:
-    """Get network configuration as dictionary."""
-    return {k: v for k, v in NetworkConfig.__dict__.items() if not k.startswith('_')}
-
-
-def get_data_config() -> dict:
-    """Get data configuration as dictionary."""
-    return {k: v for k, v in DataConfig.__dict__.items() if not k.startswith('_')}
+# Legacy uppercase aliases for backward compatibility during migration
+# These are the same instances as above
+UIConfig = ui_config
+NetworkConfig = network_config
+DataConfig = data_config
+QueryConfig = query_config
+PerformanceConfig = performance_config
+CLIConfig = cli_config
+LoggingConfig = logging_config

@@ -1,7 +1,7 @@
+import sys
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.run_session import run_arcade_replay, launch_insights_menu
 from src.interfaces.qualifying import run_qualifying_replay
-import sys
 from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
@@ -135,7 +135,7 @@ if __name__ == "__main__":
     round_index = sys.argv.index("--round") + 1
     round_number = int(sys.argv[round_index])
   else:
-    round_number = CLIConfig.DEFAULT_ROUND
+    round_number = CLIConfig.default_round
 
   if "--list-rounds" in sys.argv:
     list_rounds(year)
@@ -164,7 +164,6 @@ if __name__ == "__main__":
     sys.exit(0)
 
   # Run the GUI
-
   app = QApplication(sys.argv)
   win = RaceSelectionWindow()
   win.show()
