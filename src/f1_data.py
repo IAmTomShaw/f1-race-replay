@@ -838,12 +838,12 @@ def get_race_telemetry(session: Any, session_type: str = "R") -> Tuple[List[Dict
     _compute_safety_car_positions(frames, formatted_track_statuses, session)
     logger.debug("completed telemetry extraction...")
     logger.debug("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    # If cache directory doesn't exist, create it
+    if not os.path.exists(DataConfig.cache_directory):
+        os.makedirs(DataConfig.cache_directory)
 
     # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(f"{DataConfig.cache_directory}/{event_name}_{cache_suffix}_{DataConfig.telemetry_cache_suffix}{DataConfig.cache_file_extension}", "wb") as f:
         pickle.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
@@ -1296,7 +1296,7 @@ def get_quali_telemetry(session: Any, session_type: str = "Q") -> Dict[str, Any]
     try:
         if "--refresh-data" not in sys.argv:
             with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                f"{DataConfig.cache_directory}/{event_name}_{cache_suffix}_{DataConfig.telemetry_cache_suffix}{DataConfig.cache_file_extension}", "rb"
             ) as f:
                 data = pickle.load(f)
                 logger.info(f"Loaded precomputed {cache_suffix} telemetry data.")
@@ -1338,12 +1338,12 @@ def get_quali_telemetry(session: Any, session_type: str = "Q") -> Dict[str, Any]
         if result["min_speed"] < min_speed or min_speed == 0.0:
             min_speed = result["min_speed"]
 
-    # Save to the compute_data directory
+    # Save to the cache directory
 
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    if not os.path.exists(DataConfig.cache_directory):
+        os.makedirs(DataConfig.cache_directory)
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(f"{DataConfig.cache_directory}/{event_name}_{cache_suffix}_{DataConfig.telemetry_cache_suffix}{DataConfig.cache_file_extension}", "wb") as f:
         pickle.dump(
             {
                 "results": qualifying_results,

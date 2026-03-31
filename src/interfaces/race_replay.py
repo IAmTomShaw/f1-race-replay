@@ -29,7 +29,6 @@ logger = get_logger(__name__)
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Race Replay"
-PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
 
 class F1RaceReplayWindow(arcade.Window):
     """Window for displaying F1 race replay."""
@@ -93,7 +92,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.track_statuses = track_statuses
         self.n_frames = len(frames)
         self.drivers = list(drivers)
-        self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
+        self.playback_speed = UIConfig.playback_speeds[UIConfig.playback_speeds.index(playback_speed)] if playback_speed in UIConfig.playback_speeds else 1.0
         self.driver_colors = driver_colors or {}
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
@@ -833,18 +832,18 @@ class F1RaceReplayWindow(arcade.Window):
             self.is_rewinding = True
             self.paused = True
         elif symbol == arcade.key.UP:
-            if self.playback_speed < PLAYBACK_SPEEDS[-1]:
+            if self.playback_speed < UIConfig.playback_speeds[-1]:
                 # Increase to next higher speed
-                for spd in PLAYBACK_SPEEDS:
+                for spd in UIConfig.playback_speeds:
                     if spd > self.playback_speed:
                         self.playback_speed = spd
                         self._broadcast_telemetry_state()
                         break
             self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.DOWN:
-            if self.playback_speed > PLAYBACK_SPEEDS[0]:
+            if self.playback_speed > UIConfig.playback_speeds[0]:
                 # Decrease to next lower speed
-                for spd in reversed(PLAYBACK_SPEEDS):
+                for spd in reversed(UIConfig.playback_speeds):
                     if spd < self.playback_speed:
                         self.playback_speed = spd
                         self._broadcast_telemetry_state()

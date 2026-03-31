@@ -34,10 +34,8 @@ class UIConfig(BaseSettings):
     qualifying_right_margin: int = 0
     
     # Playback controls
-    playback_speeds: List[float] = [0.5, 1.0, 2.0, 4.0]
+    playback_speeds: List[float] = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
     default_playback_speed: float = 1.0
-    speed_increase_factor: float = 1.5
-    speed_decrease_factor: float = 0.67
     
     # Component sizing
     button_size: int = 40
@@ -45,7 +43,6 @@ class UIConfig(BaseSettings):
     
     # Line and shape styling
     track_line_width: int = 2
-    telemetry_line_width: int = 2
     gear_chart_line_width: int = 2
     chart_line_width: int = 2
     
@@ -101,6 +98,9 @@ class DataConfig(BaseSettings):
     # Cache settings
     cache_enabled: bool = True
     default_cache_location: str = ".cache/fastf1"
+    cache_directory: str = "computed_data"
+    cache_file_extension: str = ".pkl"
+    telemetry_cache_suffix: str = "telemetry"
     
     # Driver data
     max_drivers: int = 20
