@@ -22,13 +22,9 @@ from src.tyre_degradation_integration import TyreDegradationIntegrator
 from src.services.stream import TelemetryStreamServer
 from src.lib.logging import get_logger
 from src.lib.exceptions import StreamError, TyreDegradationInitializationError
+from src.config import UIConfig
 
 logger = get_logger(__name__)
-
-
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
-SCREEN_TITLE = "F1 Race Replay"
 
 class F1RaceReplayWindow(arcade.Window):
     """Window for displaying F1 race replay."""
@@ -71,7 +67,7 @@ class F1RaceReplayWindow(arcade.Window):
             enable_telemetry: Whether to enable telemetry streaming.
         """
         # Set resizable to True so the user can adjust mid-sim
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
+        super().__init__(UIConfig.screen_width, UIConfig.screen_height, title, resizable=True)
         self.maximize()
 
         self.telemetry_stream = None
@@ -118,8 +114,8 @@ class F1RaceReplayWindow(arcade.Window):
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
 
-        self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
-        self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
+        self.controls_popup_comp.set_size(UIConfig.popup_width, UIConfig.popup_height) # width/height of the popup box
+        self.controls_popup_comp.set_font_sizes(header_font_size=UIConfig.popup_header_font_size, body_font_size=UIConfig.popup_body_font_size) # adjust font sizes
         self.degradation_integrator = None
         if session is not None:
             try:
@@ -193,7 +189,7 @@ class F1RaceReplayWindow(arcade.Window):
          self.y_min, self.y_max, self.drs_zones) = build_track_from_example_lap(example_lap)
 
         # Build a dense reference polyline (used for projecting car (x,y) -> along-track distance)
-        ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=4000)
+        ref_points = self._interpolate_points(self.plot_x_ref, self.plot_y_ref, interp_points=UIConfig.reference_point_interpolation)
         # store as numpy arrays for vectorized ops
         self._ref_xs = np.array([p[0] for p in ref_points])
         self._ref_ys = np.array([p[1] for p in ref_points])
@@ -382,7 +378,7 @@ class F1RaceReplayWindow(arcade.Window):
         Recalculates the scale and translation to fit the track 
         perfectly within the new screen dimensions while maintaining aspect ratio.
         """
-        padding = 0.05
+        padding = UIConfig.map_padding_ratio_default
         # If a rotation is applied, we must compute the rotated bounds
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
@@ -604,7 +600,7 @@ class F1RaceReplayWindow(arcade.Window):
                 else:
                     snx, sny = nx, ny
                 
-                offset_dist = 45 if i % 2 == 0 else 75
+                offset_dist = UIConfig.driver_label_offset_even if i % 2 == 0 else UIConfig.driver_label_offset_odd
                 
                 lx = sx + snx * offset_dist
                 ly = sy + sny * offset_dist

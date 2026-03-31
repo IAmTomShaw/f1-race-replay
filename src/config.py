@@ -64,6 +64,11 @@ class UIConfig(BaseSettings):
     
     # Reference point interpolation
     reference_point_interpolation: int = 4000
+    default_interp_points: int = 2000
+    
+    # Driver label positioning
+    driver_label_offset_even: int = 45  # offset for even-indexed drivers
+    driver_label_offset_odd: int = 75   # offset for odd-indexed drivers
     
     class Config:
         env_prefix = "UI_"
