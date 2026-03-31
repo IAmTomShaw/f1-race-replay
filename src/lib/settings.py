@@ -6,7 +6,12 @@ Handles loading, saving, and accessing application configuration.
 import json
 import os
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Optional, Dict
+
+from src.lib.logging import get_logger
+from src.lib.exceptions import SettingsLoadError, SettingsSaveError
+
+logger = get_logger(__name__)
 
 
 class SettingsManager:
@@ -53,7 +58,11 @@ class SettingsManager:
         return settings_dir / "settings.json"
 
     def load(self) -> None:
-        """Load settings from the JSON file."""
+        """Load settings from the JSON file.
+        
+        Raises:
+            SettingsLoadError: If settings file cannot be read or parsed.
+        """
         self._settings = dict(self.DEFAULTS)
 
         if self._settings_file.exists():
@@ -62,16 +71,27 @@ class SettingsManager:
                     loaded = json.load(f)
                     if isinstance(loaded, dict):
                         self._settings.update(loaded)
-            except (json.JSONDecodeError, IOError) as e:
-                print(f"Warning: Could not load settings file: {e}")
+                logger.debug(f"Settings loaded from {self._settings_file}")
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse settings file: {e}")
+                raise SettingsLoadError(f"Settings file is not valid JSON: {e}") from e
+            except IOError as e:
+                logger.error(f"Failed to read settings file: {e}")
+                raise SettingsLoadError(f"Cannot read settings file: {e}") from e
 
     def save(self) -> None:
-        """Save current settings to the JSON file."""
+        """Save current settings to the JSON file.
+        
+        Raises:
+            SettingsSaveError: If settings file cannot be written.
+        """
         try:
             with open(self._settings_file, "w", encoding="utf-8") as f:
                 json.dump(self._settings, f, indent=2)
+            logger.debug(f"Settings saved to {self._settings_file}")
         except IOError as e:
-            print(f"Warning: Could not save settings file: {e}")
+            logger.error(f"Failed to save settings file: {e}")
+            raise SettingsSaveError(f"Cannot write settings file: {e}") from e
 
     def get(self, key: str, default: Any = None) -> Any:
         """Get a setting value by key.

@@ -14,7 +14,7 @@ import sys
 _debug_mode: bool = False
 
 
-def configure_logging(debug: bool = False, name: str = "f1_replay") -> None:
+def configure_logging(debug: bool = False) -> None:
     """Configure the logging system for the application.
     
     Args:

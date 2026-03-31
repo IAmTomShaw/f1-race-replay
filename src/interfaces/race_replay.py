@@ -3,6 +3,7 @@ import time
 import arcade
 import numpy as np
 from scipy.spatial import cKDTree
+from typing import List, Dict, Tuple, Optional, Any
 from src.f1_data import FPS
 from src.ui_components import (
     LeaderboardComponent, 
@@ -19,6 +20,10 @@ from src.ui_components import (
 )
 from src.tyre_degradation_integration import TyreDegradationIntegrator
 from src.services.stream import TelemetryStreamServer
+from src.lib.logging import get_logger
+from src.lib.exceptions import StreamError, TyreDegradationInitializationError
+
+logger = get_logger(__name__)
 
 
 SCREEN_WIDTH = 1280
@@ -27,10 +32,45 @@ SCREEN_TITLE = "F1 Race Replay"
 PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
 
 class F1RaceReplayWindow(arcade.Window):
-    def __init__(self, frames, track_statuses, example_lap, drivers, title,
-                 playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
-                 left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
-                 session_info=None, session=None, enable_telemetry=False):
+    """Window for displaying F1 race replay."""
+    
+    def __init__(
+        self,
+        frames: List[Dict[str, Any]],
+        track_statuses: List[Dict[str, Any]],
+        example_lap: Any,
+        drivers: List[str],
+        title: str,
+        playback_speed: float = 1.0,
+        driver_colors: Optional[Dict[str, Tuple[int, int, int]]] = None,
+        circuit_rotation: float = 0.0,
+        left_ui_margin: int = 340,
+        right_ui_margin: int = 260,
+        total_laps: Optional[int] = None,
+        visible_hud: bool = True,
+        session_info: Optional[Dict[str, Any]] = None,
+        session: Optional[Any] = None,
+        enable_telemetry: bool = False
+    ) -> None:
+        """Initialize F1 Race Replay window.
+        
+        Args:
+            frames: Telemetry frames data.
+            track_statuses: Track status events.
+            example_lap: Example lap for track geometry.
+            drivers: List of driver codes.
+            title: Window title.
+            playback_speed: Initial playback speed.
+            driver_colors: Dictionary of driver colors.
+            circuit_rotation: Circuit rotation in degrees.
+            left_ui_margin: Left margin for UI elements.
+            right_ui_margin: Right margin for UI elements.
+            total_laps: Total number of laps in session.
+            visible_hud: Whether to display HUD.
+            session_info: Session information dictionary.
+            session: F1 session object for degradation model.
+            enable_telemetry: Whether to enable telemetry streaming.
+        """
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -40,14 +80,14 @@ class F1RaceReplayWindow(arcade.Window):
             try:
                 self.telemetry_stream = TelemetryStreamServer()
                 self.telemetry_stream.start()
-                print("Telemetry stream server started on localhost:9999")
+                logger.info("Telemetry stream server started on localhost:9999")
             except OSError as e:
-                print(f"Failed to start telemetry server: {e}")
-                print("Continuing without telemetry streaming...")
+                logger.error(f"Failed to start telemetry server: {e}")
+                logger.info("Continuing without telemetry streaming...")
                 self.telemetry_stream = None
             except Exception as e:
-                print(f"Error starting telemetry server: {e}")
-                self.telemetry_stream = None
+                logger.error(f"Unexpected error starting telemetry server: {e}", exc_info=True)
+                raise StreamError(f"Failed to initialize telemetry server: {e}") from e
 
         self.frames = frames
         self.track_statuses = track_statuses
@@ -84,24 +124,24 @@ class F1RaceReplayWindow(arcade.Window):
         self.degradation_integrator = None
         if session is not None:
             try:
-                print("Initializing tyre degradation model...")
+                logger.info("Initializing tyre degradation model...")
                 self.degradation_integrator = TyreDegradationIntegrator(session=session)
                 
                 # This computes curves once at startup (1-2 seconds)
                 init_success = self.degradation_integrator.initialize_from_session()
                 
                 if init_success:
-                    print("✓ Tyre degradation model initialized successfully")
+                    logger.info("✓ Tyre degradation model initialized successfully")
                     # Link integrator to driver info component
                     self.driver_info_comp.degradation_integrator = self.degradation_integrator
                 else:
-                    print("✗ Tyre degradation model initialization failed")
+                    logger.warning("✗ Tyre degradation model initialization failed")
                     self.degradation_integrator = None
             except Exception as e:
-                print(f"✗ Tyre degradation initialization error: {e}")
-                self.degradation_integrator = None
+                logger.error(f"✗ Tyre degradation initialization error: {e}", exc_info=True)
+                raise TyreDegradationInitializationError(f"Failed to initialize tyre degradation: {e}") from e
         else:
-            print("Note: Session not provided, tyre degradation disabled")
+            logger.debug("Note: Session not provided, tyre degradation disabled")
 
 
         # Progress bar component with race event markers
@@ -221,7 +261,7 @@ class F1RaceReplayWindow(arcade.Window):
         # Broadcast initial telemetry state
         self._broadcast_telemetry_state()
 
-    def _broadcast_telemetry_state(self):
+    def _broadcast_telemetry_state(self) -> None:
         """Broadcast current telemetry state to connected clients."""
         if not hasattr(self, 'telemetry_stream') or not self.telemetry_stream:
             return
@@ -279,14 +319,33 @@ class F1RaceReplayWindow(arcade.Window):
             }
         })
 
-    def _interpolate_points(self, xs, ys, interp_points=2000):
+    def _interpolate_points(self, xs: List[float], ys: List[float], interp_points: int = 2000) -> List[Tuple[float, float]]:
+        """Interpolate points for smooth line drawing.
+        
+        Args:
+            xs: X coordinates to interpolate.
+            ys: Y coordinates to interpolate.
+            interp_points: Number of points to generate.
+            
+        Returns:
+            List of interpolated (x, y) tuples.
+        """
         t_old = np.linspace(0, 1, len(xs))
         t_new = np.linspace(0, 1, interp_points)
         xs_i = np.interp(t_new, t_old, xs)
         ys_i = np.interp(t_new, t_old, ys)
         return list(zip(xs_i, ys_i))
 
-    def _project_to_reference(self, x, y):
+    def _project_to_reference(self, x: float, y: float) -> float:
+        """Project a point onto the reference line.
+        
+        Args:
+            x: X coordinate.
+            y: Y coordinate.
+            
+        Returns:
+            Distance along reference line in meters.
+        """
         if self._ref_total_length == 0.0:
             return 0.0
 
@@ -313,7 +372,13 @@ class F1RaceReplayWindow(arcade.Window):
         # Fallback: return the cumulative distance at the closest dense sample
         return float(self._ref_cumdist[idx])
 
-    def update_scaling(self, screen_w, screen_h):
+    def update_scaling(self, screen_w: int, screen_h: int) -> None:
+        """Update scaling and translation for window resize.
+        
+        Args:
+            screen_w: New screen width.
+            screen_h: New screen height.
+        """
         """
         Recalculates the scale and translation to fit the track 
         perfectly within the new screen dimensions while maintaining aspect ratio.
@@ -372,7 +437,13 @@ class F1RaceReplayWindow(arcade.Window):
         self.screen_inner_points = [self.world_to_screen(x, y) for x, y in self.world_inner_points]
         self.screen_outer_points = [self.world_to_screen(x, y) for x, y in self.world_outer_points]
 
-    def on_resize(self, width, height):
+    def on_resize(self, width: int, height: int) -> None:
+        """Handle window resize.
+        
+        Args:
+            width: New window width.
+            height: New window height.
+        """
         """Called automatically by Arcade when window is resized."""
         super().on_resize(width, height)
         self.update_scaling(width, height)
@@ -389,7 +460,16 @@ class F1RaceReplayWindow(arcade.Window):
         self.status_text.x = 20
         self.status_text.y = self.height - 120
 
-    def world_to_screen(self, x, y):
+    def world_to_screen(self, x: float, y: float) -> Tuple[float, float]:
+        """Convert world coordinates to screen coordinates.
+        
+        Args:
+            x: World X coordinate.
+            y: World Y coordinate.
+            
+        Returns:
+            Tuple of (screen_x, screen_y).
+        """
         # Rotate around the track centre (if rotation is set), then scale+translate
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
@@ -405,7 +485,15 @@ class F1RaceReplayWindow(arcade.Window):
         sy = self.world_scale * y + self.ty
         return sx, sy
 
-    def _format_wind_direction(self, degrees):
+    def _format_wind_direction(self, degrees: Optional[float]) -> str:
+        """Format wind direction in degrees to compass direction.
+        
+        Args:
+            degrees: Wind direction in degrees or None.
+            
+        Returns:
+            Compass direction string (e.g., "NNE").
+        """
         if degrees is None:
             return "N/A"
         deg_norm = degrees % 360
@@ -416,7 +504,11 @@ class F1RaceReplayWindow(arcade.Window):
         idx = int((deg_norm / 22.5) + 0.5) % len(dirs)
         return dirs[idx]
 
-    def on_draw(self):
+    def on_draw(self) -> None:
+        """Draw frame.
+        
+        Called every frame to render the current state.
+        """
         self.clear()
 
         # 1. Draw Background (stretched to fit new window size)
@@ -602,7 +694,8 @@ class F1RaceReplayWindow(arcade.Window):
             lap_raw = pos.get("lap", 1)
             try:
                 lap = int(lap_raw)
-            except Exception:
+            except (ValueError, TypeError) as e:
+                logger.debug(f"Failed to parse lap for driver {code}: {lap_raw} ({e}), using default 1")
                 lap = 1
 
             # Project (x,y) to reference and combine with lap count
@@ -829,14 +922,23 @@ class F1RaceReplayWindow(arcade.Window):
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
         
-    def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
+    def on_mouse_motion(self, x: float, y: float, dx: float, dy: float) -> None:
+        """Handle mouse motion for hover effects.
+        
+        Args:
+            x: Mouse X coordinate.
+            y: Mouse Y coordinate.
+            dx: Change in X.
+            dy: Change in Y.
+        """
         """Handle mouse motion for hover effects on progress bar and controls."""
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
         
-    def close(self):
+    def close(self) -> None:
+        """Clean up resources when window closes."""
         """Clean up resources when window closes."""
         if hasattr(self, 'telemetry_stream') and self.telemetry_stream:
-            print("Stopping telemetry stream server...")
+            logger.info("Stopping telemetry stream server...")
             self.telemetry_stream.stop()
         super().close()

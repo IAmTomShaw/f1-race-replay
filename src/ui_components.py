@@ -1,6 +1,5 @@
 import arcade
-from typing import List, Tuple, Optional
-from typing import Optional, Tuple
+from typing import List, Tuple, Optional, Dict, Any
 from src.lib.time import format_time
 from src.lib.logging import get_logger
 import numpy as np
@@ -26,15 +25,23 @@ def _format_wind_direction(degrees: Optional[float]) -> str:
   return dirs[idx]
 
 class BaseComponent:
-    def on_resize(self, window): pass
-    def draw(self, window): pass
-    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool: return False
+    def on_resize(self, window: "arcade.Window") -> None:
+        """Handle window resize event."""
+        pass
+    
+    def draw(self, window: "arcade.Window") -> None:
+        """Draw the component."""
+        pass
+    def on_mouse_press(self, window: "arcade.Window", x: float, y: float, button: int, modifiers: int) -> bool: return False
 
 class LegendComponent(BaseComponent):
-    def __init__(self, x: int = 20, y: int = 220, visible=True): # Increased y to 220 to fit all lines
+    """Legend component displaying help information and controls."""
+    
+    def __init__(self, x: int = 20, y: int = 220, visible: bool = True) -> None:
+        """Initialize legend component."""
         self.x = x
         self.y = y
-        self._control_icons_textures = {}
+        self._control_icons_textures: Dict[str, arcade.Texture] = {}
         self._visible = visible
         # Load control icons from images/icons folder (all files)
         icons_folder = os.path.join("images", "controls")
@@ -44,7 +51,7 @@ class LegendComponent(BaseComponent):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(icons_folder, filename)
                     self._control_icons_textures[texture_name] = arcade.load_texture(texture_path)
-        self.lines = ["Help (Click or 'H')"]
+        self.lines: List[str] = ["Help (Click or 'H')"]
         
         self.controls_text_offset = 180
         self._text = arcade.Text("", 0, 0, arcade.color.CYAN, 14)
@@ -64,14 +71,12 @@ class LegendComponent(BaseComponent):
         self._visible = not self._visible
         return self._visible
     
-    def set_visible(self):
-        """
-        Set visibility of legend to True
-        """
+    def set_visible(self) -> None:
+        """Set visibility of legend to True."""
         self._visible = True
 
 
-    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
+    def on_mouse_press(self, window: "arcade.Window", x: float, y: float, button: int, modifiers: int) -> bool:
 
         line_x = self.x
         line_y = self.y - getattr(self, "controls_text_offset", 0)
@@ -147,7 +152,9 @@ class LegendComponent(BaseComponent):
             self._text.draw()
 
 class WeatherComponent(BaseComponent):
-    def __init__(self, left=20, width=280, height=130, top_offset=170, visible=True):
+    def __init__(
+        self, left: int = 20, width: int = 280, height: int = 130, top_offset: int = 170, visible: bool = True
+    ) -> None:
         self.left = left
         self.width = width
         self.height = height
@@ -166,7 +173,7 @@ class WeatherComponent(BaseComponent):
 
         self._text = arcade.Text("", self.left + 12, 0, arcade.color.LIGHT_GRAY, 14, anchor_y="top")
 
-    def set_info(self, info: Optional[dict]):
+    def set_info(self, info: Optional[Dict[str, Any]]) -> None:
         self.info = info
     
     @property
@@ -184,13 +191,13 @@ class WeatherComponent(BaseComponent):
         self._visible = not self._visible
         return self._visible
     
-    def set_visible(self):
+    def set_visible(self) -> None:
         """
         Set visibility of weather to True
         """
         self._visible = True
 
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         # Skip rendering entirely if hidden
         if not self._visible:
             return
@@ -248,7 +255,9 @@ class WeatherComponent(BaseComponent):
         window.weather_bottom = last_y - 20
 
 class LeaderboardComponent(BaseComponent):
-    def __init__(self, x: int, right_margin: int = 260, width: int = 240, visible=True):
+    def __init__(
+        self, x: int, right_margin: int = 260, width: int = 240, visible: bool = True
+    ) -> None:
         self.x = x
         self.width = width
         self.entries = []  # list of tuples (code, color, pos, progress_m)
@@ -289,13 +298,13 @@ class LeaderboardComponent(BaseComponent):
         self._visible = not self._visible
         return self._visible
     
-    def set_visible(self):
+    def set_visible(self) -> None:
         """
         Set visibility of leaderboard to True
         """
         self._visible = True
 
-    def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
+    def set_entries(self, entries: List[Tuple[str, Tuple[int, int, int], Dict[str, Any], float]]) -> None:
         # entries sorted as expected
         self.entries = entries
         self._calculate_gaps()
@@ -332,7 +341,7 @@ class LeaderboardComponent(BaseComponent):
             
             self.computed_neighbor_gaps[code] = {"ahead": ahead_info}
 
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         # Skip rendering entirely if hidden
         if not self._visible:
             return
@@ -579,7 +588,7 @@ class LeaderboardComponent(BaseComponent):
         return False
 
 class LapTimeLeaderboardComponent(BaseComponent):
-    def __init__(self, x: int, right_margin: int = 260, width: int = 240):
+    def __init__(self, x: int, right_margin: int = 260, width: int = 240) -> None:
         self.x = x
         self.width = width
         self.entries = []  # list of dicts: {'pos', 'code', 'color', 'time'}
@@ -588,7 +597,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
         self.row_height = 25
         self._visible = True
 
-    def set_entries(self, entries: List[dict]):
+    def set_entries(self, entries: List[Dict[str, Any]]) -> None:
         """Accept a list of dicts with keys: pos, code, color, time"""
         self.entries = entries or []
     
@@ -607,7 +616,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
         self._visible = not self._visible
         return self._visible
 
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         # Skip rendering entirely if hidden
         if not self._visible:
             return
@@ -663,13 +672,13 @@ class LapTimeLeaderboardComponent(BaseComponent):
         return False
 
 class QualifyingSegmentSelectorComponent(BaseComponent):
-    def __init__(self, width=400, height=300):
+    def __init__(self, width: int = 400, height: int = 300) -> None:
         self.width = width
         self.height = height
         self.driver_result = None
         self.selected_segment = None
         
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         if not getattr(window, "selected_driver", None):
             return
         
@@ -749,7 +758,7 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
         arcade.Text("×", right - 30, top - 30, arcade.color.WHITE, 16, 
                bold=True, anchor_x="center", anchor_y="center").draw()
 
-    def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):        
+    def on_mouse_press(self, window: "arcade.Window", x: float, y: float, button: int, modifiers: int) -> bool:
         if not getattr(window, "selected_driver", None):
             return False
         
@@ -810,13 +819,13 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
         return True # Consume all clicks when visible
 
 class DriverInfoComponent(BaseComponent):
-    def __init__(self, left=20, width=220, min_top=220):
+    def __init__(self, left: int = 20, width: int = 220, min_top: int = 220) -> None:
         self.left = left
         self.width = width
         self.min_top = min_top
         self.degradation_integrator = None
 
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         # Support multiple selection via window.selected_drivers
         codes = getattr(window, "selected_drivers", [])
         if not codes:
@@ -843,7 +852,9 @@ class DriverInfoComponent(BaseComponent):
             self._draw_info_box(window, code, driver_pos, center_y, box_width, box_height)
             current_top -= (box_height + gap)
 
-    def _draw_info_box(self, window, code, driver_pos, center_y, box_width, box_height):
+    def _draw_info_box(
+        self, window: "arcade.Window", code: str, driver_pos: Dict[str, Any], center_y: float, box_width: int, box_height: int
+    ) -> None:
         center_x = self.left + box_width / 2
         top, bottom = center_y + box_height / 2, center_y - box_height / 2
         left, right = center_x - box_width / 2, center_x + box_width / 2
@@ -1017,15 +1028,15 @@ class ControlsPopupComponent(BaseComponent):
             ("H", "Toggle Help Popup"),
         ]
 
-    def set_lines(self, lines: Optional[list[str]]):
+    def set_lines(self, lines: Optional[List[Tuple[str, str]]]) -> None:
         self.lines = lines
 
-    def set_size(self, width: int, height: int):
+    def set_size(self, width: int, height: int) -> None:
         
         self.width = width
         self.height = height
 
-    def set_font_sizes(self, header_font_size: int = None, body_font_size: int = None):
+    def set_font_sizes(self, header_font_size: Optional[int] = None, body_font_size: Optional[int] = None) -> None:
         
         if header_font_size is not None:
             self.header_font_size = header_font_size
@@ -1034,24 +1045,24 @@ class ControlsPopupComponent(BaseComponent):
             self.body_font_size = body_font_size
             self._body_text.font_size = body_font_size
 
-    def show_center(self):
+    def show_center(self) -> None:
         """Show popup centered in the window."""
         self.cx = None
         self.cy = None
         self.visible = True
 
-    def show_over(self, left: float, top: float):
+    def show_over(self, left: float, top: float) -> None:
         
         self.cx = float(left + self.width / 2)
         self.cy = float(top - self.height / 2)
         self.visible = True
 
-    def hide(self):
+    def hide(self) -> None:
         self.visible = False
         self.cx = None
         self.cy = None
 
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         if not self.visible:
             return
         cx = self.cx if self.cx is not None else window.width / 2
@@ -1124,13 +1135,21 @@ class SessionInfoComponent(BaseComponent):
     Displays session information banner at the top-center of the screen.
     Shows: Circuit name, Country, Event name, Year, Round, Date, Total laps
     """
-    def __init__(self, visible=True):
+    def __init__(self, visible: bool = True) -> None:
         self.visible = visible
         self.session_info = {}
         self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
         
-    def set_info(self, event_name: str = "", circuit_name: str = "", country: str = "",
-                 year: int = None, round_num: int = None, date: str = "", total_laps: int = None):
+    def set_info(
+        self,
+        event_name: str = "",
+        circuit_name: str = "",
+        country: str = "",
+        year: Optional[int] = None,
+        round_num: Optional[int] = None,
+        date: str = "",
+        total_laps: Optional[int] = None,
+    ) -> None:
         """Set session information to display"""
         self.session_info = {
             'event_name': event_name,
@@ -1147,7 +1166,7 @@ class SessionInfoComponent(BaseComponent):
         self.visible = not self.visible
         return self.visible
     
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         if not self.visible or not self.session_info:
             return
         
@@ -1252,22 +1271,14 @@ class RaceProgressBarComponent(BaseComponent):
         "current_position": (255, 255, 255),
     }
     
-    def __init__(self, 
-                 left_margin: int = 340, 
-                 right_margin: int = 260,
-                 bottom: int = 30,
-                 height: int = 24,
-                 marker_height: int = 16):
-        """
-        Initialize the progress bar component.
-        
-        Args:
-            left_margin: Left margin from window edge
-            right_margin: Right margin from window edge
-            bottom: Distance from bottom of window
-            height: Height of the progress bar
-            marker_height: Height of event markers
-        """
+    def __init__(
+        self,
+        left_margin: int = 340,
+        right_margin: int = 260,
+        bottom: int = 30,
+        height: int = 24,
+        marker_height: int = 16,
+    ) -> None:
         self.left_margin = left_margin
         self.right_margin = right_margin
         self.bottom = bottom
@@ -1353,10 +1364,10 @@ class RaceProgressBarComponent(BaseComponent):
         progress = (x - self._bar_left) / self._bar_width
         return int(progress * self._total_frames)
         
-    def on_resize(self, window):
+    def on_resize(self, window: "arcade.Window") -> None:
         self._calculate_bar_dimensions(window)
         
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         """Render the progress bar with all markers"""
         # Skip rendering entirely if hidden
         if not self._visible:
@@ -1439,7 +1450,7 @@ class RaceProgressBarComponent(BaseComponent):
         if self._hover_event:
             self._draw_tooltip(window, self._hover_event)
             
-    def _draw_event_marker(self, event: dict, x: float, center_y: float):
+    def _draw_event_marker(self, event: Dict[str, Any], x: float, center_y: float) -> None:
         """Draw a single event marker based on type."""
         event_type = event.get("type", "")
         marker_top = self.bottom + self.height + self.marker_height
@@ -1469,7 +1480,7 @@ class RaceProgressBarComponent(BaseComponent):
             # Draw amber segment for VSC
             self._draw_flag_segment(event, self.COLORS["vsc"])
             
-    def _draw_flag_segment(self, event: dict, color: tuple):
+    def _draw_flag_segment(self, event: Dict[str, Any], color: Tuple[int, int, int]) -> None:
         start_frame = event.get("frame", 0)
         end_frame = event.get("end_frame", start_frame + 100)  # default duration
         
@@ -1511,7 +1522,7 @@ class RaceProgressBarComponent(BaseComponent):
         )
         arcade.draw_rect_filled(segment_rect, color)
         
-    def _draw_tooltip(self, window, event: dict):
+    def _draw_tooltip(self, window: "arcade.Window", event: Dict[str, Any]) -> None:
         event_type = event.get("type", "")
         label = event.get("label", "")
         lap = event.get("lap", "")
@@ -1639,7 +1650,9 @@ class RaceControlsComponent(BaseComponent):
     
     PLAYBACK_SPEEDS = UIConfig.playback_speeds
 
-    def __init__(self, center_x: int = 100, center_y: int = 60, button_size: int = None, visible=True):
+    def __init__(
+        self, center_x: int = 100, center_y: int = 60, button_size: Optional[int] = None, visible: bool = True
+    ) -> None:
         if button_size is None:
             button_size = UIConfig.button_size
         self.center_x = center_x
@@ -1693,7 +1706,7 @@ class RaceControlsComponent(BaseComponent):
         """
         self._visible = True
 
-    def on_resize(self, window):
+    def on_resize(self, window: "arcade.Window") -> None:
         """Recalculate control positions on window resize."""
         self.center_x = window.width / 2
         # Scale spacing and offset proportionally to window width (based on 1920px reference)
@@ -1701,7 +1714,7 @@ class RaceControlsComponent(BaseComponent):
         self.speed_container_offset = window.width * (200 / 1920)
         self._hide_speed_text = window.width < 1000
     
-    def on_update(self, delta_time: float):
+    def on_update(self, delta_time: float) -> None:
         """Update flash timer for keyboard feedback animation."""
         if self._flash_timer > 0:
             self._flash_timer = max(0, self._flash_timer - delta_time)
@@ -1925,7 +1938,7 @@ class QualifyingLapTimeComponent(BaseComponent):
     """
     A component to display the qualifying lap time with sector times and current tyre info.
     """
-    def __init__(self, x: int = 150, y: int = 60):
+    def __init__(self, x: int = 150, y: int = 60) -> None:
         self.x = x
         self.y = y
         self.fastest_driver = None
@@ -1943,7 +1956,7 @@ class QualifyingLapTimeComponent(BaseComponent):
                     texture_path = os.path.join(tyres_folder, filename)
                     self._tyre_textures[texture_name] = arcade.load_texture(texture_path)
 
-    def on_update(self, delta_time: float):
+    def on_update(self, delta_time: float) -> None:
         """
         Update logic for time difference in fastest driver and current driver (Delta sector time)
         """
@@ -1954,12 +1967,12 @@ class QualifyingLapTimeComponent(BaseComponent):
                 self._delta_sector = None
                 self._time_elapsed = 0.0
 
-    def reset(self):
+    def reset(self) -> None:
         self._delta_sector = None
         self._time_elapsed = 0.0
         self._last_completed_sector = -1
 
-    def draw(self, window):
+    def draw(self, window: "arcade.Window") -> None:
         if not hasattr(window, 'loaded_telemetry') or not window.loaded_telemetry:
             return
         sector_times = window.loaded_telemetry.get("sector_times") if isinstance(window.loaded_telemetry, dict) else {}
@@ -2204,7 +2217,7 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
     return events
 
 # Build track geometry from example lap telemetry
-def build_track_from_example_lap(example_lap, track_width=200):
+def build_track_from_example_lap(example_lap: Dict[str, Any], track_width: int = 200) -> Tuple:
     drs_zones = plotDRSzones(example_lap)
     plot_x_ref = example_lap["X"]
     plot_y_ref = example_lap["Y"]
@@ -2267,7 +2280,7 @@ def plotDRSzones(example_lap):
    
    return drs_zones
 
-def draw_finish_line(self, session_type = 'R'):
+def draw_finish_line(self, session_type: str = 'R') -> None:
     if(session_type not in ['R', 'Q']):
         logger.warning("Invalid session type for finish line drawing...")
         return

@@ -9,6 +9,7 @@ import time
 from PySide6.QtCore import QThread, Signal
 from src.config import NetworkConfig
 from src.lib.logging import get_logger
+from src.lib.exceptions import StreamError, TelemetryStreamError, StreamConnectionError, StreamBroadcastError
 
 logger = get_logger(__name__)
 
@@ -46,6 +47,7 @@ class TelemetryStreamServer:
       except Exception as e:
         if self.running:
           logger.error("Error accepting client: %s", e)
+          raise StreamConnectionError(f"Failed to accept client connection: {e}") from e
         break
 
   def handle_client(self, client_socket):
@@ -54,6 +56,7 @@ class TelemetryStreamServer:
         time.sleep(1)  # Keep the connection alive
     except Exception as e:
       logger.error("Client connection error: %s", e)
+      raise TelemetryStreamError(f"Client connection error: {e}") from e
     finally:
       client_socket.close()
       with self.clients_lock:
@@ -74,6 +77,7 @@ class TelemetryStreamServer:
         client.sendall(message + NetworkConfig.message_separator.encode(NetworkConfig.data_encoding))
       except Exception as e:
         logger.error("Error sending to client: %s", e)
+        raise StreamBroadcastError(f"Failed to broadcast to client: {e}") from e
         client.close()
         dead_clients.append(client)
     
@@ -122,6 +126,7 @@ class TelemetryStreamClient(QThread):
         self._receive_data()
       except Exception as e:
         self.error_occurred.emit(f"Connection error: {str(e)}")
+        raise StreamError(f"Stream connection error: {e}") from e
         if self.socket:
           self.socket.close()
         self.connected = False
@@ -180,6 +185,7 @@ class TelemetryStreamClient(QThread):
       except Exception as e:
         if self.running:  # Only report error if we're still supposed to be running
           self.error_occurred.emit(f"Receive error: {str(e)}")
+          raise TelemetryStreamError(f"Failed to receive telemetry data: {e}") from e
         break
               
   def stop(self):

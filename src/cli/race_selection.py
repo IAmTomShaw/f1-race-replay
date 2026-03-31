@@ -2,13 +2,14 @@ from questionary import Style, select, Choice
 from rich.console import Console
 from rich.markdown import Markdown
 from rich.progress import Progress, SpinnerColumn, TextColumn
+from typing import List, Dict, Optional, Any
 from src.f1_data import get_race_weekends_by_year
 import sys
 import os
 import subprocess
 from src.lib.season import get_season
 
-def cli_load():
+def cli_load() -> None:
     current_year = get_season()
 
     style = Style([

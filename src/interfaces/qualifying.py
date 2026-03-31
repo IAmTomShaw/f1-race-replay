@@ -1,6 +1,7 @@
 import arcade
 import threading
 import time
+from typing import List, Dict, Tuple, Optional, Any
 import numpy as np
 from src.lib.logging import get_logger
 
@@ -21,7 +22,16 @@ from src.config import UIConfig
 logger = get_logger(__name__)
 
 class QualifyingReplay(arcade.Window):
-    def __init__(self, session, data, circuit_rotation=0, left_ui_margin=None, right_ui_margin=None, title="Qualifying Results"):
+    def __init__(
+        self,
+        session: Any,
+        data: Dict[str, Any],
+        circuit_rotation: float = 0,
+        left_ui_margin: Optional[int] = None,
+        right_ui_margin: Optional[int] = None,
+        title: str = "Qualifying Results"
+    ) -> None:
+        """Initialize Qualifying Replay window."""
         if left_ui_margin is None:
             left_ui_margin = UIConfig.qualifying_left_margin
         if right_ui_margin is None:
@@ -155,10 +165,14 @@ class QualifyingReplay(arcade.Window):
         self.is_forwarding = False
         self.was_paused_before_hold = False
 
-    def update_scaling(self, screen_w, screen_h):
+    def update_scaling(self, screen_w: int, screen_h: int) -> None:
         """
         Recalculates the scale and translation to fit the track 
         perfectly within the new screen dimensions while maintaining aspect ratio.
+        
+        Args:
+            screen_w: Screen width in pixels.
+            screen_h: Screen height in pixels.
         """
         padding = 0.05
         # If a rotation is applied, we must compute the rotated bounds
@@ -214,7 +228,7 @@ class QualifyingReplay(arcade.Window):
         self.screen_inner_points = [self.world_to_screen(x, y) for x, y in self.world_inner_points]
         self.screen_outer_points = [self.world_to_screen(x, y) for x, y in self.world_outer_points]
 
-    def on_draw(self):
+    def on_draw(self) -> None:
         self.clear()
 
         # Draw simple line chart if telemetry is loaded
@@ -705,24 +719,26 @@ class QualifyingReplay(arcade.Window):
         # Controls popup (Help)
         self.controls_popup_comp.draw(self)
 
-    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int):
+    def on_mouse_motion(self, x: int, y: int, dx: int, dy: int) -> None:
         """Pass mouse motion events to UI components."""
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
     
-    def on_resize(self, width: int, height: int):
+    def on_resize(self, width: int, height: int) -> None:
         """Handle the window being resized."""
         super().on_resize(width, height)
         self.update_scaling(width, height)
         self.race_controls_comp.on_resize(self)
 
-    def _interpolate_points(self, xs, ys, interp_points=2000):
+    def _interpolate_points(
+        self, xs: List[float], ys: List[float], interp_points: int = 2000
+    ) -> List[Tuple[float, float]]:
         t_old = np.linspace(0, 1, len(xs))
         t_new = np.linspace(0, 1, interp_points)
         xs_i = np.interp(t_new, t_old, xs)
         ys_i = np.interp(t_new, t_old, ys)
         return list(zip(xs_i, ys_i))
 
-    def world_to_screen(self, x, y):
+    def world_to_screen(self, x: float, y: float) -> Tuple[float, float]:
         # Rotate around the track centre (if rotation is set), then scale+translate
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
@@ -738,7 +754,7 @@ class QualifyingReplay(arcade.Window):
         sy = self.world_scale * y + self.ty
         return sx, sy
 
-    def _pick_telemetry_value(self, tel: dict, *keys):
+    def _pick_telemetry_value(self, tel: Dict[str, Any], *keys: str) -> Optional[Any]:
         """Return the first value for keys that exists in tel and is not None.
         Preserves falsy-but-valid values like 0.0."""
         if not isinstance(tel, dict):
@@ -748,7 +764,7 @@ class QualifyingReplay(arcade.Window):
                 return tel[k]
         return None
 
-    def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
+    def on_mouse_press(self, x: float, y: float, button: int, modifiers: int) -> None:
         # If the segment-selector modal is visible (a driver selected), give it first chance
         # to handle the click (so its close button can work). If it handled the click,
         # stop further processing so the leaderboard doesn't re-select the driver.
@@ -772,11 +788,11 @@ class QualifyingReplay(arcade.Window):
         if not self.is_lap_complete():
             self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers)
 
-    def is_lap_complete(self):
+    def is_lap_complete(self) -> bool:
         """Check if the current lap has finished playing."""
         return self.chart_active and self.n_frames > 0 and self.frame_index >= self.n_frames - 1
 
-    def on_key_press(self, symbol: int, modifiers: int):
+    def on_key_press(self, symbol: int, modifiers: int) -> None:
         # Allow ESC to close window at any time
         if symbol == arcade.key.ESCAPE:
             arcade.close_window()
@@ -844,7 +860,7 @@ class QualifyingReplay(arcade.Window):
             self.playback_speed = 4.0
             self.race_controls_comp.flash_button('speed_increase')
 
-    def load_driver_telemetry(self, driver_code: str, segment_name: str):
+    def load_driver_telemetry(self, driver_code: str, segment_name: str) -> None:
 
         # If already loading, ignore
         if self.loading_telemetry:
@@ -911,7 +927,7 @@ class QualifyingReplay(arcade.Window):
             daemon=True
         ).start()
 
-    def _bg_load_telemetry(self, driver_code: str, segment_name: str):
+    def _bg_load_telemetry(self, driver_code: str, segment_name: str) -> None:
         """Background loader that fetches telemetry if not present locally."""
         try:
             telemetry = None
@@ -975,7 +991,7 @@ class QualifyingReplay(arcade.Window):
             self.loading_telemetry = False
             self.loading_message = ""
 
-    def on_update(self, delta_time: float):
+    def on_update(self, delta_time: float) -> None:
         if not self.chart_active or self.loaded_telemetry is None:
             return
         self.race_controls_comp.on_update(delta_time)
@@ -1015,7 +1031,7 @@ class QualifyingReplay(arcade.Window):
             if self.frame_index >= self.n_frames - 1:
                 self.paused = True
 
-    def on_key_release(self, symbol: int, modifiers: int):
+    def on_key_release(self, symbol: int, modifiers: int) -> None:
         if symbol == arcade.key.RIGHT:
             self.is_forwarding = False
             self.paused = self.was_paused_before_hold
@@ -1023,13 +1039,15 @@ class QualifyingReplay(arcade.Window):
             self.is_rewinding = False
             self.paused = self.was_paused_before_hold
 
-    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int):
+    def on_mouse_release(self, x: float, y: float, button: int, modifiers: int) -> None:
         if self.is_forwarding or self.is_rewinding:
             self.is_forwarding = False
             self.is_rewinding = False
             self.paused = self.was_paused_before_hold
 
-def run_qualifying_replay(session, data, title="Qualifying Results", ready_file=None):
+def run_qualifying_replay(
+    session: Any, data: Dict[str, Any], title: str = "Qualifying Results", ready_file: Optional[str] = None
+) -> None:
     window = QualifyingReplay(session=session, data=data, title=title)
     # Signal readiness to parent process (if requested) after window created
     if ready_file:

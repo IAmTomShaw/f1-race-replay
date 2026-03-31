@@ -3,6 +3,7 @@ import subprocess
 import sys
 import threading
 import time
+from typing import List, Dict, Optional, Any, Tuple
 import arcade
 from src.lib.logging import get_logger
 from src.interfaces.race_replay import F1RaceReplayWindow
@@ -10,9 +11,22 @@ from src.interfaces.race_replay import F1RaceReplayWindow
 logger = get_logger(__name__)
 from src.insights.telemetry_stream_viewer import main as telemetry_viewer_main
 
-def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
-                      playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, total_laps=None,
-                      visible_hud=True, ready_file=None, session_info=None, session=None, enable_telemetry=True):
+def run_arcade_replay(
+    frames: List[Dict[str, Any]],
+    track_statuses: List[Dict[str, Any]],
+    example_lap: Any,
+    drivers: List[str],
+    title: str,
+    playback_speed: float = 1.0,
+    driver_colors: Optional[Dict[str, Tuple[int, int, int]]] = None,
+    circuit_rotation: float = 0.0,
+    total_laps: Optional[int] = None,
+    visible_hud: bool = True,
+    ready_file: Optional[str] = None,
+    session_info: Optional[Dict[str, Any]] = None,
+    session: Optional[Any] = None,
+    enable_telemetry: bool = True,
+) -> None:
     window = F1RaceReplayWindow(
         frames=frames,
         track_statuses=track_statuses,
@@ -38,9 +52,9 @@ def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
     arcade.run()
 
 
-def launch_telemetry_viewer():
+def launch_telemetry_viewer() -> None:
   # Launch the telemetry stream viewer in a separate process.
-  def start_viewer():
+  def start_viewer() -> None:
     try:
       # Give the main application a moment to start the telemetry server
       time.sleep(3)
@@ -52,8 +66,8 @@ def launch_telemetry_viewer():
   viewer_thread.start()
 
 
-def launch_insights_menu():
-  def start_menu():
+def launch_insights_menu() -> None:
+  def start_menu() -> None:
     try:
       # Give the main application a moment to start
       time.sleep(1)

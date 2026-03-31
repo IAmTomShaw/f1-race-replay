@@ -5,6 +5,10 @@ from dataclasses import dataclass
 from scipy import stats
 from enum import Enum
 
+from src.lib.logging import get_logger
+
+logger = get_logger(__name__)
+
 class TyreCategory(Enum):
     SLICK = "SLICK"
     INTER = "INTER"
@@ -198,15 +202,13 @@ class BayesianTyreDegradationModel:
                             abrasion_samples.append(slope / base_rate)
         
         if len(abrasion_samples) < 3:
-            if self.config.debug_logging:
-                print("  Track abrasion: 1.000 (insufficient data, using neutral)")
+            logger.debug("  Track abrasion: 1.000 (insufficient data, using neutral)")
             return 1.0  # Fallback to neutral
         
         abrasion = float(np.clip(np.median(abrasion_samples), 0.7, 1.4))
         
-        if self.config.debug_logging:
-            track_type = "abrasive" if abrasion > 1.05 else "smooth" if abrasion < 0.95 else "neutral"
-            print(f"  Track abrasion: {abrasion:.3f} ({track_type}, from {len(abrasion_samples)} stints)")
+        track_type = "abrasive" if abrasion > 1.05 else "smooth" if abrasion < 0.95 else "neutral"
+        logger.debug(f"  Track abrasion: {abrasion:.3f} ({track_type}, from {len(abrasion_samples)} stints)")
         
         return abrasion
         
@@ -218,7 +220,7 @@ class BayesianTyreDegradationModel:
         laps_clean = self._prepare_data(laps_df)
         
         if laps_clean.empty:
-            print("Warning: No valid laps after data preparation")
+            logger.warning("Warning: No valid laps after data preparation")
             return
         
         if self.config.enable_track_abrasion:
@@ -236,13 +238,13 @@ class BayesianTyreDegradationModel:
         laps = laps_df.copy()
         
         if 'TrackCondition' not in laps.columns:
-            print("Warning: TrackCondition column missing, assuming DRY conditions")
+            logger.warning("Warning: TrackCondition column missing, assuming DRY conditions")
             laps['TrackCondition'] = 'DRY'
         
         valid_conditions = {'DRY', 'DAMP', 'WET'}
         invalid_conditions = set(laps['TrackCondition'].unique()) - valid_conditions
         if invalid_conditions:
-            print(f"Warning: Invalid track conditions found: {invalid_conditions}, setting to DRY")
+            logger.warning(f"Warning: Invalid track conditions found: {invalid_conditions}, setting to DRY")
             laps.loc[~laps['TrackCondition'].isin(valid_conditions), 'TrackCondition'] = 'DRY'
         
         is_pit_out = laps["PitOutTime"].notna()
@@ -269,7 +271,7 @@ class BayesianTyreDegradationModel:
     
     def _get_tyre_category(self, compound: str) -> TyreCategory:
         if compound not in self.tyre_profiles:
-            print(f"Warning: Unknown compound '{compound}', assuming MEDIUM slick")
+            logger.warning(f"Warning: Unknown compound '{compound}', assuming MEDIUM slick")
             return TyreCategory.SLICK
         return self.tyre_profiles[compound].category
     
@@ -384,10 +386,10 @@ class BayesianTyreDegradationModel:
                 
                 tyre.degradation_rate = updated_rate
                 
-                print(f"  {compound_name}: {tyre.degradation_rate:.4f} s/lap "
+                logger.info(f"  {compound_name}: {tyre.degradation_rate:.4f} s/lap "
                       f"(from {len(compound_slopes[compound_name])} stints)")
             else:
-                print(f"  {compound_name}: {tyre.degradation_rate:.4f} s/lap "
+                logger.info(f"  {compound_name}: {tyre.degradation_rate:.4f} s/lap "
                       f"(using prior - insufficient valid stints)")
     
     def _compute_mismatch_penalty(
@@ -441,7 +443,7 @@ class BayesianTyreDegradationModel:
                 track_condition = lap.get("TrackCondition", "DRY")
                 
                 if compound not in self.tyre_profiles:
-                    print(f"Warning: Unknown compound '{compound}' for {driver}, carrying forward state")
+                    logger.warning(f"Warning: Unknown compound '{compound}' for {driver}, carrying forward state")
                     if mu_alpha is not None:
                         states.append(mu_alpha)
                         variances.append(var_alpha)
@@ -464,9 +466,9 @@ class BayesianTyreDegradationModel:
                 )
                 
                 if mu_alpha is None or stint != prev_stint or condition_changed:
-                    if condition_changed and self.config.debug_logging:
+                    if condition_changed:
                         old_category = prev_condition_category
-                        print(f"  {driver}: Track transition {old_category}→{condition_category}, resetting pace")
+                        logger.debug(f"  {driver}: Track transition {old_category}→{condition_category}, resetting pace")
                     
                     mu_alpha = tyre.reset_pace
                     var_alpha = proc_var
@@ -555,7 +557,7 @@ class BayesianTyreDegradationModel:
         stint = last_lap['Stint']
         
         if compound not in self.tyre_profiles:
-            print(f"Warning: Unknown compound '{compound}'")
+            logger.warning(f"Warning: Unknown compound '{compound}'")
             return None, None, {}
         
         tyre = self.tyre_profiles[compound]
