@@ -69,7 +69,16 @@ class UIConfig(BaseSettings):
     # Driver label positioning
     driver_label_offset_even: int = 45  # offset for even-indexed drivers
     driver_label_offset_odd: int = 75   # offset for odd-indexed drivers
-    
+
+    # Controls popup dimensions
+    popup_width: int = 340
+    popup_height: int = 250
+    popup_header_font_size: int = 16
+    popup_body_font_size: int = 13
+
+    # Map padding (fraction of screen dimension kept as empty border)
+    map_padding_ratio_default: float = 0.05
+
     class Config:
         env_prefix = "UI_"
 
