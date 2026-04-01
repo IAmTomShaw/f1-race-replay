@@ -179,7 +179,7 @@ class QualifyingReplay(arcade.Window):
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
 
-        def _rotate_about_center(x, y):
+        def _rotate_about_center(x, y) -> tuple[float, float]:
             # Translate to centre, rotate, translate back
             tx = x - world_cx
             ty = y - world_cy
@@ -610,7 +610,7 @@ class QualifyingReplay(arcade.Window):
                     tx = screen_cx - world_scale * world_cx
                     ty = screen_cy - world_scale * world_cy
 
-                    def world_to_map(x, y):
+                    def world_to_map(x, y) -> tuple[float, float]:
                         sx = world_scale * x + tx
                         sy = world_scale * y + ty
                         return sx, sy
