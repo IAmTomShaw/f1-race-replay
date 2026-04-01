@@ -56,7 +56,7 @@ class UIConfig(BaseSettings):
     # Safety Car styling
     safety_car_radius: int = 8  # pixels
     regular_car_radius: int = 6  # pixels
-    safety_car_glow_alpha: int = 128
+    safety_car_glow_alpha: int = 80
     
     # Animation durations (in seconds)
     safety_car_deploy_time: float = 3.0

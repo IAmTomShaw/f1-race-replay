@@ -611,7 +611,7 @@ class F1RaceReplayWindow(arcade.Window):
                 text_padding = 3 if snx >= 0 else -3
                 arcade.draw_text(code, lx + text_padding, ly, color, 10, anchor_x=anchor_x, anchor_y="center", bold=True)
 
-            arcade.draw_circle_filled(sx, sy, 6, color)
+            arcade.draw_circle_filled(sx, sy, UIConfig.regular_car_radius, color)
         
         # 3b. Draw Safety Car (if active)
         sc_data = frame.get("safety_car")
@@ -634,7 +634,7 @@ class F1RaceReplayWindow(arcade.Window):
             if sc_phase in ("deploying", "returning"):
                 pulse = 0.5 + 0.5 * np.sin(time.time() * 8.0)  # Fast pulse
                 glow_radius = 16 + pulse * 6
-                glow_alpha = int(80 * sc_alpha * pulse)
+                glow_alpha = int(UIConfig.safety_car_glow_alpha * sc_alpha * pulse)
                 
                 # Outer glow ring
                 arcade.draw_circle_filled(sc_sx, sc_sy, glow_radius, (255, 200, 0, glow_alpha))
@@ -647,9 +647,9 @@ class F1RaceReplayWindow(arcade.Window):
             else:
                 # Steady glow when on track
                 arcade.draw_circle_filled(sc_sx, sc_sy, 14, (255, 165, 0, 40))
-            
+
             # Draw SC body (larger than regular cars)
-            arcade.draw_circle_filled(sc_sx, sc_sy, 8, sc_color_with_alpha)
+            arcade.draw_circle_filled(sc_sx, sc_sy, UIConfig.safety_car_radius, sc_color_with_alpha)
             
             # Orange outline ring
             outline_alpha = int(255 * sc_alpha)
