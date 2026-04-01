@@ -17,7 +17,7 @@ class TelemetryStreamServer:
 
   # This class is going to be hosted by the race_replay window process, which is the primary consumer of telemetry data. It will broadcast the telemetry frames
 
-  def __init__(self, host=None, port=None):
+  def __init__(self, host=None, port=None) -> None:
     if host is None:
         host = NetworkConfig.telemetry_host
     if port is None:
@@ -29,14 +29,14 @@ class TelemetryStreamServer:
     self.server_socket = None
     self.running = False
 
-  def start(self):
+  def start(self) -> None:
     self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.server_socket.bind((self.host, self.port))
     self.server_socket.listen(5)
     self.running = True
     threading.Thread(target=self.accept_clients, daemon=True).start()
   
-  def accept_clients(self):
+  def accept_clients(self) -> None:
     while self.running:
       try:
         client_socket, addr = self.server_socket.accept()
@@ -50,7 +50,7 @@ class TelemetryStreamServer:
           raise StreamConnectionError(f"Failed to accept client connection: {e}") from e
         break
 
-  def handle_client(self, client_socket):
+  def handle_client(self, client_socket: "socket.socket") -> None:
     try:
       while self.running:
         time.sleep(1)  # Keep the connection alive
@@ -65,13 +65,13 @@ class TelemetryStreamServer:
         except ValueError:
           pass  # Already removed by broadcast() or stop()
 
-  def broadcast(self, data):
+  def broadcast(self, data: dict) -> None:
     message = json.dumps(data).encode(NetworkConfig.data_encoding)
     dead_clients = []
-    
+
     with self.clients_lock:
       clients_copy = list(self.clients)
-    
+
     for client in clients_copy:
       try:
         client.sendall(message + NetworkConfig.message_separator.encode(NetworkConfig.data_encoding))
@@ -80,14 +80,14 @@ class TelemetryStreamServer:
         raise StreamBroadcastError(f"Failed to broadcast to client: {e}") from e
         client.close()
         dead_clients.append(client)
-    
+
     if dead_clients:
       with self.clients_lock:
         for client in dead_clients:
           if client in self.clients:
             self.clients.remove(client)
   
-  def stop(self):
+  def stop(self) -> None:
     self.running = False
     if self.server_socket:
       self.server_socket.close()
@@ -104,7 +104,7 @@ class TelemetryStreamClient(QThread):
   connection_status = Signal(str)
   error_occurred = Signal(str) 
   
-  def __init__(self, host=None, port=None):
+  def __init__(self, host=None, port=None) -> None:
     super().__init__()
     if host is None:
         host = NetworkConfig.telemetry_host
@@ -116,10 +116,10 @@ class TelemetryStreamClient(QThread):
     self.connected = False
     self.running = False
       
-  def run(self):
+  def run(self) -> None:
     # Main thread loop - connects to server and receives data.
     self.running = True
-    
+
     while self.running:
       try:
         self._connect_to_server()
@@ -131,19 +131,19 @@ class TelemetryStreamClient(QThread):
           self.socket.close()
         self.connected = False
         self.connection_status.emit("Disconnected")
-        
+
         # Wait before attempting to reconnect
         self.sleep(int(NetworkConfig.connection_retry_delay * 1000))
               
-  def _connect_to_server(self):
+  def _connect_to_server(self) -> None:
     # Establish connection to the telemetry stream server.
     if self.connected:
       return
-        
+
     self.connection_status.emit("Connecting...")
     self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     self.socket.settimeout(NetworkConfig.socket_timeout)
-    
+
     try:
       self.socket.connect((self.host, self.port))
       self.connected = True
@@ -155,10 +155,10 @@ class TelemetryStreamClient(QThread):
       self.error_occurred.emit(f"Connection refused - is F1 Race Replay running on {self.host}:{self.port}?")
       raise
           
-  def _receive_data(self):
+  def _receive_data(self) -> None:
     # Receive and parse incoming telemetry data.
     buffer = ""
-    
+
     while self.running and self.connected:
       try:
         # Receive data in chunks
@@ -167,9 +167,9 @@ class TelemetryStreamClient(QThread):
           # Server closed connection
           self.connected = False
           break
-            
+
         buffer += chunk
-        
+
         # Process complete messages (separated by newlines)
         while NetworkConfig.message_separator in buffer:
           line, buffer = buffer.split(NetworkConfig.message_separator, 1)
@@ -179,7 +179,7 @@ class TelemetryStreamClient(QThread):
               self.data_received.emit(data)
             except json.JSONDecodeError as e:
               self.error_occurred.emit(f"JSON decode error: {str(e)}")
-                      
+
       except socket.timeout:
         continue  # Keep trying
       except Exception as e:
@@ -188,7 +188,7 @@ class TelemetryStreamClient(QThread):
           raise TelemetryStreamError(f"Failed to receive telemetry data: {e}") from e
         break
               
-  def stop(self):
+  def stop(self) -> None:
     # Stop the client thread.
     self.running = False
     self.connected = False
