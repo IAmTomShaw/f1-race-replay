@@ -9,6 +9,7 @@ This module provides a standardized logging setup with support for:
 
 from loguru import logger
 import sys
+from src.config import logging_config
 
 # Global debug mode
 _debug_mode: bool = False
@@ -38,10 +39,8 @@ def configure_logging(debug: bool = False) -> None:
     )
     
     # Suppress verbose third-party logging
-    logger.disable("fastf1")
-    logger.disable("urllib3")
-    logger.disable("requests")
-    logger.disable("matplotlib")
+    for lib in logging_config.suppress_loggers:
+        logger.disable(lib)
 
 
 def get_logger(name: str):
