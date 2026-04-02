@@ -9,14 +9,6 @@ logger = get_logger(__name__)
 # convert time in seconds to a MM:SS.sss format
 
 def format_time(seconds: Optional[float]) -> str:
-  """Format seconds to MM:SS.sss format.
-  
-  Args:
-      seconds: Time in seconds, or None.
-      
-  Returns:
-      Formatted time string or "N/A" if invalid.
-  """
   if seconds is None or seconds < 0:
     return "N/A"
   minutes = int(seconds // 60)
@@ -30,16 +22,7 @@ def parse_time_string(time_str: str) -> Optional[float]:
     - "01:26.123"
     - "01:26"
   and return total seconds as float. Returns None if parsing fails.
-  
-  Args:
-      time_str: Time string in various formats.
-      
-  Returns:
-      Total seconds as float, or None if parsing fails.
-      
-  Raises:
-      TimeParseError: If time string is invalid.
-  """
+"""
   # Handle timedelta format like "0 days 00:01:27.060000"
   if "days" in str(time_str):
     time_str = str(time_str).split(" ", 2)[-1]  # Take the time part after "X days "

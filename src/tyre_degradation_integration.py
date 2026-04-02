@@ -15,12 +15,6 @@ logger = get_logger(__name__)
 class TyreDegradationIntegrator:
     
     def __init__(self, session=None, laps_df: Optional[pd.DataFrame] = None) -> None:
-        """Initialize the tyre degradation integrator.
-        
-        Args:
-            session: F1 session object with laps data.
-            laps_df: Optional DataFrame of laps data.
-        """
         self.session = session
         self._laps_df = laps_df
         self._model = BayesianTyreDegradationModel()
@@ -28,12 +22,6 @@ class TyreDegradationIntegrator:
         self._cache = {}
     
     def initialize_from_session(self) -> bool:
-        """Initialize the degradation model from session data.
-        
-        Returns:
-            True if initialization succeeded, False otherwise.
-        """
-        
         try:
             if self._laps_df is None:
                 if self.session is None:
@@ -62,12 +50,6 @@ class TyreDegradationIntegrator:
             raise TyreDegradationInitializationError(f"Failed to initialize tyre degradation model: {e}") from e
     
     def is_initialized(self) -> bool:
-        """Check if the model is initialized.
-        
-        Returns:
-            True if initialized, False otherwise.
-        """
-        
         return self._initialized
     
     def get_tyre_health(
