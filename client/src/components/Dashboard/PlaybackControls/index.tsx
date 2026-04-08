@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import type { TrackStatus } from '../../../types/api.types';
+import { usePlaybackControls } from '../../../hooks/usePlaybackControls';
 import './index.css';
 
 interface PlaybackControlsProps {
@@ -22,24 +22,13 @@ interface PlaybackControlsProps {
   hasNextRace?: boolean;
 }
 
-const PLAYBACK_SPEEDS = [0.25, 0.5, 1, 2, 4, 8, 16];
-
 const STATUS_STYLES: Record<string, { color: string; label: string }> = {
-  '2': { color: '#FFD700', label: 'Yellow Flag'          },
-  '4': { color: '#F97316', label: 'Safety Car'           },
-  '5': { color: '#EF4444', label: 'Red Flag'             },
-  '6': { color: '#FB923C', label: 'Virtual Safety Car'   },
-  '7': { color: '#FDE68A', label: 'VSC Ending'           },
+  '2': { color: '#FFD700', label: 'Yellow Flag'        },
+  '4': { color: '#F97316', label: 'Safety Car'         },
+  '5': { color: '#EF4444', label: 'Red Flag'           },
+  '6': { color: '#FB923C', label: 'Virtual Safety Car' },
+  '7': { color: '#FDE68A', label: 'VSC Ending'         },
 };
-
-function currentLapFromFrame(frameIdx: number, lapFrameIndices: number[]): number {
-  let lap = 1;
-  for (let i = 0; i < lapFrameIndices.length; i++) {
-    if (frameIdx >= lapFrameIndices[i]) lap = i + 1;
-    else break;
-  }
-  return lap;
-}
 
 export default function PlaybackControls({
   isPaused, playbackSpeed, currentFrame, totalFrames,
@@ -48,36 +37,16 @@ export default function PlaybackControls({
   onPlayPause, onSpeedChange, onSeek, onSeekToLap, onRestart,
   onPrevRace, onNextRace, hasPrevRace = false, hasNextRace = false,
 }: PlaybackControlsProps) {
-  const [lapInputValue, setLapInputValue] = useState('');
+  const {
+    currentLap, progress, lapInputValue, setLapInputValue, commitLap,
+    handleSpeedIncrease, handleSpeedDecrease, handleProgressClick,
+    handlePrevLap, handleNextLap,
+    canDecreaseLap, canIncreaseLap, canDecreaseSpeed, canIncreaseSpeed,
+  } = usePlaybackControls(
+    currentFrame, totalFrames, totalLaps, lapFrameIndices,
+    playbackSpeed, onSpeedChange, onSeek, onSeekToLap,
+  );
 
-  const handleSpeedIncrease = () => {
-    const i = PLAYBACK_SPEEDS.indexOf(playbackSpeed);
-    if (i < PLAYBACK_SPEEDS.length - 1) onSpeedChange(PLAYBACK_SPEEDS[i + 1]);
-  };
-  const handleSpeedDecrease = () => {
-    const i = PLAYBACK_SPEEDS.indexOf(playbackSpeed);
-    if (i > 0) onSpeedChange(PLAYBACK_SPEEDS[i - 1]);
-  };
-
-  const handleProgressClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const percent = (e.clientX - rect.left) / rect.width;
-    onSeek(Math.floor(percent * totalFrames));
-  };
-
-  const currentLap = lapFrameIndices.length > 0
-    ? currentLapFromFrame(currentFrame, lapFrameIndices)
-    : null;
-
-  const commitLap = (raw: string) => {
-    const n = parseInt(raw, 10);
-    if (!isNaN(n)) onSeekToLap(n);
-    setLapInputValue('');
-  };
-
-  const progress = totalFrames > 0 ? (currentFrame / totalFrames) * 100 : 0;
-
-  // Only render statuses we have a style for (skip '1' = green/clear)
   const visibleStatuses = totalTime > 0
     ? trackStatuses.filter(s => STATUS_STYLES[s.status])
     : [];
@@ -87,7 +56,6 @@ export default function PlaybackControls({
       {/* ── Progress bar ── */}
       <div className="progress-container" onClick={handleProgressClick}>
 
-        {/* Track status segments */}
         {visibleStatuses.length > 0 && (
           <div className="track-status-strip">
             {visibleStatuses.map((s, i) => {
@@ -112,7 +80,6 @@ export default function PlaybackControls({
 
         <div className="progress-bar">
           <div className="progress-fill" style={{ width: `${progress}%` }} />
-
           {totalFrames > 0 && lapFrameIndices.map((frameIdx, i) => {
             const pct = (frameIdx / totalFrames) * 100;
             if (i === 0 || pct > 99.5) return null;
@@ -121,7 +88,6 @@ export default function PlaybackControls({
                 style={{ left: `${pct}%` }} title={`Lap ${i + 1}`} />
             );
           })}
-
           <div className="progress-handle" style={{ left: `${progress}%` }} />
         </div>
 
@@ -134,7 +100,6 @@ export default function PlaybackControls({
 
       {/* ── Controls row ── */}
       <div className="controls-row">
-
         <button className="control-btn race-nav-btn-left" onClick={onPrevRace}
           disabled={!hasPrevRace} title="Previous Race">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
@@ -172,10 +137,10 @@ export default function PlaybackControls({
           <div className="controls-section">
             <div className="speed-display">
               <button className="speed-btn" onClick={handleSpeedDecrease}
-                disabled={playbackSpeed === PLAYBACK_SPEEDS[0]} title="Decrease Speed (↓)">−</button>
+                disabled={canDecreaseSpeed} title="Decrease Speed (↓)">−</button>
               <span className="speed-value">{playbackSpeed}x</span>
               <button className="speed-btn" onClick={handleSpeedIncrease}
-                disabled={playbackSpeed === PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.length - 1]} title="Increase Speed (↑)">+</button>
+                disabled={canIncreaseSpeed} title="Increase Speed (↑)">+</button>
             </div>
           </div>
 
@@ -184,10 +149,8 @@ export default function PlaybackControls({
               <div className="controls-divider" />
               <div className="controls-section">
                 <div className="lap-display">
-                  <button className="speed-btn"
-                    onClick={() => currentLap && onSeekToLap(currentLap - 1)}
-                    disabled={currentLap === null || currentLap <= 1}
-                    title="Previous Lap">−</button>
+                  <button className="speed-btn" onClick={handlePrevLap}
+                    disabled={!canDecreaseLap} title="Previous Lap">−</button>
                   <div className="lap-input-wrapper" title="Type a lap number and press Enter">
                     <span className="lap-label">Lap</span>
                     <input
@@ -203,10 +166,8 @@ export default function PlaybackControls({
                     />
                     <span className="lap-total">/ {totalLaps}</span>
                   </div>
-                  <button className="speed-btn"
-                    onClick={() => currentLap && onSeekToLap(currentLap + 1)}
-                    disabled={currentLap === null || currentLap >= totalLaps}
-                    title="Next Lap">+</button>
+                  <button className="speed-btn" onClick={handleNextLap}
+                    disabled={!canIncreaseLap} title="Next Lap">+</button>
                 </div>
               </div>
             </>
@@ -219,7 +180,6 @@ export default function PlaybackControls({
             <path d="M6 18l8.5-6L6 6v12zm9-12v12h2V6h-2z"/>
           </svg>
         </button>
-
       </div>
     </div>
   );
