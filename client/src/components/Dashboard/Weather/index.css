@@ -1,0 +1,75 @@
+.weather-strip {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+  background-color: var(--color-component);
+  border: var(--component-border-weight) solid var(--color-outline);
+  border-radius: var(--radius-md) 0 0 0;
+  padding: 5px 10px;
+}
+
+.weather-strip--wet {
+  border-color: #1a6aad;
+}
+
+.weather-strip--wet .weather-strip-status {
+  color: #5bb3f5;
+}
+
+.weather-strip-status {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 9px;
+  font-family: var(--font-button);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.08em;
+  color: var(--color-text);
+  text-transform: uppercase;
+}
+
+.weather-strip-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--color-outline);
+}
+
+.weather-strip-item {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.weather-strip-icon-label {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.weather-strip-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-grey-light);
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.weather-strip-label {
+  font-size: 7px;
+  font-family: var(--font-button);
+  font-weight: var(--font-weight-bold);
+  letter-spacing: 0.06em;
+  color: var(--color-grey-light);
+  text-transform: uppercase;
+  line-height: 1;
+}
+
+.weather-strip-value {
+  font-size: var(--font-size-caption);
+  font-family: var(--font-text);
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  line-height: 1;
+}

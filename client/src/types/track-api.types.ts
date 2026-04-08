@@ -1,3 +1,5 @@
+import type { TrackStatus } from "./api.types";
+
 export interface TrackFrame {
   t: number;
   x: number;
@@ -13,6 +15,7 @@ export interface TrackDataResponse {
   frames: { t: number; x: number; y: number }[];
   drs_zones: { start_index: number; end_index: number }[];
   circuit_rotation: number;
+  track_statuses: TrackStatus[];
   session_info: {
     event_name: string;
     circuit_name: string;
@@ -20,6 +23,6 @@ export interface TrackDataResponse {
     year: number;
     round: number;
     date: string;
-    total_laps: number | null;  // add this
+    total_laps: number | null;
   };
 }

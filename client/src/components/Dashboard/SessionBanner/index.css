@@ -9,17 +9,11 @@
   grid-template-columns: auto 1fr;
 }
 
-.country-flag {
-  width: 24px;   /* 2:3 ratio — 16px height × 1.5 */
-  height: 16px;
-  object-fit: cover;
-}
-
 /* Left section: Grand Prix Name + Year */
 .event-section-left {
   background: linear-gradient(to right, var(--color-red) 10%, var(--color-component) 40%);
   border-right: 5px solid var(--color-red);
-  padding: 12px 20px;
+  padding: 15px 20px;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -36,21 +30,27 @@
   line-height: 1.2;
 }
 
+/* Right section: flag + circuit + weather */
 .event-section-right {
-  padding: 12px 20px;
+  padding: 0px 0px 0px 15px;
   display: flex;
-  align-items: center;
-  gap: 10px;
+  align-items: last baseline;
+  gap: 12px;
 }
 
 .country-flag {
-  font-size: var(--font-size-caption);
+  width: 24px;
+  height: 16px;
+  object-fit: cover;
+  flex-shrink: 0;
+  align-self: center;
 }
 
 .location-info {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  align-self: center;
 }
 
 .circuit-name {
@@ -65,7 +65,6 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 20px;
 }
 
 .session-info-item {

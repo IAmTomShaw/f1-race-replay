@@ -1,21 +1,25 @@
 .race-viewer {
   display: flex;
-  flex-direction: row-reverse;
+  flex-direction: row;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  gap: 0;
-  padding-top: 20px;
+  gap: 10px;
 }
 
-/* Left side: Canvas + Controls stacked */
+/* Navbar is the first column — self-contained, full height */
+.race-viewer > .navbar {
+  flex-shrink: 0;
+}
+
+/* Centre: Canvas + Controls stacked */
 .race-canvas-column {
   flex: 1;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   min-width: 0;
-  gap: 20px;
+  gap: 10px;
 }
 
 .canvas-wrapper {
@@ -26,24 +30,22 @@
   border: var(--component-border-weight) solid var(--color-outline);
 }
 
-/* Controls nested under canvas only */
 .playback-controls-area {
   flex-shrink: 0;
   width: 100%;
 }
 
-/* Right side: Sidebar */
+/* Right side: Leaderboard */
 .race-sidebar {
   width: 225px;
-  overflow: hidden; /* Changed from auto */
+  overflow: hidden;
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  padding-right: 20px;
 }
 
 .race-sidebar .leaderboard {
-  flex: 1; /* Leaderboard takes all sidebar space */
+  flex: 1;
   min-height: 0;
 }
 

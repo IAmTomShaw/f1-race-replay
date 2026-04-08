@@ -97,6 +97,7 @@ def _process_single_driver(args):
         drs_all.append(drs_lap)
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
+        total_dist_so_far += float(d_lap[-1])
 
     if not t_all:
         return None

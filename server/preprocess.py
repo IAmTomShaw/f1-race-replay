@@ -180,46 +180,45 @@ def mark_retired_drivers(frames: list, session) -> list:
     return frames
 
 
-def freeze_finishing_positions(frames: list, total_laps: int,
-                               official_positions: dict = None) -> list:
-    """Mark a driver as finished the moment their telemetry lap counter exceeds
-    total_laps and freeze their position to the official result.
-
-    Lapped drivers never tick past total_laps so they stay active — correct,
-    because they're still racing when the leader crosses the line.
-    The last-frame fallback is intentionally removed to prevent all drivers
-    being bulk-marked finished at race end."""
+def freeze_finishing_positions(frames, total_laps, official_positions=None):
     if not frames or not total_laps:
         return frames
 
     official_positions = official_positions or {}
 
-    # Pass 1: find the first frame where each driver's lap exceeds total_laps
-    finish_positions: dict[str, int] = {}
-    for frame in frames:
+    # Pass 1: find first frame where each lead-lap driver exceeds total_laps
+    finish_positions = {}
+    leader_finish_frame = None
+
+    for frame_idx, frame in enumerate(frames):
         for code, d in frame.get('drivers', {}).items():
             if code not in finish_positions and d.get('lap', 0) > total_laps:
                 finish_positions[code] = official_positions.get(code, d.get('position', 99))
+                if official_positions.get(code) == 1 and leader_finish_frame is None:
+                    leader_finish_frame = frame_idx
 
-    for code in official_positions:
-        if code not in finish_positions:
-            logger.info(f"  {code} never ticked past lap {total_laps} in telemetry "
-                        f"(lapped car or data gap) — not marking finished")
+    # Pass 2: stamp flags
+    for frame_idx, frame in enumerate(frames):
+        after_leader_finished = leader_finish_frame is not None and frame_idx >= leader_finish_frame
 
-    # Pass 2: stamp finished flag and freeze position
-    for frame in frames:
         for code, d in frame.get('drivers', {}).items():
             if d.get('is_out', False):
                 d['finished'] = False
                 continue
-            if code in finish_positions and d.get('lap', 0) > total_laps:
+
+            lead_lap_finished = code in finish_positions and d.get('lap', 0) > total_laps
+
+            if lead_lap_finished:
                 d['finished'] = True
                 d['position'] = finish_positions[code]
+            elif after_leader_finished and code in official_positions:
+                # Lapped driver — race is over, apply official position
+                d['finished'] = True
+                d['position'] = official_positions[code]
             else:
                 d['finished'] = False
 
     return frames
-
 
 # ── Main pipeline ────────────────────────────────────────────────────────────
 
@@ -286,17 +285,43 @@ def process_and_upload(year: int, round: int, supabase: Client, force: bool = Fa
     frames_to_store = sanitize_frames(frames_to_store)
     logger.info(f"  Frames: {len(frames_to_store)} (downsampled from {len(all_frames)})")
 
+    # ── 5b. Build track statuses ─────────────────────────────────────────────
+    track_statuses = []
+    status_data = session_full.track_status
+    if status_data is not None and not status_data.empty:
+        # Offset: align status times to the same clock as frame t values
+        race_start_offset = session_full.laps['LapStartTime'].min().total_seconds()
+        logger.info(f"  Race start offset: {race_start_offset:.1f}s")
+
+        for i in range(len(status_data)):
+            row    = status_data.iloc[i]
+            start_t = row['Time'].total_seconds() - race_start_offset
+            end_t   = (status_data.iloc[i + 1]['Time'].total_seconds() - race_start_offset) \
+                      if i + 1 < len(status_data) else None
+
+            # Skip statuses that ended before the race started
+            if end_t is not None and end_t <= 0:
+                continue
+
+            track_statuses.append({
+                'status':     str(row['Status']),
+                'start_time': max(0.0, start_t),
+                'end_time':   end_t,
+            })
+    logger.info(f"  Track statuses: {len(track_statuses)} entries")
+
     # ── 6. Upload to Supabase ────────────────────────────────────────────────
     logger.info("  Uploading to Supabase...")
 
     supabase.table("races").upsert({
-        "year":         year,
-        "round":        round,
-        "event_name":   session_info["event_name"],
-        "circuit_name": session_info["circuit_name"],
-        "country":      session_info["country"],
-        "date":         session_info["date"],
-        "total_laps":   total_laps,
+        "year":           year,
+        "round":          round,
+        "event_name":     session_info["event_name"],
+        "circuit_name":   session_info["circuit_name"],
+        "country":        session_info["country"],
+        "date":           session_info["date"],
+        "total_laps":     total_laps,
+        "track_statuses": dumps(track_statuses),
     }, on_conflict="year,round").execute()
 
     supabase.table("track_shapes").upsert({

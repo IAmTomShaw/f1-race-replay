@@ -12,6 +12,8 @@ interface LeaderboardProps {
   driverTeams?: Record<string, string>;
   totalLaps?: number;
   officialPositions?: Record<string, number>;
+  focusedDrivers: Set<string>;
+  onToggleDriver: (code: string) => void;
 }
 
 const TYRE_COMPOUNDS: Record<number, { letter: string; bg: string }> = {
@@ -31,10 +33,10 @@ interface DriverWithGap extends DriverPosition {
 }
 
 export default function Leaderboard({
-  currentFrame, driverColors, totalLaps, driverTeams, officialPositions = {},
+  currentFrame, driverColors, totalLaps, driverTeams,
+  officialPositions = {}, focusedDrivers, onToggleDriver,
 }: LeaderboardProps) {
   const [gapMode, setGapMode] = useState<GapMode>('interval');
-
   const finishGapsRef    = useRef<Record<string, { toLeader: number; interval: number }>>({});
   const lastFrameTimeRef = useRef<number>(0);
 
@@ -58,26 +60,34 @@ export default function Leaderboard({
   }));
 
   const hasOfficialPositions = Object.keys(officialPositions).length > 0;
+  const raceOver = hasOfficialPositions && driversArray.some(d => d.finished);
 
   driversArray.sort((a, b) => {
-    // Retired drivers always go to the bottom
+    // Retired drivers always sink to the bottom
     if (a.is_out && !b.is_out) return 1;
     if (!a.is_out && b.is_out) return -1;
     if (a.is_out && b.is_out) return 0;
 
-    // Finished drivers: sort by official finishing position
-    if (a.finished && b.finished) {
-      const posA = hasOfficialPositions ? (officialPositions[a.code] ?? a.position) : a.position;
-      const posB = hasOfficialPositions ? (officialPositions[b.code] ?? b.position) : b.position;
+    // Once the winner has crossed the line, use official positions for everyone
+    if (raceOver) {
+      const posA = officialPositions[a.code] ?? 99;
+      const posB = officialPositions[b.code] ?? 99;
       return posA - posB;
     }
 
-    // Finished before still-racing: finished driver goes first
+    // Mid-race: finished lead-lap drivers above lapped cars still racing
+    if (a.finished && b.finished) {
+      const posA = officialPositions[a.code] ?? a.position;
+      const posB = officialPositions[b.code] ?? b.position;
+      return posA - posB;
+    }
     if (a.finished && !b.finished) return -1;
     if (!a.finished && b.finished) return 1;
 
-    // Both active and racing: sort by dist descending (further ahead = higher up)
-    return b.dist - a.dist;
+    // Live race ordering by progress
+    const progressA = (a.lap - 1) + a.rel_dist;
+    const progressB = (b.lap - 1) + b.rel_dist;
+    return progressB - progressA;
   });
 
   const REFERENCE_SPEED_MS = 55.56;
@@ -91,7 +101,6 @@ export default function Leaderboard({
       driver.gapToLeader = Math.abs(leaderDist - driver.dist) / REFERENCE_SPEED_MS;
       driver.intervalGap = Math.abs(driversArray[idx - 1].dist - driver.dist) / REFERENCE_SPEED_MS;
     }
-
     if (driver.finished && !finishGapsRef.current[driver.code]) {
       finishGapsRef.current[driver.code] = {
         toLeader: driver.gapToLeader,
@@ -99,6 +108,8 @@ export default function Leaderboard({
       };
     }
   });
+
+  const anyFocused = focusedDrivers.size > 0;
 
   return (
     <div className="leaderboard">
@@ -109,18 +120,7 @@ export default function Leaderboard({
           <span className="header-value-bold">{currentFrame.lap}</span>
           <span className="header-value">{totalLaps ? `/${totalLaps}` : ''}</span>
         </div>
-
         <div className="header-right">
-          <div className="gap-toggle">
-            <button
-              className={`gap-toggle-btn${gapMode === 'interval' ? ' active' : ''}`}
-              onClick={() => setGapMode('interval')}
-            >INT</button>
-            <button
-              className={`gap-toggle-btn${gapMode === 'leader' ? ' active' : ''}`}
-              onClick={() => setGapMode('leader')}
-            >LDR</button>
-          </div>
           <span className="header-time">{formatTime(currentFrame.t)}</span>
         </div>
       </div>
@@ -131,20 +131,36 @@ export default function Leaderboard({
           const tyreCompound = TYRE_COMPOUNDS[Math.floor(driver.tyre)] || TYRE_COMPOUNDS[0];
           const teamName     = driverTeams?.[driver.code] || '';
           const logoFilename = getTeamLogo(teamName) ?? '';
-
-          const frozenGap = finishGapsRef.current[driver.code];
+          const frozenGap    = finishGapsRef.current[driver.code];
           const gap = driver.finished && frozenGap
             ? (gapMode === 'interval' ? frozenGap.interval : frozenGap.toLeader)
             : (gapMode === 'interval' ? driver.intervalGap : driver.gapToLeader);
 
-          return (
-            <div key={driver.code} className={[
-              'lb-entry',
-              driver.is_out ? 'lb-entry--out'    : '',
-              rowPos === 1  ? 'lb-entry--leader' : '',
-            ].filter(Boolean).join(' ')}>
-              <div className="lb-position">{driver.is_out ? '' : rowPos}</div>
+          const isFocused  = focusedDrivers.has(driver.code);
+          const isDimmed   = anyFocused && !isFocused;
+          const color      = driverColors[driver.code];
+          const accentColor = color ? `rgb(${color[0]},${color[1]},${color[2]})` : 'transparent';
 
+          return (
+            <div
+              key={driver.code}
+              className={[
+                'lb-entry',
+                driver.is_out ? 'lb-entry--out'    : '',
+                rowPos === 1  ? 'lb-entry--leader' : '',
+                isFocused     ? 'lb-entry--focused' : '',
+                isDimmed      ? 'lb-entry--dimmed'  : '',
+              ].filter(Boolean).join(' ')}
+              onClick={() => onToggleDriver(driver.code)}
+              title={isFocused ? `Hide ${driver.code}` : `Focus ${driver.code}`}
+            >
+              {/* Focus accent bar */}
+              <div
+                className="lb-focus-bar"
+                style={{ backgroundColor: isFocused ? accentColor : 'transparent' }}
+              />
+
+              <div className="lb-position">{driver.is_out ? '' : rowPos}</div>
               <div className="lb-driver">
                 <img
                   src={teamLogoUrl(logoFilename)}
@@ -154,7 +170,6 @@ export default function Leaderboard({
                 />
                 <span className="lb-code">{driver.code}</span>
               </div>
-
               <div className="lb-gap">
                 {driver.is_out ? (
                   <span className="gap-out">OUT</span>
@@ -164,13 +179,33 @@ export default function Leaderboard({
                   <span className="gap-value">+{gap.toFixed(1)}</span>
                 )}
               </div>
-
               <div className="lb-tyre" style={{ color: driver.is_out ? 'transparent' : tyreCompound.bg }}>
                 {driver.is_out ? '' : tyreCompound.letter}
               </div>
             </div>
           );
         })}
+      </div>
+
+      <div className="leaderboard-footer">
+        {anyFocused && (
+          <button
+            className="focus-reset-btn"
+            onClick={() => focusedDrivers.forEach(c => onToggleDriver(c))}
+          >
+            SHOW ALL
+          </button>
+        )}
+        <div className="gap-toggle">
+          <button
+            className={`gap-toggle-btn${gapMode === 'interval' ? ' active' : ''}`}
+            onClick={() => setGapMode('interval')}
+          >INT</button>
+          <button
+            className={`gap-toggle-btn${gapMode === 'leader' ? ' active' : ''}`}
+            onClick={() => setGapMode('leader')}
+          >LDR</button>
+        </div>
       </div>
     </div>
   );

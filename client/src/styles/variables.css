@@ -29,9 +29,9 @@
   --color-dark: #0A060D;
   --color-component: #2B2A3F;
   --color-component-light: #413F5C;
-  --color-outline: #999999a5;
+  --color-outline: #777777;
   --color-red: #E10600;
-  --color-red-hover: #a91100;
+  --color-red-hover: rgb(255, 62, 41);
   --color-red-click: rgb(128, 13, 0);
   --color-text: #FFFFFF;
   --color-yellow: #FFD429;
@@ -63,6 +63,6 @@
   --radius-md: 15px;
 
   /* Border widths */
-  --component-border-weight: 2px;
+  --component-border-weight: 1px;
   --entry-border-weight: 1px;
 }

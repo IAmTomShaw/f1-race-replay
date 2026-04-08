@@ -22,3 +22,18 @@
   text-align: center;
   font-size: 18px;
 }
+
+.reset-camera-btn {
+  position: absolute;
+  bottom: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: #ffffff;
+  cursor: pointer;
+}

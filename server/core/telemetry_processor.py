@@ -248,60 +248,40 @@ class TelemetryProcessor:
         timeline: np.ndarray,
         global_t_min: float
     ) -> Dict[str, Dict[str, np.ndarray]]:
-        """
-        Resample all driver data onto common timeline
-        
-        Args:
-            driver_data: Raw driver data
-            timeline: Common timeline array
-            global_t_min: Global minimum time
-        
-        Returns:
-            Dictionary of resampled driver data
-        """
         resampled_data = {}
-        
+
         for code, data in driver_data.items():
-            t = data["data"]["t"] - global_t_min  # Shift to zero
-            
-            # Sort by time
+            t = data["data"]["t"] - global_t_min
+
             order = np.argsort(t)
             t_sorted = t[order]
-            
-            # Resample continuous variables with interpolation
-            arrays_to_resample = [
-                data["data"]["x"][order],
-                data["data"]["y"][order],
-                data["data"]["dist"][order],
-                data["data"]["rel_dist"][order],
-                data["data"]["lap"][order],
-                data["data"]["tyre"][order],
-                data["data"]["speed"][order],
-                data["data"]["gear"][order],
-                data["data"]["drs"][order],
-                data["data"]["throttle"][order],
-                data["data"]["brake"][order],
-            ]
-            
-            resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
-            
-            x_r, y_r, dist_r, rel_dist_r, lap_r, tyre_r, speed_r, gear_r, drs_r, throttle_r, brake_r = resampled
-            
+
+            # Helper: forward-fill (step) interpolation for discrete fields
+            def step_resample(arr):
+                idxs = np.searchsorted(t_sorted, timeline, side='right') - 1
+                idxs = np.clip(idxs, 0, len(t_sorted) - 1)
+                return arr[order][idxs]
+
+            # Helper: linear interpolation for continuous fields
+            def linear_resample(arr):
+                return np.interp(timeline, t_sorted, arr[order])
+
             resampled_data[code] = {
-                "t": timeline,
-                "x": x_r,
-                "y": y_r,
-                "dist": dist_r,
-                "rel_dist": rel_dist_r,
-                "lap": lap_r,
-                "tyre": tyre_r,
-                "speed": speed_r,
-                "gear": gear_r,
-                "drs": drs_r,
-                "throttle": throttle_r,
-                "brake": brake_r,
+                "t":        timeline,
+                "x":        linear_resample(data["data"]["x"]),
+                "y":        linear_resample(data["data"]["y"]),
+                "dist":     linear_resample(data["data"]["dist"]),
+                "rel_dist": linear_resample(data["data"]["rel_dist"]),
+                "speed":    linear_resample(data["data"]["speed"]),
+                "throttle": linear_resample(data["data"]["throttle"]),
+                "brake":    linear_resample(data["data"]["brake"]),
+                # Discrete fields — must NOT be linearly interpolated
+                "lap":      step_resample(data["data"]["lap"]),
+                "tyre":     step_resample(data["data"]["tyre"]),
+                "gear":     step_resample(data["data"]["gear"]),
+                "drs":      step_resample(data["data"]["drs"]),
             }
-        
+
         return resampled_data
     
     def _process_track_status(self, global_t_min: float) -> List[Dict[str, Any]]:
@@ -438,7 +418,10 @@ class TelemetryProcessor:
             
             # Sort by race distance to get positions
             snapshot_list = list(driver_snapshot.items())
-            snapshot_list.sort(key=lambda x: (x[1]["lap"], x[1]["dist"]), reverse=True)
+            snapshot_list.sort(
+                key=lambda x: (x[1]["lap"] - 1) + x[1]["rel_dist"],
+                reverse=True
+            )
             
             # Assign positions
             for pos, (code, data) in enumerate(snapshot_list, start=1):

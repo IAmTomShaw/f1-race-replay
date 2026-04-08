@@ -1,8 +1,25 @@
+/* ── Vertical sidebar navbar ── */
 .navbar {
   display: flex;
-  align-items: center;
-  gap: 15px;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-start;
   flex-shrink: 0;
+  align-self: stretch;  /* full height so bottom-anchor works */
+}
+
+.navbar-top {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.navbar-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
 }
 
 .nav-btn {
@@ -10,16 +27,16 @@
   align-items: center;
   gap: 8px;
   background-color: var(--color-red);
-  border-radius: 0px 0px var(--radius-md) 0px;
+  border-radius: 10px;
   color: var(--color-text);
-  padding: 8px 8px;
+  padding: 8px;
   font-size: var(--font-size-button);
   text-transform: uppercase;
   cursor: pointer;
   transition: all 0.2s;
   font-family: var(--font-button);
   font-weight: var(--font-weight-semi-bold);
-  border: none;
+  border: var(--component-border-weight) solid var(--color-outline);
 }
 
 .nav-btn:hover {
@@ -36,12 +53,10 @@
 }
 
 .nav-info {
-  margin-left: auto;
-  margin-right: var(--component-border-weight, 1px);
   background-color: var(--color-component);
-  border-radius: 5px;
-  outline: var(--component-border-weight) solid var(--color-outline);
-  padding: 5px;
+  border: var(--component-border-weight) solid var(--color-outline);
+  border-radius: 10px;
+  padding: 8px;
   aspect-ratio: 1;
   justify-content: center;
 }
@@ -50,15 +65,33 @@
   background-color: var(--color-component-light);
 }
 
-.nav-info span {
-  display: none;
-}
-
 .nav-info svg {
   color: var(--color-grey-lightest);
+  width: 15px;
+  height: 15px;
 }
 
-/* ── Modal overlay ── */
+.nav-btn--active {
+  background-color: var(--color-component-light, rgba(255,255,255,0.1));
+  border-color: var(--color-red);
+}
+
+/* ── Viewer layout: navbar left, content right ── */
+.viewer-layout {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+  height: 100%;
+  width: 100%;
+  min-height: 0;
+}
+
+.viewer-layout > :not(.navbar) {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Modal ── */
 .modal-overlay {
   position: fixed;
   inset: 0;
@@ -75,12 +108,12 @@
   to   { opacity: 1; }
 }
 
-/* ── Modal box ── */
 .modal {
   position: relative;
-  background-color: var(--color-bg, #1a1a1a);
+  background-color: var(--color-bg, var(--color-component));
   color: var(--color-text, #fff);
   border-radius: var(--radius-md, 8px);
+  outline: var(--component-border-weight, 2px) solid var(--color-outline);
   padding: 32px;
   width: min(480px, 90vw);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -106,9 +139,7 @@
   line-height: 1;
 }
 
-.modal-close:hover {
-  opacity: 1;
-}
+.modal-close:hover { opacity: 1; }
 
 .modal-title {
   margin: 0 0 20px;
@@ -119,14 +150,8 @@
   letter-spacing: 0.05em;
 }
 
-/* ── Sections ── */
-.modal-section {
-  margin-bottom: 20px;
-}
-
-.modal-section:last-child {
-  margin-bottom: 0;
-}
+.modal-section { margin-bottom: 20px; }
+.modal-section:last-child { margin-bottom: 0; }
 
 .modal-section-title {
   font-size: 0.75rem;
@@ -150,11 +175,8 @@
   font-weight: 600;
 }
 
-.modal-link:hover {
-  text-decoration: underline;
-}
+.modal-link:hover { text-decoration: underline; }
 
-/* ── Follow buttons ── */
 .modal-links {
   display: flex;
   gap: 10px;
@@ -165,23 +187,15 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  background-color: var(--color-red, #e63946);
-  color: var(--color-text, #fff);
-  border-radius: 0px 0px var(--radius-md, 8px) 0px;
-  padding: 8px 14px;
+  color: var(--color-red);
+  padding: 10px 0;
   font-size: var(--font-size-button, 0.8rem);
   font-family: var(--font-button, sans-serif);
   font-weight: var(--font-weight-semi-bold, 600);
   text-transform: uppercase;
   text-decoration: none;
-  transition: background-color 0.2s, transform 0.1s;
   cursor: pointer;
 }
 
-.modal-follow-btn:hover {
-  background-color: var(--color-red-hover, #c0303b);
-}
-
-.modal-follow-btn:active {
-  transform: scale(0.95);
-}
+.modal-follow-btn:hover { text-decoration: underline; }
+.modal-follow-btn:active { transform: scale(0.95); }

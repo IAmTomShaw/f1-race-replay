@@ -5,7 +5,6 @@
   justify-content: center;
   background-color: var(--color-component);
   border: var(--component-border-weight) solid var(--color-outline);
-  border-radius: 0 0 var(--radius-md) var(--radius-md);
   padding: 0px 5px 0px 5px;
   gap: 10px;
   align-self: center;
@@ -19,9 +18,18 @@
   align-items: center;
 }
 
+/* Row that holds the detached nav buttons + main console */
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
 .progress-container {
+  position: relative;  /* needed so lap-label positions against this */
   cursor: pointer;
   width: 100%;
+  padding-top: 20px;   /* room for the floating lap label above the bar */
 }
 
 .progress-bar {
@@ -62,16 +70,6 @@
   align-items: center;
 }
 
-.controls-left {
-  display: flex;
-  align-items: center;
-}
-
-.controls-right {
-  display: flex;
-  align-items: center;
-}
-
 /* Vertical Divider */
 .controls-divider {
   width: 2px;
@@ -94,7 +92,7 @@
   opacity: 1;
 }
 
-.control-btn:hover:not(:disabled) {
+.control-btn:hover:not(:disabled) svg {
   opacity: 0.6;
 }
 
@@ -112,7 +110,7 @@
   height: 30px;
 }
 
-/* Speed Display - cleaner */
+/* Speed Display */
 .speed-display {
   display: flex;
   align-items: center;
@@ -151,10 +149,371 @@
   text-align: center;
 }
 
-.race-nav-btn {
+.race-nav-btn-left {
+  background-color: var(--color-component);
+  border: var(--component-border-weight) solid var(--color-outline);
+  border-radius: 0 0 0 var(--radius-md);
   opacity: 0.4;
 }
 
-.race-nav-btn:not(:disabled) {
+.race-nav-btn-right {
+  background-color: var(--color-component);
+  border: var(--component-border-weight) solid var(--color-outline);
+  border-radius: 0 0 var(--radius-md) 0;
+  opacity: 0.4;
+}
+
+.race-nav-btn-left:not(:disabled) {
   opacity: 1;
+}
+
+.race-nav-btn-right:not(:disabled) {
+  opacity: 1;
+}
+
+/* ── Lap navigation additions ── */
+
+/* Lap tick marks on the progress bar */
+.progress-lap-tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+/* Floating lap label above the scrubber handle */
+.progress-lap-label {
+  position: absolute;
+  top: -20px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  pointer-events: none;
+  white-space: nowrap;
+  transition: left 0.1s linear;
+}
+
+/* Lap jump control — mirrors .speed-display layout */
+.lap-display {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.lap-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.lap-label {
+  color: var(--color-text);
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  opacity: 0.6;
+}
+
+.lap-input {
+  width: 36px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-outline);
+  color: var(--color-text);
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+  outline: none;
+  padding: 0 2px;
+  /* hide the browser spin arrows */
+  -moz-appearance: textfield;
+}
+.lap-input::-webkit-outer-spin-button,
+.lap-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+.lap-input:focus {
+  border-bottom-color: var(--color-red);
+}
+
+.lap-total {
+  color: var(--color-text);
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  opacity: 0.4;
+  white-space: nowrap;
+}
+
+/* Controls Container - fits content */
+.controls-container {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--color-component);
+  border: var(--component-border-weight) solid var(--color-outline);
+  padding: 0px 5px 0px 5px;
+  gap: 10px;
+  align-self: center;
+}
+
+.playback-controls {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+}
+
+/* Row that holds the detached nav buttons + main console */
+.controls-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.progress-container {
+  position: relative;  /* needed so lap-label positions against this */
+  cursor: pointer;
+  width: 100%;
+  padding-top: 10px;   /* room for the floating lap label above the bar */
+}
+
+.progress-bar {
+  position: relative;
+  width: 100%;
+  height: 20px;
+  background-color: var(--color-component);
+  overflow: visible;
+  border: var(--component-border-weight) solid var(--color-outline);
+}
+
+.progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  background: var(--color-red);
+  transition: width 0.1s linear;
+}
+
+.progress-handle {
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px;
+  height: 100%;
+  background-color: var(--color-text);
+  cursor: pointer;
+  transition: left 0.1s linear;
+}
+
+.progress-handle:hover {
+  transform: translate(-50%, -50%) scale(1.2);
+}
+
+.controls-section {
+  display: flex;
+  align-items: center;
+}
+
+/* Vertical Divider */
+.controls-divider {
+  width: 2px;
+  height: 30px;
+  background: linear-gradient(to bottom, transparent, var(--color-outline), transparent);
+}
+
+/* Control Buttons - No background, white icons */
+.control-btn {
+  background-color: transparent;
+  border: none;
+  color: var(--color-text);
+  width: 45px;
+  height: 45px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  opacity: 1;
+}
+
+.control-btn:hover:not(:disabled) svg {
+  opacity: 0.6;
+}
+
+.control-btn:active:not(:disabled) {
+  transform: scale(0.95);
+}
+
+.control-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.control-btn-primary {
+  width: 30px;
+  height: 30px;
+}
+
+/* Speed Display */
+.speed-display {
+  display: flex;
+  align-items: center;
+}
+
+.speed-btn {
+  background-color: transparent;
+  border: none;
+  color: var(--color-text);
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  transition: opacity 0.2s;
+  opacity: 1;
+}
+
+.speed-btn:hover:not(:disabled) {
+  opacity: 0.6;
+}
+
+.speed-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.speed-value {
+  color: var(--color-text);
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  min-width: 50px;
+  text-align: center;
+}
+
+.race-nav-btn-left {
+  background-color: var(--color-component);
+  border: var(--component-border-weight) solid var(--color-outline);
+  border-radius: 0 0 0 var(--radius-md);
+  opacity: 0.4;
+}
+
+.race-nav-btn-right {
+  background-color: var(--color-component);
+  border: var(--component-border-weight) solid var(--color-outline);
+  border-radius: 0 0 var(--radius-md) 0;
+  opacity: 0.4;
+}
+
+.race-nav-btn-left:not(:disabled) {
+  opacity: 1;
+}
+
+.race-nav-btn-right:not(:disabled) {
+  opacity: 1;
+}
+
+/* ── Lap navigation additions ── */
+
+/* ── Track status strip ── */
+.track-status-strip {
+  position: relative;
+  width: 100%;
+  height: 4px;
+  margin-bottom: 3px;
+}
+
+.track-status-segment {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  border-radius: 2px;
+  opacity: 0.85;
+  cursor: default;
+}
+
+.track-status-segment:hover {
+  opacity: 1;
+}
+
+/* Lap tick marks on the progress bar */
+.progress-lap-tick {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 100%;
+  background-color: rgba(255, 255, 255, 0.25);
+  pointer-events: none;
+  transform: translateX(-50%);
+}
+
+/* Floating lap label above the scrubber handle */
+.progress-lap-label {
+  position: absolute;
+  top: -8px;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  color: var(--color-text);
+  opacity: 0.6;
+  pointer-events: none;
+  white-space: nowrap;
+  transition: left 0.1s linear;
+}
+
+/* Lap jump control — mirrors .speed-display layout */
+.lap-display {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.lap-input-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.lap-label {
+  color: var(--color-text);
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  opacity: 0.6;
+}
+
+.lap-input {
+  width: 36px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-outline);
+  color: var(--color-text);
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  text-align: center;
+  outline: none;
+  padding: 0 2px;
+  /* hide the browser spin arrows */
+  -moz-appearance: textfield;
+}
+.lap-input::-webkit-outer-spin-button,
+.lap-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+}
+.lap-input:focus {
+  border-bottom-color: var(--color-red);
+}
+
+.lap-total {
+  color: var(--color-text);
+  font-size: var(--font-size-header);
+  font-weight: var(--font-weight-bold);
+  opacity: 0.4;
+  white-space: nowrap;
 }

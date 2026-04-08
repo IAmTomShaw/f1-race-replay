@@ -1,0 +1,48 @@
+.race-event-popup {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 10;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  background-color: var(--color-component);
+  border: var(--component-border-weight) solid var(--color-outline);
+  padding: 8px 14px 8px 0;
+  overflow: hidden;
+
+  opacity: 0;
+  transform: translateY(-8px);
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  pointer-events: none;
+}
+
+.race-event-popup--visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Coloured left accent bar */
+.race-event-popup-bar {
+  width: 4px;
+  align-self: stretch;
+  flex-shrink: 0;
+}
+
+.race-event-popup-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.race-event-popup-label {
+  font-size: var(--font-size-text);
+  font-family: var(--font-button);
+  font-weight: var(--font-weight-bold);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-text);
+  white-space: nowrap;
+}

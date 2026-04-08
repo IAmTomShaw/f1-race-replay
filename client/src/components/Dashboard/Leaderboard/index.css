@@ -18,9 +18,9 @@
 }
 
 .header-row-1 {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .f1-logo {
@@ -36,9 +36,9 @@
 }
 
 .header-row-2 {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .header-info-item {
@@ -102,19 +102,23 @@
   border-radius: 3px;
 }
 
+/* ── Entry rows ── */
+
 .lb-entry {
+  position: relative;
   display: grid;
   grid-template-columns: 28px 1fr 60px 24px;
   align-items: stretch;
   padding: 0;
   border-bottom: var(--entry-border-weight) solid var(--color-grey-dark);
-  transition: background-color 0.15s;
   flex: 1;
   min-height: 0;
+  cursor: pointer;
+  transition: opacity 0.2s ease, background-color 0.15s;
 }
 
 .lb-entry:hover {
-  background-color: rgba(88, 81, 121, 0.4);
+  background-color: rgba(255, 255, 255, 0.04);
 }
 
 .lb-entry--out {
@@ -127,6 +131,26 @@
 
 .lb-entry--leader .lb-position {
   background-color: var(--color-red);
+}
+
+.lb-entry--dimmed {
+  opacity: 0.3;
+}
+
+.lb-entry--focused {
+  opacity: 1;
+}
+
+/* Thin coloured accent bar on left edge when focused */
+.lb-focus-bar {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  transition: background-color 0.15s ease;
+  pointer-events: none;
 }
 
 .lb-position {
@@ -158,11 +182,22 @@
   flex-shrink: 0;
 }
 
+.lb-color-stripe.visible {
+  display: block !important;
+}
+
 .lb-code {
   font-size: 12px;
   font-weight: var(--font-weight-semi-bold);
   letter-spacing: 0.5px;
   text-transform: uppercase;
+}
+
+.lb-team-logo {
+  width: 15px;
+  height: 15px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .lb-gap {
@@ -206,13 +241,69 @@
   min-width: 0;
 }
 
-.lb-team-logo {
-  width: 15px;
-  height: 15px;
-  object-fit: contain;
-  flex-shrink: 0;
+/* ── Footer ── */
+
+.leaderboard-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 8px;
+  gap: 8px;
+  border-top: var(--component-border-weight) solid var(--color-outline);
 }
 
-.lb-color-stripe.visible {
-  display: block !important;
+.focus-reset-btn {
+  background: transparent;
+  border: var(--component-border-weight) solid var(--color-outline);
+  color: var(--color-grey-light);
+  font-size: 10px;
+  font-weight: var(--font-weight-bold);
+  font-family: var(--font-button);
+  padding: 3px 8px;
+  cursor: pointer;
+  transition: color 0.2s;
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.focus-reset-btn:hover {
+  color: var(--color-text);
+}
+
+/* Gap toggle — segmented control, right-aligned to match gap/tyre columns */
+.gap-toggle {
+  display: flex;
+  margin-left: auto;
+  padding-right: 2px;
+}
+
+.gap-toggle-btn {
+  padding: 3px 8px;
+  border: var(--component-border-weight) solid var(--color-outline);
+  background: transparent;
+  color: var(--color-grey-light);
+  font-size: 9px;
+  font-weight: var(--font-weight-bold);
+  font-family: var(--font-button);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+/* Merge the border between the two buttons */
+.gap-toggle-btn:first-child {
+  border-right: none;
+}
+
+.gap-toggle-btn:hover {
+  color: var(--color-text);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.gap-toggle-btn.active {
+  background: var(--color-red);
+  border-color: var(--color-red);
+  color: var(--color-text);
 }
