@@ -1,11 +1,20 @@
 import pandas as pd
 from typing import Optional, Dict
+
 from src.bayesian_tyre_model import BayesianTyreDegradationModel
+from src.lib.logging import get_logger
+from src.lib.exceptions import (
+    BayesianFitError,
+    TyreDegradationQueryError,
+    TyreDegradationInitializationError,
+)
+
+logger = get_logger(__name__)
 
 
 class TyreDegradationIntegrator:
     
-    def __init__(self, session=None, laps_df: Optional[pd.DataFrame] = None):
+    def __init__(self, session=None, laps_df: Optional[pd.DataFrame] = None) -> None:
         self.session = session
         self._laps_df = laps_df
         self._model = BayesianTyreDegradationModel()
@@ -13,38 +22,34 @@ class TyreDegradationIntegrator:
         self._cache = {}
     
     def initialize_from_session(self) -> bool:
-        
         try:
             if self._laps_df is None:
                 if self.session is None:
-                    print("BayesianModel: No session or laps data provided")
+                    logger.error("BayesianModel: No session or laps data provided")
                     return False
                 self._laps_df = self.session.laps
             
             if self._laps_df is None or self._laps_df.empty:
-                print("BayesianModel: Empty laps dataframe")
+                logger.error("BayesianModel: Empty laps dataframe")
                 return False
             
-            print(f"BayesianModel: Fitting state-space model on {len(self._laps_df)} laps...")
+            logger.info(f"BayesianModel: Fitting state-space model on {len(self._laps_df)} laps...")
             
             self._model.fit(self._laps_df)
             
             self._initialized = True
             
-            print("BayesianModel: Degradation rates (seconds/lap) (If a set of tyres were not used in the race, the deg value denoted is the prior assumed in the model):")
+            logger.info("BayesianModel: Degradation rates (seconds/lap) (If a set of tyres were not used in the race, the deg value denoted is the prior assumed in the model):")
             for compound_name, tyre in self._model.tyre_profiles.items():
-                print(f"  {compound_name} ({tyre.category.value}): {tyre.degradation_rate:.4f}")
+                logger.info(f"  {compound_name} ({tyre.category.value}): {tyre.degradation_rate:.4f}")
             
             return True
             
         except Exception as e:
-            print(f"BayesianModel initialization error: {e}")
-            import traceback
-            traceback.print_exc()
-            return False
+            logger.error(f"BayesianModel initialization error: {e}", exc_info=True)
+            raise TyreDegradationInitializationError(f"Failed to initialize tyre degradation model: {e}") from e
     
     def is_initialized(self) -> bool:
-        
         return self._initialized
     
     def get_tyre_health(
@@ -76,8 +81,8 @@ class TyreDegradationIntegrator:
             return health_data
             
         except Exception as e:
-            print(f"BayesianModel query error for {driver_code} lap {current_lap}: {e}")
-            return None
+            logger.error(f"BayesianModel query error for {driver_code} lap {current_lap}: {e}", exc_info=True)
+            raise TyreDegradationQueryError(f"Failed to query tyre health for {driver_code}: {e}") from e
     
     def get_health_for_frame(
         self,

@@ -1,5 +1,3 @@
-
-
 tyre_compounds_ints = {
   "SOFT": 0,
   "MEDIUM": 1,

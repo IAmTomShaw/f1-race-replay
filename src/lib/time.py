@@ -1,9 +1,14 @@
 import re
 from typing import Optional
 
+from src.lib.logging import get_logger
+from src.lib.exceptions import TimeParseError
+
+logger = get_logger(__name__)
+
 # convert time in seconds to a MM:SS.sss format
 
-def format_time(seconds: float) -> str:
+def format_time(seconds: Optional[float]) -> str:
   if seconds is None or seconds < 0:
     return "N/A"
   minutes = int(seconds // 60)
@@ -11,14 +16,13 @@ def format_time(seconds: float) -> str:
   return f"{minutes:02}:{secs:06.3f}"
 
 def parse_time_string(time_str: str) -> Optional[float]:
-  """
-  Parse strings like:
+  """Parse strings like:
     - "00:01:26:123000"
     - "00:01:26.123000"
     - "01:26.123"
     - "01:26"
   and return total seconds as float. Returns None if parsing fails.
-  """
+"""
   # Handle timedelta format like "0 days 00:01:27.060000"
   if "days" in str(time_str):
     time_str = str(time_str).split(" ", 2)[-1]  # Take the time part after "X days "
@@ -26,12 +30,12 @@ def parse_time_string(time_str: str) -> Optional[float]:
     time_str = str(time_str).split(" ")[0]  # Remove any trailing text after space
     
   if time_str is None:
-    print('1parse_time_string output: None')
+    logger.debug("parse_time_string: Input is None")
     return None
   
   s = str(time_str).strip()
   if s == "":
-    print('2parse_time_string output: None')
+    logger.debug("parse_time_string: Empty string after strip")
     return None
 
   # Split on colon or dot
@@ -53,7 +57,7 @@ def parse_time_string(time_str: str) -> Optional[float]:
     elif len(parts) == 2:
       mm, ss = parts
     else:
-      print('3parse_time_string output: None')
+      logger.debug(f"parse_time_string: Unexpected number of parts: {len(parts)}")
       return None
 
     hh = int(hh)
@@ -65,6 +69,5 @@ def parse_time_string(time_str: str) -> Optional[float]:
 
     return round(total_seconds, 3)
   except Exception as e:
-    print('Exception in parse_time_string:', e)
-    print('4parse_time_string output: None')
+    logger.error(f"parse_time_string exception: {e}")
     return None

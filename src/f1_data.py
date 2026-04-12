@@ -3,6 +3,7 @@ import pickle
 import sys
 from datetime import timedelta, date
 from multiprocessing import Pool, cpu_count
+from typing import Optional, Dict, List, Tuple, Any
 
 import fastf1
 import fastf1.plotting
@@ -12,9 +13,15 @@ import pandas as pd
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
+from src.config import DataConfig
+from src.lib.logging import get_logger
+from src.lib.exceptions import F1DataError, SessionDataError, SessionNotAvailableError
+
+logger = get_logger(__name__)
 
 
-def enable_cache():
+def enable_cache() -> None:
+    """Enable F1 data caching using configured cache location."""
     # Get cache location from settings
     settings = get_settings()
     cache_path = settings.cache_location
@@ -27,15 +34,14 @@ def enable_cache():
     fastf1.Cache.enable_cache(cache_path)
 
 
-FPS = 25
-DT = 1 / FPS
+FPS = DataConfig.fps
+DT = DataConfig.dt
 
 
-def _process_single_driver(args):
-    """Process telemetry data for a single driver - must be top-level for multiprocessing"""
+def _process_single_driver(args: Tuple[str, Any, str]) -> Optional[Dict[str, Any]]:
     driver_no, session, driver_code = args
 
-    print(f"Getting telemetry for driver: {driver_code}")
+    logger.debug(f"Getting telemetry for driver: {driver_code}")
 
     laps_driver = session.laps.pick_drivers(driver_no)
     if laps_driver.empty:
@@ -119,7 +125,7 @@ def _process_single_driver(args):
     throttle_all = np.concatenate(throttle_all)[order]
     brake_all = np.concatenate(brake_all)[order]
 
-    print(f"Completed telemetry for driver: {driver_code}")
+    logger.debug(f"Completed telemetry for driver: {driver_code}")
 
     return {
         "code": driver_code,
@@ -144,7 +150,7 @@ def _process_single_driver(args):
     }
 
 
-def load_session(year, round_number, session_type="R"):
+def load_session(year: int, round_number: int, session_type: str = "R") -> Any:
     # session_type: 'R' (Race), 'S' (Sprint) etc.
     session = fastf1.get_session(year, round_number, session_type)
     session.load(telemetry=True, weather=True)
@@ -171,7 +177,7 @@ def get_circuit_rotation(session):
     return circuit.rotation
 
 
-def _compute_safety_car_positions(frames, track_statuses, session):
+def _compute_safety_car_positions(frames: List[Dict[str, Any]], track_statuses: List[Dict[str, Any]], session: Any) -> List[Dict[str, Any]]:
     """
     Simulate safety car (SC) positions for each frame based on track status.
     
@@ -197,11 +203,11 @@ def _compute_safety_car_positions(frames, track_statuses, session):
     try:
         fastest_lap = session.laps.pick_fastest()
         if fastest_lap is None:
-            print("Safety Car: No fastest lap found, skipping SC position computation")
+            logger.warning("Safety Car: No fastest lap found, skipping SC position computation")
             return
         tel = fastest_lap.get_telemetry()
         if tel is None or tel.empty:
-            print("Safety Car: No telemetry data, skipping SC position computation")
+            logger.warning("Safety Car: No telemetry data, skipping SC position computation")
             return
         
         ref_xs = tel["X"].to_numpy().astype(float)
@@ -209,7 +215,7 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         ref_dist = tel["Distance"].to_numpy().astype(float)
         
         if len(ref_xs) < 10:
-            print("Safety Car: Insufficient reference points, skipping")
+            logger.warning("Safety Car: Insufficient reference points, skipping")
             return
         
         # Interpolate reference to high density for smooth positioning
@@ -237,8 +243,8 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         ref_ny = dx / norm
         
     except Exception as e:
-        print(f"Safety Car: Failed to build reference polyline: {e}")
-        return
+        logger.error(f"Safety Car: Failed to build reference polyline: {e}")
+        raise F1DataError(f"Failed to build safety car reference: {e}") from e
 
     # Identify SC deployment periods from track_statuses
     sc_periods = []
@@ -250,10 +256,10 @@ def _compute_safety_car_positions(frames, track_statuses, session):
             })
     
     if not sc_periods:
-        print("Safety Car: No SC periods found in this session")
+        logger.warning("Safety Car: No SC periods found in this session")
         return
 
-    print(f"Safety Car: Found {len(sc_periods)} SC deployment period(s)")
+    logger.info(f"Safety Car: Found {len(sc_periods)} SC deployment period(s)")
     
     # ---- Constants ----
     # Deployment: SC exits pit, cruises on track at realistic SC speed, waits for leader
@@ -533,10 +539,10 @@ def _compute_safety_car_positions(frames, track_statuses, session):
 
     # Count frames with SC data
     sc_frame_count = sum(1 for f in frames if f.get("safety_car") is not None)
-    print(f"Safety Car: Computed positions for {sc_frame_count} frames")
+    logger.debug(f"Safety Car: Computed positions for {sc_frame_count} frames")
 
 
-def get_race_telemetry(session, session_type="R"):
+def get_race_telemetry(session: Any, session_type: str = "R") -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], int, List[str], Dict[str, Tuple[int, int, int]]]:
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprint" if session_type == "S" else "race"
 
@@ -548,8 +554,8 @@ def get_race_telemetry(session, session_type="R"):
                 f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
             ) as f:
                 frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
+                logger.info(f"Loaded precomputed {cache_suffix} telemetry data.")
+                logger.info("The replay should begin in a new window shortly!")
                 return frames
     except FileNotFoundError:
         pass  # Need to compute from scratch
@@ -567,7 +573,7 @@ def get_race_telemetry(session, session_type="R"):
 
     # 1. Get all of the drivers telemetry data using multiprocessing
     # Prepare arguments for parallel processing
-    print(f"Processing {len(drivers)} drivers in parallel...")
+    logger.debug(f"Processing {len(drivers)} drivers in parallel...")
     driver_args = [
         (driver_no, session, driver_codes[driver_no]) for driver_no in drivers
     ]
@@ -722,7 +728,8 @@ def get_race_telemetry(session, session_type="R"):
                     "rainfall": rainfall,
                 }
         except Exception as e:
-            print(f"Weather data could not be processed: {e}")
+            logger.error(f"Weather data could not be processed: {e}")
+            raise F1DataError(f"Failed to process weather data: {e}") from e
 
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
@@ -814,7 +821,8 @@ def get_race_telemetry(session, session_type="R"):
                     "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
                 }
             except Exception as e:
-                print(f"Failed to attach weather data to frame {i}: {e}")
+                logger.error(f"Failed to attach weather data to frame {i}: {e}")
+                raise F1DataError(f"Failed to attach weather data to frame: {e}") from e
 
         frame_payload = {
             "t": round(t, 3),
@@ -828,14 +836,14 @@ def get_race_telemetry(session, session_type="R"):
 
     # 5d. Compute Safety Car positions for each frame
     _compute_safety_car_positions(frames, formatted_track_statuses, session)
-    print("completed telemetry extraction...")
-    print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    logger.debug("completed telemetry extraction...")
+    logger.debug("Saving to cache file...")
+    # If cache directory doesn't exist, create it
+    if not os.path.exists(DataConfig.cache_directory):
+        os.makedirs(DataConfig.cache_directory)
 
     # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(f"{DataConfig.cache_directory}/{event_name}_{cache_suffix}_{DataConfig.telemetry_cache_suffix}{DataConfig.cache_file_extension}", "wb") as f:
         pickle.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
@@ -844,8 +852,8 @@ def get_race_telemetry(session, session_type="R"):
             "max_tyre_life": max_tyre_life_map,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-    print("Saved Successfully!")
-    print("The replay should begin in a new window shortly")
+    logger.info("Saved Successfully!")
+    logger.info("The replay should begin in a new window shortly")
     return {
         "frames": frames,
         "driver_colors": get_driver_colors(session),
@@ -855,7 +863,15 @@ def get_race_telemetry(session, session_type="R"):
     }
 
 
-def get_qualifying_results(session):
+def get_qualifying_results(session: Any) -> List[Dict[str, Any]]:
+    """Get qualifying results from session.
+    
+    Args:
+        session: F1 session object.
+        
+    Returns:
+        List of driver results dictionaries.
+    """
     # Extract the qualifying results and return a list of the drivers, their positions and their lap times in each qualifying segment
 
     results = session.results
@@ -893,7 +909,17 @@ def get_qualifying_results(session):
     return qualifying_data
 
 
-def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
+def get_driver_quali_telemetry(session: Any, driver_code: str, quali_segment: str) -> Dict[str, Any]:
+    """Get qualifying telemetry for a specific driver and segment.
+    
+    Args:
+        session: F1 session object.
+        driver_code: Driver 3-letter code (e.g., "VER").
+        quali_segment: Segment ("Q1", "Q2", "Q3").
+        
+    Returns:
+        Dictionary with telemetry frames for the driver.
+    """
     # Split Q1/Q2/Q3 sections
     q1, q2, q3 = session.laps.split_qualifying_sessions()
 
@@ -1083,7 +1109,8 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
                     "rainfall": rainfall,
                 }
         except Exception as e:
-            print(f"Weather data could not be processed: {e}")
+            logger.error(f"Weather data could not be processed: {e}")
+            raise F1DataError(f"Failed to process weather data: {e}") from e
 
     # Build the frames
     frames = []
@@ -1116,7 +1143,8 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
                     "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
                 }
             except Exception as e:
-                print(f"Failed to attach weather data to frame {i}: {e}")
+                logger.error(f"Failed to attach weather data to frame {i}: {e}")
+                raise F1DataError(f"Failed to attach weather data to frame: {e}") from e
 
         # Check if drs has changed from the previous frame
 
@@ -1190,10 +1218,18 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
     }
 
 
-def _process_quali_driver(args):
+def _process_quali_driver(args: Tuple[str, Any, str, str]) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """Process qualifying telemetry for a single driver.
+    
+    Args:
+        args: Tuple of (driver_code, session, quali_segment, segment_key).
+        
+    Returns:
+        Tuple of (driver_code, telemetry_dict) or None if error.
+    """
     """Process qualifying telemetry data for a single driver - must be top-level for multiprocessing"""
     session, driver_code = args
-    print(f"Getting qualifying telemetry for driver: {driver_code}")
+    logger.debug(f"Getting qualifying telemetry for driver: {driver_code}")
 
     driver_telemetry_data = {}
 
@@ -1216,7 +1252,7 @@ def _process_quali_driver(args):
         except ValueError:
             driver_telemetry_data[segment] = {"frames": [], "track_statuses": []}
 
-    print(
+    logger.debug(
         f"Finished processing qualifying telemetry for driver: {driver_code}, {session.get_driver(driver_code)['FullName']},"
     )
     return {
@@ -1228,7 +1264,16 @@ def _process_quali_driver(args):
     }
 
 
-def get_quali_telemetry(session, session_type="Q"):
+def get_quali_telemetry(session: Any, session_type: str = "Q") -> Dict[str, Any]:
+    """Get qualifying telemetry for all drivers.
+    
+    Args:
+        session: F1 session object.
+        session_type: Session type ("Q" for Qualifying, "SQ" for Sprint Qualifying).
+        
+    Returns:
+        Dictionary with telemetry data for all drivers and segments.
+    """
     # This function is going to get the results from qualifying and the telemetry for each drivers' fastest laps in each qualifying segment
 
     # The structure of the returned data will be:
@@ -1251,11 +1296,11 @@ def get_quali_telemetry(session, session_type="Q"):
     try:
         if "--refresh-data" not in sys.argv:
             with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                f"{DataConfig.cache_directory}/{event_name}_{cache_suffix}_{DataConfig.telemetry_cache_suffix}{DataConfig.cache_file_extension}", "rb"
             ) as f:
                 data = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
+                logger.info(f"Loaded precomputed {cache_suffix} telemetry data.")
+                logger.info("The replay should begin in a new window shortly!")
                 return data
     except FileNotFoundError:
         pass  # Need to compute from scratch
@@ -1275,7 +1320,7 @@ def get_quali_telemetry(session, session_type="Q"):
 
     driver_args = [(session, driver_codes[driver_no]) for driver_no in session.drivers]
 
-    print(f"Processing {len(session.drivers)} drivers in parallel...")
+    logger.debug(f"Processing {len(session.drivers)} drivers in parallel...")
 
     num_processes = min(cpu_count(), len(session.drivers))
 
@@ -1293,12 +1338,12 @@ def get_quali_telemetry(session, session_type="Q"):
         if result["min_speed"] < min_speed or min_speed == 0.0:
             min_speed = result["min_speed"]
 
-    # Save to the compute_data directory
+    # Save to the cache directory
 
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    if not os.path.exists(DataConfig.cache_directory):
+        os.makedirs(DataConfig.cache_directory)
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(f"{DataConfig.cache_directory}/{event_name}_{cache_suffix}_{DataConfig.telemetry_cache_suffix}{DataConfig.cache_file_extension}", "wb") as f:
         pickle.dump(
             {
                 "results": qualifying_results,
@@ -1318,7 +1363,15 @@ def get_quali_telemetry(session, session_type="Q"):
     }
 
 
-def get_race_weekends_by_year(year):
+def get_race_weekends_by_year(year: int) -> List[Dict[str, Any]]:
+    """Get all race weekends for a given year.
+    
+    Args:
+        year: The year to query.
+        
+    Returns:
+        List of race weekend dictionaries.
+    """
     """Returns a list of race weekends for a given year."""
     enable_cache()
     schedule = fastf1.get_event_schedule(year)
@@ -1346,7 +1399,15 @@ def get_race_weekends_by_year(year):
         )
     return weekends
 
-def get_race_weekends_by_place(place):
+def get_race_weekends_by_place(place: str) -> List[Dict[str, Any]]:
+    """Get all race weekends for a given circuit.
+    
+    Args:
+        place: Circuit name (e.g., "Monaco", "Silverstone").
+        
+    Returns:
+        List of race weekend dictionaries for that circuit.
+    """
     """Returns a list of past n race weekends for a given place."""
     enable_cache()
     place=place.lower().strip()
@@ -1376,7 +1437,16 @@ def get_race_weekends_by_place(place):
                 })
     return weekends
 
-def get_all_unique_race_names(start_year=2018, end_year=2025): #update as necessary
+def get_all_unique_race_names(start_year: int = 2018, end_year: int = 2025) -> List[str]:
+    """Get all unique race circuit names in a year range.
+    
+    Args:
+        start_year: Starting year (default 2018).
+        end_year: Ending year (default 2025).
+        
+    Returns:
+        Sorted list of unique race circuit names.
+    """
     "Return a list of all unique race locations"
     enable_cache()
     race_names=set()
@@ -1396,19 +1466,27 @@ def get_all_unique_race_names(start_year=2018, end_year=2025): #update as necess
 
     return sorted(race_names)
 
-def list_rounds(year):
-    """Lists all rounds for a given year."""
+def list_rounds(year: int) -> None:
+    """Lists all rounds for a given year.
+    
+    Args:
+        year: F1 season year.
+    """
     enable_cache()
-    print(f"F1 Schedule {year}")
+    logger.info(f"F1 Schedule {year}")
     schedule = fastf1.get_event_schedule(year)
     for _, event in schedule.iterrows():
-        print(f"{event['RoundNumber']}: {event['EventName']}")
+        logger.info(f"{event['RoundNumber']}: {event['EventName']}")
 
 
-def list_sprints(year):
-    """Lists all sprint rounds for a given year."""
+def list_sprints(year: int) -> None:
+    """Lists all sprint rounds for a given year.
+    
+    Args:
+        year: F1 season year.
+    """
     enable_cache()
-    print(f"F1 Sprint Races {year}")
+    logger.info(f"F1 Sprint Races {year}")
     schedule = fastf1.get_event_schedule(year)
     sprint_name = "sprint_qualifying"
     if year == 2023:
@@ -1417,7 +1495,7 @@ def list_sprints(year):
         sprint_name = "sprint"
     sprints = schedule[schedule["EventFormat"] == sprint_name]
     if sprints.empty:
-        print(f"No sprint races found for {year}.")
+        logger.info(f"No sprint races found for {year}.")
     else:
         for _, event in sprints.iterrows():
-            print(f"{event['RoundNumber']}: {event['EventName']}")
+            logger.info(f"{event['RoundNumber']}: {event['EventName']}")

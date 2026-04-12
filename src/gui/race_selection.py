@@ -4,7 +4,7 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtWidgets import QProgressDialog
 from PySide6.QtCore import QThread, Signal, Qt, QTimer
-#from PySide6.QtGui import QPixmap, QFont
+from typing import List, Dict, Optional, Any
 import sys
 import os
 import subprocess
@@ -14,31 +14,40 @@ from datetime import datetime, timezone
 from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names, load_session
 from src.gui.settings_dialog import SettingsDialog
 from src.lib.season import get_season
+from src.lib.logging import get_logger
+from src.lib.exceptions import SessionDataError, F1DataError
+
+logger = get_logger(__name__)
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
     result = Signal(object)
     error = Signal(str)
 
-    def __init__(self, year, parent=None):
+    def __init__(self, year: int, parent: Optional[QThread] = None) -> None:
         super().__init__(parent)
         self.year = year
 
-    def run(self): #check
+    def run(self) -> None:
+        """Fetch schedule in worker thread."""
         try:
             # enable cache if available in project
             try:
                 from src.f1_data import enable_cache
                 enable_cache()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Could not enable cache: {e}")
             events = get_race_weekends_by_year(self.year)
             self.result.emit(events)
-        except Exception as e:
+        except (F1DataError, SessionDataError) as e:
+            logger.error(f"Error fetching schedule for year {self.year}: {e}", exc_info=True)
             self.error.emit(str(e))
+        except Exception as e:
+            logger.error(f"Unexpected error fetching schedule for year {self.year}: {e}", exc_info=True)
+            self.error.emit(f"Failed to fetch races: {str(e)}")
 
 class RaceSelectionWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.worker = None
         self.loading_session = False
@@ -52,7 +61,7 @@ class RaceSelectionWindow(QMainWindow):
         self.setMinimumSize(800, 600)
         self.setWindowState(self.windowState())
 
-    def _setup_ui(self):
+    def _setup_ui(self) -> None:
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
 
@@ -146,7 +155,7 @@ class RaceSelectionWindow(QMainWindow):
         self.session_panel.hide()
         self.load_schedule(year=self.current_year)
         
-    def load_schedule(self, year=None, events=None):
+    def load_schedule(self, year: Optional[int] = None, events: Optional[List[Dict[str, Any]]] = None) -> None:
         if self.loading_session:
             return
         
@@ -174,7 +183,7 @@ class RaceSelectionWindow(QMainWindow):
         
         self.loading_session=False
 
-    def load_by_year(self, year_text):
+    def load_by_year(self, year_text: str) -> None:
         if self.loading_session:
             return
         
@@ -195,7 +204,7 @@ class RaceSelectionWindow(QMainWindow):
         self.selected_year=int(year_text)
         self.load_schedule(year=self.selected_year)
 
-    def load_by_place(self,race_name):
+    def load_by_place(self, race_name: str) -> None:
         if race_name=="All Races":
             if self.selected_year is not None:
                 self.load_schedule(year=self.selected_year)
@@ -212,7 +221,7 @@ class RaceSelectionWindow(QMainWindow):
         events=get_race_weekends_by_place(race_name)
         self.load_schedule(events=events)
 
-    def populate_schedule(self, events):
+    def populate_schedule(self, events: List[Dict[str, Any]]) -> None:
         for event in events:
             # Ensure all columns are strings (QTreeWidgetItem expects text)
             round_str = str(event.get("round_number", ""))
@@ -233,7 +242,7 @@ class RaceSelectionWindow(QMainWindow):
 
         self.loading_session = False
 
-    def on_race_clicked(self, item, column):
+    def on_race_clicked(self, item: QTreeWidgetItem, column: int) -> None:
         ev = item.data(0, Qt.UserRole)
         # ensure the sessions panel is visible when a race is selected
         try:
@@ -361,8 +370,12 @@ class RaceSelectionWindow(QMainWindow):
                         pass
                     sess = load_session(self.year, self.round_no, self.session_type)
                     self.result.emit(sess)
-                except Exception as e:
+                except (SessionDataError, F1DataError) as e:
+                    logger.error(f"Error loading session {self.session_type}: {e}", exc_info=True)
                     self.error.emit(str(e))
+                except Exception as e:
+                    logger.error(f"Unexpected error loading session: {e}", exc_info=True)
+                    self.error.emit(f"Failed to load session: {str(e)}")
 
         def _on_loaded(session_obj):
             # create a unique ready-file path and pass it to the child
@@ -426,10 +439,10 @@ class RaceSelectionWindow(QMainWindow):
         # Keep a reference so it doesn't get GC'd
         self._session_worker = worker
         worker.start()
-    def show_error(self, message):
+    def show_error(self, message: str) -> None:
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
 
-    def open_settings(self):
+    def open_settings(self) -> None:
         dialog = SettingsDialog(self)
         dialog.exec()

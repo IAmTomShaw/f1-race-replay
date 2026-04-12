@@ -5,6 +5,9 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
+from src.lib.logging import get_logger
+
+logger = get_logger(__name__)
 
 
 class InsightsMenu(QMainWindow):
@@ -164,7 +167,7 @@ class InsightsMenu(QMainWindow):
     # Insight launch methods (placeholders for now)
     
     def launch_example_window(self):
-        print("🚀 Launching: Example Insight Window")
+        logger.debug("Launching: Example Insight Window")
         # Open the Example PitWallWindow
         from src.insights.example_pit_wall_window import ExamplePitWallWindow
         example_window = ExamplePitWallWindow()
@@ -173,71 +176,71 @@ class InsightsMenu(QMainWindow):
         self.opened_windows.append(example_window)
 
     def launch_driver_telemetry(self):
-        print("🚀 Launching: Driver Live Telemetry")
+        logger.debug("Launching: Driver Live Telemetry")
         from src.insights.driver_telemetry_window import DriverTelemetryWindow
         window = DriverTelemetryWindow()
         window.show()
         self.opened_windows.append(window)
 
     def launch_track_position(self):
-        print("🚀 Launching: Track Position Map")
+        logger.debug("Launching: Track Position Map")
         from src.insights.track_position_window import TrackPositionWindow
         window = TrackPositionWindow()
         window.show()
         self.opened_windows.append(window)
 
     def launch_telemetry_viewer(self):
-        print("🚀 Launching: Telemetry Stream Viewer")
+        logger.debug("Launching: Telemetry Stream Viewer")
         try:
             import subprocess
             import sys
             subprocess.Popen([sys.executable, "-m", "src.insights.telemetry_stream_viewer"])
         except Exception as e:
-            print(f"Failed to launch telemetry viewer: {e}")
+            logger.error("Failed to launch telemetry viewer: %s", e)
             self.show_placeholder_message("Telemetry Stream Viewer")
     
     def launch_speed_monitor(self):
-        print("🚀 Launching: Speed Monitor")
+        logger.debug("Launching: Speed Monitor")
         self.show_placeholder_message("Speed Monitor")
     
     def launch_position_tracker(self):
-        print("🚀 Launching: Position Tracker")
+        logger.debug("Launching: Position Tracker")
         self.show_placeholder_message("Position Tracker")
     
     def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
+        logger.debug("Launching: Tyre Strategy")
         self.show_placeholder_message("Tyre Strategy")
     
     def launch_pit_analysis(self):
-        print("🚀 Launching: Pit Stop Analysis")
+        logger.debug("Launching: Pit Stop Analysis")
         self.show_placeholder_message("Pit Stop Analysis")
     
     def launch_gap_analysis(self):
-        print("🚀 Launching: Gap Analysis")
+        logger.debug("Launching: Gap Analysis")
         self.show_placeholder_message("Gap Analysis")
     
     def launch_sector_times(self):
-        print("🚀 Launching: Sector Times")
+        logger.debug("Launching: Sector Times")
         self.show_placeholder_message("Sector Times")
     
     def launch_lap_evolution(self):
-        print("🚀 Launching: Lap Time Evolution")
+        logger.debug("Launching: Lap Time Evolution")
         self.show_placeholder_message("Lap Time Evolution")
     
     def launch_top_speed(self):
-        print("🚀 Launching: Top Speed Tracker")
+        logger.debug("Launching: Top Speed Tracker")
         self.show_placeholder_message("Top Speed Tracker")
     
     def launch_flag_tracker(self):
-        print("🚀 Launching: Flag Tracker")
+        logger.debug("Launching: Flag Tracker")
         self.show_placeholder_message("Flag Tracker")
     
     def launch_overtake_counter(self):
-        print("🚀 Launching: Overtake Counter")
+        logger.debug("Launching: Overtake Counter")
         self.show_placeholder_message("Overtake Counter")
     
     def launch_drs_usage(self):
-        print("🚀 Launching: DRS Usage")
+        logger.debug("Launching: DRS Usage")
         self.show_placeholder_message("DRS Usage")
     
     def show_placeholder_message(self, insight_name):
