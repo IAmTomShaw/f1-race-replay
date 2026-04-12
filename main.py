@@ -134,11 +134,16 @@ if __name__ == "__main__":
     list_rounds(year)
   elif "--list-sprints" in sys.argv:
     list_sprints(year)
+
+  if "--playback-speed" in sys.argv:
+    speed_index = sys.argv.index("--playback-speed") + 1
+    playback_speed = float(sys.argv[speed_index])
   else:
-    playback_speed = 1
+    playback_speed = 1.0  # Default playback speed
+
 
   if "--viewer" in sys.argv:
-  
+    
     visible_hud = True
     if "--no-hud" in sys.argv:
       visible_hud = False
