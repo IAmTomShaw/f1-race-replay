@@ -38,7 +38,6 @@
   color: var(--color-red);
 }
 
-/* ── Year dropdown ── */
 .year-dropdown {
   font-family: var(--font-button);
   font-size: 13px;

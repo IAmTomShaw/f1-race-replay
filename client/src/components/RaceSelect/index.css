@@ -8,7 +8,6 @@
   padding-right: 15%;
 }
 
-/* ── Loading / Error states ── */
 .race-select-loading,
 .race-select-error {
   flex: 1;

@@ -1,13 +1,31 @@
 import { flagUrl } from '../../lib/assets';
 import { useRaceSelect } from '../../hooks/useRaceSelect';
 import RaceSelectHeader from './Header';
-import RaceTable from './Table';
+import RaceTable from './RaceTable';
 import './index.css';
 
+/**
+ * Props for the RaceSelect component.
+ *
+ * @property {(year: number, round: number) => void} onSelectRace - Callback fired when the
+ *   user confirms a race selection; receives the chosen season year and round number.
+ */
 interface RaceSelectProps {
   onSelectRace: (year: number, round: number) => void;
 }
 
+/**
+ * RaceSelect is the race-picker screen. It composes three content states
+ * driven by the `useRaceSelect` hook:
+ * - **Loading** — a spinner while the selected year's race schedule is being fetched.
+ * - **Error** — an error message with a retry button if the fetch fails.
+ * - **Table** — the full `RaceTable` listing all rounds once data is available.
+ *
+ * The `RaceSelectHeader` is always rendered and manages year selection independently.
+ *
+ * @param {RaceSelectProps} props - Component props.
+ * @returns {JSX.Element} The rendered race selection screen.
+ */
 export default function RaceSelect({ onSelectRace }: RaceSelectProps) {
   const {
     availableYears, selectedYear, setSelectedYear,

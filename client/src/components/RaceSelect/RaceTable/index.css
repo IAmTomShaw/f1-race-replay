@@ -6,7 +6,6 @@
   overflow: hidden;
 }
 
-/* ── Scroll container ── */
 .race-table-scroll {
   flex: 1;
   overflow-y: auto;
@@ -27,7 +26,6 @@
   border-radius: 3px;
 }
 
-/* ── Table ── */
 .race-table {
   width: 100%;
   border-collapse: separate;
@@ -35,7 +33,6 @@
   table-layout: fixed;
 }
 
-/* ── Sticky header ── */
 .race-table thead tr {
   position: sticky;
   top: 0;
@@ -46,7 +43,6 @@
   background: var(--color-dark);
 }
 
-/* ── Header ── */
 .race-table th {
   font-family: var(--font-header);
   font-size: var(--font-size-text);
@@ -58,7 +54,6 @@
   color: var(--color-grey-medium);
 }
 
-/* ── Header cells — both identical ── */
 thead th.col-round,
 thead th.col-track {
   font-family: var(--font-header);
@@ -70,11 +65,9 @@ thead th.col-track {
   padding-top: 10px;
 }
 
-/* ── Column widths ── */
 .col-round { width: 100px; }
 .col-track  { width: auto; }
 
-/* ── Body cells ── */
 tbody td.col-round {
   font-family: var(--font-text);
   font-size: var(--font-size-text);
@@ -87,7 +80,6 @@ tbody td.col-track {
   color: var(--color-text);
 }
 
-/* ── Rows ── */
 .race-row {
   cursor: pointer;
 }
@@ -102,7 +94,7 @@ tbody td.col-track {
 .race-row td:first-child { border-radius: 8px 0 0 8px; }
 .race-row td:last-child  { border-radius: 0 8px 8px 0; }
 
-/* Hover */
+/* Hover state: light background with dark text */
 .race-row:hover td {
   background: var(--color-grey-lightest);
   color: #000000;
@@ -113,7 +105,7 @@ tbody td.col-track {
   color: #000000;
 }
 
-/* Selected */
+/* Selected state: red background, persists over hover */
 .race-row.selected td {
   background: var(--color-red);
   color: var(--color-text);
@@ -134,54 +126,13 @@ tbody td.col-track {
   color: var(--color-text);
 }
 
-/* ── Track cell ── */
-.track-cell {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-family: var(--font-text);
-  white-space: nowrap;
-  overflow: hidden;
-}
-
-.track-cell-flag {
-  font-size: 18px;
-  line-height: 1;
-  flex-shrink: 0;
-}
-
-.track-cell-info {
-  display: flex;
-  flex-direction: row;
-  align-items: baseline;
-  gap: 10px;
-  overflow: hidden;
-}
-
-.track-cell-name {
-  font-size: var(--font-size-header);
-  font-family: var(--font-header);
-  font-weight: var(--font-weight-bold);
-  color: var(--color-text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  transition: color 0.12s;
-}
-
-.track-cell-meta {
-  font-size: var(--font-size-text);
-  color: var(--color-grey-light);
-  flex-shrink: 0;
-  transition: color 0.12s;
-}
-
-/* ── Footer + Replay button ── */
 .race-table-footer {
   flex-shrink: 0;
   display: flex;
   justify-content: flex-end;
 }
 
+/* Replay button: disabled/greyed by default, activates red on row selection */
 .replay-button {
   font-family: var(--font-header);
   font-size: var(--font-size-button);
@@ -207,12 +158,4 @@ tbody td.col-track {
 
 .replay-button.active:hover {
   filter: brightness(1.1);
-}
-
-.track-cell-image {
-  width: 24px;   /* 2:3 ratio — 16px height × 1.5 */
-  height: 16px;
-  object-fit: cover;
-  border-radius: 2px;
-  flex-shrink: 0;
 }
