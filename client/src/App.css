@@ -57,7 +57,7 @@
   overflow: hidden;
   position: relative;
   min-height: 0;
-  z-index: 1; /* add this */
+  z-index: 1;
 }
 
 .loading-spinner {

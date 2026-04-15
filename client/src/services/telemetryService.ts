@@ -3,10 +3,30 @@ import type { RaceWeekend } from '../types/race.types';
 import type { Frame, RaceFramesResponse } from '../types/api.types';
 import type { TrackDataResponse } from '../types/track-api.types';
 
+/**
+ * Parses a value that may arrive from Supabase as either a JSON string or a
+ * pre-parsed object. Supabase occasionally returns JSONB columns as raw strings
+ * depending on the client version and column type.
+ *
+ * @param {unknown} val - The value to parse.
+ * @returns {unknown} The parsed object, or the original value if it was not a string.
+ */
 const parse = (val: unknown) => typeof val === 'string' ? JSON.parse(val) : val;
 
+/**
+ * Collection of async functions that abstract all Supabase queries for race and
+ * telemetry data. Each method throws a plain `Error` on failure so callers can
+ * handle errors uniformly without inspecting Supabase-specific error objects.
+ */
 export const telemetryService = {
 
+  /**
+   * Returns the distinct set of season years that have at least one race record.
+   * Years are returned in descending order (most recent first).
+   *
+   * @returns {Promise<{ years: number[] }>} Unique season years available in the database.
+   * @throws {Error} If the Supabase query fails.
+   */
   getAvailableYears: async (): Promise<{ years: number[] }> => {
     const { data, error } = await supabase
       .from('races')
@@ -14,10 +34,18 @@ export const telemetryService = {
       .order('year', { ascending: false });
 
     if (error) throw new Error(error.message);
+    /** De-duplicate years since one row exists per race, not per season. */
     const years = [...new Set((data ?? []).map((r: { year: number }) => r.year))];
     return { years };
   },
 
+  /**
+   * Returns the full race schedule for a given season, ordered by round number.
+   *
+   * @param {number} year - The season year to fetch the schedule for.
+   * @returns {Promise<RaceWeekend[]>} Ordered list of race weekends in the season.
+   * @throws {Error} If the Supabase query fails.
+   */
   getRaceSchedule: async (year: number): Promise<RaceWeekend[]> => {
     const { data, error } = await supabase
       .from('races')
@@ -29,6 +57,20 @@ export const telemetryService = {
     return (data ?? []) as RaceWeekend[];
   },
 
+  /**
+   * Fetches track geometry and session metadata for a specific race in parallel.
+   * Two Supabase tables are queried simultaneously:
+   * - `track_shapes` — circuit boundary frames, DRS zone definitions, and rotation angle.
+   * - `races` — session metadata including event name, circuit, country, laps, and track statuses.
+   *
+   * JSONB columns (`frames`, `drs_zones`, `track_statuses`) are parsed from their
+   * string representation if necessary.
+   *
+   * @param {number} year - The season year of the race.
+   * @param {number} round - The round number of the race.
+   * @returns {Promise<TrackDataResponse>} Combined track geometry and session info.
+   * @throws {Error} If either Supabase query fails.
+   */
   getTrackData: async (year: number, round: number): Promise<TrackDataResponse> => {
     const [trackRes, raceRes] = await Promise.all([
       supabase
@@ -68,6 +110,24 @@ export const telemetryService = {
     };
   },
 
+  /**
+   * Fetches all telemetry frames for a race by reading driver metadata from the
+   * first chunk and then fetching each subsequent chunk sequentially.
+   *
+   * Frame data is stored in the `race_frames` table as fixed-size chunks to
+   * avoid Supabase row-size limits. The first chunk (index 0) additionally holds
+   * the `total_chunks` count, driver colors, team mappings, and official positions.
+   * Subsequent chunks contain only `frames`.
+   *
+   * All chunks are fetched sequentially (not in parallel) to avoid overwhelming
+   * the Supabase connection pool for large races. Chunks are then flattened into
+   * a single ordered frame array.
+   *
+   * @param {number} year - The season year of the race.
+   * @param {number} round - The round number of the race.
+   * @returns {Promise<RaceFramesResponse>} All frames plus driver metadata.
+   * @throws {Error} If the metadata row is missing or any chunk fetch fails.
+   */
   getRaceFrames: async (year: number, round: number): Promise<RaceFramesResponse> => {
     const { data: meta, error: metaErr } = await supabase
       .from('race_frames')
@@ -107,7 +167,25 @@ export const telemetryService = {
     };
   },
 
-getDriverCircuitHistory: async (driverCode: string, circuitName: string) => {
+  /**
+   * Returns a driver's full historical results at a specific circuit, one entry
+   * per race that has telemetry data available.
+   *
+   * Retirement status (`is_retired`) is derived from the driver's `is_out` flag
+   * on their final telemetry frame rather than inferred from finishing position.
+   * This correctly identifies classified retirements, where the driver has a
+   * position assigned but `is_out === true` on their last recorded frame.
+   *
+   * Races where the driver has neither a position nor a team entry are silently
+   * skipped (the driver did not participate or data is unavailable).
+   *
+   * @param {string} driverCode - Three-letter driver code (e.g. `"HAM"`).
+   * @param {string} circuitName - Circuit name to filter races by.
+   * @returns {Promise<Array<{ year, round, event_name, position, is_retired, team }>>}
+   *   Chronologically ordered results for the driver at this circuit.
+   * @throws {Error} If the initial races query fails.
+   */
+  getDriverCircuitHistory: async (driverCode: string, circuitName: string) => {
     const { data: races, error: racesErr } = await supabase
       .from('races')
       .select('year, round, event_name')
@@ -136,9 +214,6 @@ getDriverCircuitHistory: async (driverCode: string, circuitName: string) => {
 
         if (position === null && !team) return null;
 
-        // Derive is_out from the driver's final frame rather than
-        // inferring from position — classified retirements have a
-        // position set but is_out = true on their last frame.
         let is_retired = false;
         const lastChunkIdx = (meta.total_chunks ?? 1) - 1;
         const { data: lastChunk } = await supabase
@@ -150,8 +225,8 @@ getDriverCircuitHistory: async (driverCode: string, circuitName: string) => {
           .single();
 
         if (lastChunk) {
-          const frames = parse(lastChunk.frames);
-          const lastFrame = frames[frames.length - 1];
+          const frames     = parse(lastChunk.frames);
+          const lastFrame  = frames[frames.length - 1];
           const driverData = lastFrame?.drivers?.[driverCode];
           is_retired = driverData?.is_out === true;
         }
@@ -173,6 +248,16 @@ getDriverCircuitHistory: async (driverCode: string, circuitName: string) => {
     }[];
   },
 
+  /**
+   * Returns all race year/round pairs held at a specific circuit, ordered
+   * chronologically. Used by `useComparisonMode` to determine which historical
+   * races to fetch frames for.
+   *
+   * @param {string} circuitName - The circuit name to query.
+   * @returns {Promise<Array<{ year: number; round: number }>>} Chronologically
+   *   ordered list of races at the given circuit.
+   * @throws {Error} If the Supabase query fails.
+   */
   getCircuitRaceRounds: async (circuitName: string): Promise<{ year: number; round: number }[]> => {
     const { data, error } = await supabase
       .from('races')
@@ -183,5 +268,4 @@ getDriverCircuitHistory: async (driverCode: string, circuitName: string) => {
     if (error) throw new Error(error.message);
     return (data ?? []) as { year: number; round: number }[];
   },
-
 };

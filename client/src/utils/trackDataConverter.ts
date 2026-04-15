@@ -1,10 +1,27 @@
-import type { TrackData, Point } from '../types/track.types';
-import type { TrackFrame } from '../types/track-api.types';
+import type { TrackData, Point } from '../types/track-api.types';
+import type { TrackFrame } from '../types/track.types';
 import type { Frame } from '../types/api.types';
 
 /**
- * Build track from lightweight track frames (first lap only)
- * Improved version with better smoothing and boundary generation
+ * Builds a canvas-ready `TrackData` object from a set of lightweight track frames
+ * recorded during a reference lap. This is the primary track-building path used
+ * for all current data.
+ *
+ * Processing steps:
+ * 1. Extract (x, y) points from the frames to form the centre line.
+ * 2. Remove duplicate consecutive points closer than 1 world unit apart.
+ * 3. Close the loop by appending a copy of the first point when the gap between
+ *    the first and last point exceeds 50 world units.
+ * 4. Compute the axis-aligned bounding box.
+ * 5. Generate inner and outer boundaries by offsetting the centre line ±75 units
+ *    (half of the 150-unit track width) using smoothed normal vectors.
+ * 6. Convert raw snake_case DRS zone indices to camelCase `DRSZoneSegment` objects.
+ *
+ * @param {TrackFrame[]} frames - Positional samples from the reference lap stored in Supabase.
+ * @param {Array<{ start_index: number; end_index: number }>} [drsZones] - Optional raw DRS zone
+ *   definitions; omitted when not available for the circuit or session type.
+ * @returns {TrackData | null} The completed track geometry, or null if there are fewer than
+ *   10 frames (insufficient data to build a meaningful circuit shape).
  */
 export function buildTrackFromFrames(
   frames: TrackFrame[], 
@@ -15,15 +32,10 @@ export function buildTrackFromFrames(
     return null;
   }
 
-  console.log(`Building track from ${frames.length} frames`);
-
-  // Extract and smooth center line
   let centerLine: Point[] = frames.map(f => ({ x: f.x, y: f.y }));
   
-  // Remove duplicate consecutive points
   centerLine = removeDuplicates(centerLine);
   
-  // Close the loop if needed
   if (centerLine.length > 0) {
     const first = centerLine[0];
     const last = centerLine[centerLine.length - 1];
@@ -35,8 +47,6 @@ export function buildTrackFromFrames(
       centerLine.push({ ...first });
     }
   }
-
-  console.log(`Center line has ${centerLine.length} points after processing`);
 
   const xs = centerLine.map(p => p.x);
   const ys = centerLine.map(p => p.y);
@@ -50,34 +60,30 @@ export function buildTrackFromFrames(
   const innerBoundary = offsetPathImproved(centerLine, -trackWidth / 2);
   const outerBoundary = offsetPathImproved(centerLine, trackWidth / 2);
 
-  console.log(`Track bounds: X[${minX.toFixed(0)}, ${maxX.toFixed(0)}], Y[${minY.toFixed(0)}, ${maxY.toFixed(0)}]`);
-  
-  // Convert DRS zones if provided
   const drsZoneSegments = drsZones?.map(zone => ({
     startIndex: zone.start_index,
     endIndex: zone.end_index
   }));
 
-  if (drsZoneSegments) {
-    console.log(`DRS Zones: ${drsZoneSegments.length} zones found`);
-  }
-
   return {
     innerBoundary,
     outerBoundary,
     centerLine,
-    bounds: {
-      minX,
-      maxX,
-      minY,
-      maxY,
-    },
+    bounds: { minX, maxX, minY, maxY },
     drsZones: drsZoneSegments,
   };
 }
 
 /**
- * Remove duplicate consecutive points
+ * Removes consecutive duplicate points from a path by filtering out any point
+ * whose Euclidean distance to the previous accepted point is below `threshold`.
+ * This prevents degenerate zero-length segments that would produce NaN normals
+ * in the boundary offset calculation.
+ *
+ * @param {Point[]} path - The input path to de-duplicate.
+ * @param {number} [threshold=1.0] - Minimum distance (in world units) between
+ *   consecutive accepted points.
+ * @returns {Point[]} A new array with near-duplicate consecutive points removed.
  */
 function removeDuplicates(path: Point[], threshold: number = 1.0): Point[] {
   if (path.length === 0) return path;
@@ -101,26 +107,37 @@ function removeDuplicates(path: Point[], threshold: number = 1.0): Point[] {
 }
 
 /**
- * Improved offset path calculation with better normal vector handling
+ * Generates an offset path (inner or outer boundary) from a centre-line path by
+ * displacing each point along the local surface normal by `distance` world units.
+ *
+ * Normals are computed from a smoothed average tangent across a ±3 point window
+ * (7 points total) rather than from adjacent points alone. This reduces boundary
+ * kinking at high-curvature sections where per-point normals would be noisy.
+ * Wrap-around indexing is used so the smoothing works correctly at the loop
+ * join point.
+ *
+ * A positive `distance` offsets to the right of the direction of travel (outer
+ * boundary); a negative `distance` offsets to the left (inner boundary).
+ *
+ * @param {Point[]} path - The centre-line path to offset. Must have at least 3 points.
+ * @param {number} distance - Signed offset distance in world units.
+ * @returns {Point[]} The offset boundary path with the same number of points as `path`.
  */
 function offsetPathImproved(path: Point[], distance: number): Point[] {
   if (path.length < 3) return path;
 
   const offsetPoints: Point[] = [];
-  const smoothingWindow = 3; // Number of points to average for smoother normals
+  const smoothingWindow = 3;
 
   for (let i = 0; i < path.length; i++) {
-    // Get several surrounding points for smoother normal calculation
     const indices = [];
     for (let j = -smoothingWindow; j <= smoothingWindow; j++) {
       let idx = i + j;
-      // Handle wrap-around for closed loop
       if (idx < 0) idx += path.length;
       if (idx >= path.length) idx -= path.length;
       indices.push(idx);
     }
 
-    // Calculate average tangent direction
     let avgDx = 0;
     let avgDy = 0;
     let count = 0;
@@ -137,16 +154,13 @@ function offsetPathImproved(path: Point[], distance: number): Point[] {
     avgDx /= count;
     avgDy /= count;
 
-    // Normalize
     const len = Math.sqrt(avgDx * avgDx + avgDy * avgDy) || 1;
     avgDx /= len;
     avgDy /= len;
 
-    // Calculate perpendicular (normal) - rotate 90 degrees
     const nx = -avgDy;
     const ny = avgDx;
 
-    // Apply offset
     const curr = path[i];
     offsetPoints.push({
       x: curr.x + nx * distance,
@@ -157,7 +171,18 @@ function offsetPathImproved(path: Point[], distance: number): Point[] {
   return offsetPoints;
 }
 
-// Keep old function for backward compatibility
+/**
+ * @deprecated Use `buildTrackFromFrames` instead. This function derives the
+ * centre line from raw full-telemetry frames (lap 1 of the first driver) rather
+ * than from dedicated lightweight track-shape frames. It is significantly slower,
+ * produces lower-quality boundaries, and does not support DRS zones.
+ *
+ * Retained solely for backward compatibility with any code that has not yet
+ * migrated to the new track-shape pipeline.
+ *
+ * @param {Frame[]} frames - Full telemetry frames for the race.
+ * @returns {TrackData | null} A rough track geometry, or null if no valid data is found.
+ */
 export function extractTrackFromTelemetry(frames: Frame[]): TrackData | null {
   console.warn('Using legacy extractTrackFromTelemetry - consider using buildTrackFromFrames');
   
@@ -216,11 +241,6 @@ export function extractTrackFromTelemetry(frames: Frame[]): TrackData | null {
     innerBoundary,
     outerBoundary,
     centerLine,
-    bounds: {
-      minX,
-      maxX,
-      minY,
-      maxY,
-    },
+    bounds: { minX, maxX, minY, maxY },
   };
 }
