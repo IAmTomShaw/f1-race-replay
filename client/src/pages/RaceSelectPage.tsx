@@ -20,7 +20,7 @@ export default function RaceSelectPage() {
    * @param {number} round - The round number of the selected race.
    */
   const handleSelectRace = (year: number, round: number) => {
-    navigate(`/race/${year}/${round}`);
+    navigate(`/f1-race-replay/race/${year}/${round}`);
   };
 
   return <RaceSelect onSelectRace={handleSelectRace} />;

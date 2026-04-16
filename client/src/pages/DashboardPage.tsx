@@ -54,17 +54,17 @@ export default function DashboardPage() {
    */
   const handleGoHome = () => {
     reset();
-    navigate('/');
+    navigate('/f1-race-replay');
   };
 
   /** Navigates to the previous race in the cross-season list; no-ops when `prevRace` is null. */
   const handlePrevRace = () => {
-    if (prevRace) navigate(`/race/${prevRace.year}/${prevRace.round}`);
+    if (prevRace) navigate(`/f1-race-replay/race/${prevRace.year}/${prevRace.round}`);
   };
 
   /** Navigates to the next race in the cross-season list; no-ops when `nextRace` is null. */
   const handleNextRace = () => {
-    if (nextRace) navigate(`/race/${nextRace.year}/${nextRace.round}`);
+    if (nextRace) navigate(`/f1-race-replay/race/${nextRace.year}/${nextRace.round}`);
   };
 
   if (loading) {

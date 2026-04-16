@@ -18,8 +18,8 @@ export default function App() {
     <div className="app">
       <main className="app-main">
         <Routes>
-          <Route path="/" element={<RaceSelectPage />} />
-          <Route path="/race/:year/:round" element={<DashboardPage />} />
+          <Route path="/f1-race-replay" element={<RaceSelectPage />} />
+          <Route path="f1-race-replay/race/:year/:round" element={<DashboardPage />} />
         </Routes>
       </main>
     </div>
