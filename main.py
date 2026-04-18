@@ -1,4 +1,4 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints, inject_drs_from_previous_year
 from src.run_session import run_arcade_replay, launch_insights_menu
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
@@ -66,6 +66,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         else:
             print("Error: No valid laps found in session")
             return
+
+    example_lap = inject_drs_from_previous_year(example_lap, session.event['EventName'], year)
 
     drivers = session.drivers
 
