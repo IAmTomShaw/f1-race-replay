@@ -14,7 +14,6 @@ from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
 
-
 def enable_cache():
     # Get cache location from settings
     settings = get_settings()
@@ -768,6 +767,39 @@ def get_race_telemetry(session, session_type="R"):
         except Exception as e:
             print(f"Weather data could not be processed: {e}")
 
+    #4.2. Aggregating Driver pit-in and pit-out data for Pitstop leaderboard indicator
+    pit_windows={}
+    laps=session.laps
+
+    for driver_no in drivers:
+        drv=session.get_driver(driver_no)["Abbreviation"]
+        driver_laps=laps.pick_drivers(drv)
+        windows=[]
+
+        for _, lap in driver_laps.iterrows():
+            pit_in=lap.get("PitInTime")
+            pit_out=lap.get("PitOutTime")
+
+            if pd.notna(pit_in):
+                start=pit_in.total_seconds()
+                if pd.notna(pit_out):
+                    end=pit_out.total_seconds()
+                else:
+                    end=start+40 #Error Rare case
+                
+                windows.append((start,end))
+        pit_windows[drv]=windows
+    
+    #Adjusting pit windows to the telemetry timeline
+    pit_windows_shifted={}
+    for drv, windows in pit_windows.items():
+        shifted=[]
+        for start,end in windows:
+            shifted.append((start-global_t_min,end-global_t_min))
+        pit_windows_shifted[drv]=shifted
+    
+    print("PIT WINDOWS: ", pit_windows)
+
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
     num_frames = len(timeline)
@@ -817,6 +849,13 @@ def get_race_telemetry(session, session_type="R"):
             code = car["code"]
             position = idx + 1
 
+            #Pit stop detection
+            in_pit=False
+            for start,end in pit_windows_shifted.get(code,[]):
+                if start<=t<=end:
+                    in_pit=True
+                    break
+            
             # include speed, gear, drs_active in frame driver dict
             frame_data[code] = {
                 "x": car["x"],
@@ -832,6 +871,7 @@ def get_race_telemetry(session, session_type="R"):
                 "drs": car["drs"],
                 "throttle": car["throttle"],
                 "brake": car["brake"],
+                "in_pit": in_pit
             }
 
         weather_snapshot = {}
