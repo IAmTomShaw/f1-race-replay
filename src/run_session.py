@@ -6,6 +6,8 @@ import time
 import arcade
 from src.interfaces.race_replay import F1RaceReplayWindow
 from src.insights.telemetry_stream_viewer import main as telemetry_viewer_main
+from src.interfaces.live_race import LiveRaceWindow
+from src.live_f1_data import LiveDataFeed
 
 def run_arcade_replay(frames, track_statuses, example_lap, drivers, title,
                       playback_speed=1.0, driver_colors=None, circuit_rotation=0.0, total_laps=None,
@@ -49,6 +51,41 @@ def launch_telemetry_viewer():
   
   viewer_thread = threading.Thread(target=start_viewer, daemon=True)
   viewer_thread.start()
+
+
+def run_live_arcade_replay(
+    live_feed: LiveDataFeed,
+    example_lap,
+    drivers,
+    title: str,
+    driver_colors=None,
+    circuit_rotation: float = 0.0,
+    session_info: dict = None,
+    session=None,
+    ready_file: str = None,
+):
+    """Open a LiveRaceWindow and run the Arcade event loop."""
+    window = LiveRaceWindow(
+        live_feed=live_feed,
+        track_statuses=[],          # synced from feed each update
+        example_lap=example_lap,
+        drivers=drivers,
+        driver_colors=driver_colors or {},
+        title=title,
+        total_laps=None,
+        circuit_rotation=circuit_rotation,
+        visible_hud=True,
+        session_info=session_info,
+        session=session,
+        enable_telemetry=True,
+    )
+    if ready_file:
+        try:
+            with open(ready_file, "w") as f:
+                f.write("ready")
+        except Exception:
+            pass
+    arcade.run()
 
 
 def launch_insights_menu():
