@@ -1010,6 +1010,7 @@ class ControlsPopupComponent(BaseComponent):
             ("D", "Toggle DRS Zones"),
             ("B", "Toggle Progress Bar"),
             ("L", "Toggle Driver Labels"),
+            ("I", "Toggle Session Info"),
             ("H", "Toggle Help Popup"),
         ]
 
