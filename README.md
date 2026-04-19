@@ -8,27 +8,48 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 
 ## Features
 
+### Core Replay
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
 - **Safety Car Visualization:** See the Safety Car deploy from pit lane, lead the field, and return to pits — with animated transitions and pulsing glow effects.
-- **Insights Menu:** Floating menu for quick access to telemetry analysis tools (launches automatically with replay).
-- **Leaderboard:** See live driver positions and current tyre compounds.
+- **DRS Zone Rendering:** Visualize DRS activation zones on track with toggle support.
+- **Leaderboard:** See live driver positions, current tyre compounds, and tyre age.
 - **Lap & Time Display:** Track the current lap and total race time.
 - **Driver Status:** Drivers who retire or go out are marked as "OUT" on the leaderboard.
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
+- **Progress Bar:** Scrub through the race timeline with a clickable progress bar.
 - **Legend:** On-screen legend explains all controls.
-- **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **Sprint Session Support:** Replay Sprint races using the `--sprint` flag.
+
+### Insight Windows
+- **Insights Menu:** Floating menu for quick access to telemetry analysis tools (launches automatically with replay).
+- **Track Position Map:** View live driver positions on a real or schematic circular track layout.
+- **Driver Live Telemetry:** View speed, gear, throttle, braking, and DRS status for a selected driver in real-time.
+- **Telemetry Stream Viewer:** Inspect the raw telemetry data stream being broadcast to insight windows.
+- **Race Control Feed:** Live FIA flags, penalties, safety car deployments, and DRS status updates.
+
+### Data & Telemetry
+- **Telemetry Stream API:** Build your own custom insight windows using the `PitWallWindow` base class.
+- **Weather Data:** Track temperature, air temperature, humidity, wind speed/direction, and rain status.
+- **Tyre Degradation Model:** Bayesian tyre degradation modeling and prediction.
+- **Qualifying Session Replay:** Telemetry visualization for qualifying sessions including speed, gear, throttle, and brake traces.
 
 ## Controls
 
-- **Pause/Resume:** SPACE or Pause button
-- **Rewind/Fast Forward:** ← / → or Rewind/Fast Forward buttons
-- **Playback Speed:** ↑ / ↓ or Speed button (cycles through 0.5x, 1x, 2x, 4x)
-- **Set Speed Directly:** Keys 1–4
-- **Restart**: **R** to restart replay
-- **Toggle DRS Zone**: **D** to hide/show DRS Zone
-- **Toggle Progress Bar**: **B** to hide/show progress bar
-- **Toggle Driver Names**: **L** to hide/show driver names on track
-- **Select driver/drivers**: Click to select driver or shift click to select multiple drivers
+| Key | Action |
+|-----|--------|
+| `SPACE` | Pause / Resume playback |
+| `←` / `→` | Rewind / Fast Forward (hold) |
+| `↑` / `↓` | Increase / Decrease playback speed |
+| `1` – `4` | Set speed directly (0.5x, 1x, 2x, 4x) |
+| `R` | Restart replay |
+| `D` | Toggle DRS zones |
+| `B` | Toggle progress bar |
+| `L` | Toggle driver name labels on track |
+| `I` | Toggle session info banner |
+| `H` | Toggle help / controls popup |
+| `ESC` | Close window |
+| Click | Select driver on leaderboard |
+| Shift+Click | Select multiple drivers |
 
 
 ## Safety Car
@@ -68,9 +89,9 @@ The SC position computation happens in `_compute_safety_car_positions()` in `src
 
 > **Note:** If you have existing cached `.pkl` files from previous runs, you must re-run with `--refresh-data` to generate SC position data. Older cached files will simply show no Safety Car.
 
-## Qualifying Session Support (in development)
+## Qualifying Session Support
 
-Recently added support for Qualifying session replays with telemetry visualization including speed, gear, throttle, and brake over the lap distance. This feature is still being refined.
+The application supports Qualifying session replays with telemetry visualization including speed, gear, throttle, and brake traces over the lap distance. Sprint Qualifying sessions are also supported.
 
 ## Requirements
 
@@ -178,24 +199,52 @@ python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 
 ```
 f1-race-replay/
-├── main.py                    # Entry point, handles session loading and starts the replay
-├── requirements.txt           # Python dependencies
-├── README.md                  # Project documentation
-├── roadmap.md                 # Planned features and project vision
-├── resources/
-│   └── preview.png           # Race replay preview image
+├── main.py                              # Entry point, handles session loading and starts the replay
+├── requirements.txt                     # Python dependencies
+├── README.md                            # Project documentation
+├── roadmap.md                           # Planned features and project vision
+├── contributors.md                      # Community contributors
+├── telemetry.md                         # Telemetry stream documentation
+├── docs/
+│   ├── InsightsMenu.md                  # Guide for adding items to the Insights Menu
+│   └── PitWallWindow.md                 # Guide for building custom telemetry windows
+├── resources/                           # Preview images and media assets
+├── images/
+│   ├── controls/                        # UI control icons
+│   ├── tyres/                           # Tyre compound icons
+│   └── weather/                         # Weather condition icons
 ├── src/
-│   ├── f1_data.py            # Telemetry loading, processing, frame generation & SC position simulation
-│   ├── arcade_replay.py      # Visualization and UI logic
-│   └── ui_components.py      # UI components like buttons and leaderboard
+│   ├── f1_data.py                       # Telemetry loading, processing, frame generation & SC simulation
+│   ├── ui_components.py                 # UI components (leaderboard, buttons, progress bar, etc.)
+│   ├── run_session.py                   # Session runner utility
+│   ├── bayesian_tyre_model.py           # Bayesian tyre degradation model
+│   ├── tyre_degradation_integration.py  # Tyre degradation integration with replay
+│   ├── cli/
+│   │   └── race_selection.py            # CLI race selection menu
+│   ├── gui/
+│   │   ├── race_selection.py            # GUI race selection menu
+│   │   ├── insights_menu.py             # Insights Menu window
+│   │   ├── pit_wall_window.py           # Base class for custom telemetry windows
+│   │   ├── pit_wall_window_template.py  # Template for new pit wall windows
+│   │   └── settings_dialog.py           # Settings dialog
+│   ├── insights/
+│   │   ├── track_position_window.py     # Track Position Map insight
+│   │   ├── driver_telemetry_window.py   # Driver Live Telemetry insight
+│   │   ├── telemetry_stream_viewer.py   # Raw Telemetry Stream Viewer
+│   │   ├── race_control_feed_window.py  # Race Control Feed insight
+│   │   └── example_pit_wall_window.py   # Example insight window
 │   ├── interfaces/
-│   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
-│   │   └── race_replay.py    # Race replay interface, SC rendering & telemetry visualization
+│   │   ├── race_replay.py               # Race replay interface & rendering
+│   │   └── qualifying.py                # Qualifying session interface
+│   ├── services/
+│   │   └── stream.py                    # Telemetry stream broadcast service
 │   └── lib/
-│       └── tyres.py          # Type definitions for telemetry data structures
-│       └── time.py           # Time formatting utilities
-└── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
-└── computed_data/            # Computed telemetry data (created automatically upon first run)
+│       ├── tyres.py                     # Tyre compound definitions
+│       ├── time.py                      # Time formatting utilities
+│       ├── season.py                    # Season data constants
+│       └── settings.py                  # Application settings management
+├── .fastf1-cache/                       # FastF1 cache (created automatically)
+└── computed_data/                       # Computed telemetry data (created automatically)
 ```
 
 ## Building Custom Telemetry Windows

@@ -7,8 +7,15 @@ The Insights Menu is a PySide6 window that launches automatically when the race 
 ![Insights Menu](../resources/insights-menu.png)
 
 ### Active Insights
-- **Example Insight Window** - A working example demonstrating the PitWallWindow pattern
-- **Telemetry Stream Viewer** - View raw telemetry data in real-time
+- **Example Insights**
+  - Example Insight Window - A working example demonstrating the PitWallWindow pattern
+- **Live Telemetry**
+  - Telemetry Stream Viewer - View raw telemetry data in real-time
+  - Driver Live Telemetry - Speed, gear, throttle & braking for a selected driver
+- **Track**
+  - Track Position Map - Live driver positions on real or circular track map
+- **Race Events**
+  - Race Control Feed - Live FIA flags, penalties, safety car and DRS status
 
 ## Usage
 
@@ -98,7 +105,7 @@ Run the menu standalone to test your new button:
 python -m src.gui.insights_menu
 ```
 
-This will open the Insights Menu without starting a replay. The window wouldn't be connected to telemetry unless you start a replay, but you can verify that the button launches your insight window correctly.s
+This will open the Insights Menu without starting a replay. The window wouldn't be connected to telemetry unless you start a replay, but you can verify that the button launches your insight window correctly.
 
 ## Architecture
 
@@ -217,4 +224,4 @@ def create_insight_button(self, name, description, callback):
 
 - [PitWallWindow.md](./PitWallWindow.md) - Base class for creating insights
 - [../src/gui/insights_menu.py](../src/gui/insights_menu.py) - Menu implementation
-- [../src/gui/example_pit_wall_window.py](../src/gui/example_pit_wall_window.py) - Example insight
+- [../src/insights/example_pit_wall_window.py](../src/insights/example_pit_wall_window.py) - Example insight
