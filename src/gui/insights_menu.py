@@ -68,6 +68,22 @@ class InsightsMenu(QMainWindow):
         ))
 
         content_layout.addWidget(self.create_category_section(
+            "Live Data",
+            [
+                ("Timing Tower", "Live precision gap timing — gap to car ahead and to the leader", self.launch_timing_tower),
+                ("Driver Head-to-Head", "Real-time comparative telemetry for two selected drivers", self.launch_head_to_head),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Strategy",
+            [
+                ("Race Pace Chart", "Lap time progression per driver across the race", self.launch_race_pace),
+                ("Undercut Alerts", "Live undercut and overcut opportunity detection log", self.launch_undercut_alerts),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
             "Race Events",
             [
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
@@ -217,6 +233,34 @@ class InsightsMenu(QMainWindow):
             print(f"Failed to launch telemetry viewer: {e}")
             self.show_placeholder_message("Telemetry Stream Viewer")
     
+    def launch_timing_tower(self):
+        print("🚀 Launching: Timing Tower")
+        from src.insights.timing_tower_window import TimingTowerWindow
+        window = TimingTowerWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_head_to_head(self):
+        print("🚀 Launching: Driver Head-to-Head")
+        from src.insights.head_to_head_window import HeadToHeadWindow
+        window = HeadToHeadWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_race_pace(self):
+        print("🚀 Launching: Race Pace Chart")
+        from src.insights.race_pace_window import RacePaceWindow
+        window = RacePaceWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_undercut_alerts(self):
+        print("🚀 Launching: Undercut Alerts")
+        from src.insights.undercut_alert_window import UndercutAlertWindow
+        window = UndercutAlertWindow()
+        window.show()
+        self.opened_windows.append(window)
+
     def launch_engineer_chat(self):
         print("🚀 Launching: Engineer Chat")
         from src.insights.engineer_chat_window import EngineerChatWindow

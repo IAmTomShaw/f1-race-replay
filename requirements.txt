@@ -5,6 +5,7 @@ numpy
 arcade
 pyglet
 pyside6
+pyqtgraph
 questionary
 rich
 groq

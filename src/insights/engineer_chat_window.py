@@ -11,10 +11,12 @@ from PySide6.QtCore import Qt, Signal, QObject, QTimer
 from PySide6.QtGui import QFont, QColor, QPainter, QPainterPath
 from PySide6.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLineEdit, QPushButton, QLabel, QScrollArea, QFrame, QSizePolicy
+    QLineEdit, QPushButton, QLabel, QScrollArea, QFrame, QSizePolicy,
+    QComboBox,
 )
 
 from src.gui.pit_wall_window import PitWallWindow
+from src.data.f1_season_data import build_season_context, uses_mom
 
 # ── Colours ───────────────────────────────────────────────────────────────────
 BG          = "#0f0f1a"
@@ -155,19 +157,53 @@ def _tavily_search(question: str, max_results: int = 8) -> str:
 
 MODEL = "llama-3.3-70b-versatile"
 
-SYSTEM_PROMPT = """You are an expert F1 race engineer embedded in a live race replay tool.
-
-Rules for every response:
+# ── Base rules appended to every persona prompt ───────────────────────────────
+_BASE_RULES = """
+Rules that apply regardless of persona:
 - Write in plain, natural English. No textbook tone, no news article style.
 - Never use em dashes as punctuation.
 - Never use phrases like "it is worth noting", "dive into", "certainly", "delve", "it is important to note", "fascinatingly", "it's worth mentioning", "needless to say".
-- Avoid unnecessary bullet lists. Use prose unless a list genuinely helps the reader.
-- Technical explanations should feel like a race engineer talking to a smart fan who wants to actually understand something, not just get a surface level answer.
 - Always be factual. If something is uncertain, say so clearly.
 - Keep responses concise but complete. Do not pad answers with filler sentences.
 - If live telemetry context is provided, use it to give specific, data-driven answers.
-- The current F1 season is 2026. Only reference drivers who are currently on the 2026 F1 grid. Do not mention retired or past drivers unless specifically asked.
+- The current F1 season is 2026. Use the season reference data provided as ground truth. Do not reference drivers not on the 2026 grid unless specifically asked.
 - ONLY use driver positions and names from the live leaderboard provided in the context. Never invent or assume positions from your training data. If asked who is last, find the highest position number in the leaderboard and state that driver."""
+
+# ── Persona definitions ───────────────────────────────────────────────────────
+PERSONAS: dict[str, dict] = {
+    "Race Engineer": {
+        "label": "Race Engineer",
+        "prompt": (
+            "You are a Formula 1 race engineer embedded in a live race replay tool. "
+            "Your communication style is direct, data-led, and technical. "
+            "Prioritise actionable information. Mirror how a real pit wall engineer speaks to a driver: "
+            "concise and precise. Avoid unnecessary narrative — get to the point immediately."
+        ),
+    },
+    "Analyst": {
+        "label": "Analyst",
+        "prompt": (
+            "You are an F1 strategic analyst embedded in a live race replay tool. "
+            "Provide deeper explanations, reference historical context where relevant, "
+            "and explain the reasoning behind strategic calls. Help the user understand "
+            "the why behind race events, not just the what. You may use a slightly longer form "
+            "when the topic warrants it, but remain precise and avoid filler."
+        ),
+    },
+    "Commentator": {
+        "label": "Commentator",
+        "prompt": (
+            "You are an F1 race commentator embedded in a live race replay tool. "
+            "Be engaging and descriptive. Narrate the race as it unfolds, making it "
+            "compelling for a viewer who wants atmosphere and storytelling alongside facts. "
+            "You are still factually grounded — never invent events or outcomes — "
+            "but your tone is lively and accessible rather than technical."
+        ),
+    },
+}
+
+# Legacy constant kept for any code that imports it directly
+SYSTEM_PROMPT = PERSONAS["Race Engineer"]["prompt"] + _BASE_RULES
 
 
 def _estimate_tokens(text: str) -> int:
@@ -282,8 +318,11 @@ class EngineerChatWindow(PitWallWindow):
         self._tyre_history: dict[str, dict] = {}   # code -> {tyre, lap}
         self._pitted_drivers: dict[str, int] = {}  # code -> lap number of most recent pit
         self._current_tyres: dict[str, str] = {}   # code -> compound name
+        self._persona: str = "Race Engineer"
+        self._session_year: int = 2026
+        self._season_context: str = build_season_context(2026)
         super().__init__()
-        self.setWindowTitle("BoxBox — Race Engineer")
+        self.setWindowTitle("BoxBox - Race Engineer")
         self.setGeometry(100, 100, 520, 720)
 
     def setup_ui(self):
@@ -307,14 +346,35 @@ class EngineerChatWindow(PitWallWindow):
         icon.setStyleSheet(f"color: {USER_RED}; background: transparent;")
         icon.setFont(QFont("Arial", 20, QFont.Bold))
 
-        title = QLabel("BoxBox — Race Engineer")
+        title = QLabel("BoxBox - Race Engineer")
         title.setStyleSheet(f"color: {TEXT_LIGHT}; background: transparent;")
         title.setFont(QFont("Arial", 14, QFont.Bold))
+
+        # Persona selector
+        self._persona_combo = QComboBox()
+        self._persona_combo.setFont(QFont("Arial", 10))
+        self._persona_combo.setFixedWidth(130)
+        self._persona_combo.setStyleSheet(
+            f"QComboBox {{"
+            f"  background-color: {BG}; color: {TEXT_LIGHT};"
+            f"  border: 1px solid {BORDER}; border-radius: 4px; padding: 2px 6px;"
+            f"}}"
+            f"QComboBox::drop-down {{ border: none; }}"
+            f"QComboBox QAbstractItemView {{"
+            f"  background-color: {SURFACE}; color: {TEXT_LIGHT};"
+            f"  selection-background-color: {BORDER};"
+            f"}}"
+        )
+        for name in PERSONAS:
+            self._persona_combo.addItem(name)
+        self._persona_combo.setCurrentText(self._persona)
+        self._persona_combo.currentTextChanged.connect(self._on_persona_changed)
 
         h_layout.addWidget(icon)
         h_layout.addSpacing(8)
         h_layout.addWidget(title)
         h_layout.addStretch()
+        h_layout.addWidget(self._persona_combo)
         layout.addWidget(header)
 
         # ── Message area ──────────────────────────────────────────────────
@@ -442,6 +502,10 @@ class EngineerChatWindow(PitWallWindow):
 
         if data.get("session_info"):
             self._session_info = data["session_info"]
+            year = int(self._session_info.get("year") or 2026)
+            if year != self._session_year:
+                self._session_year = year
+                self._season_context = build_season_context(year)
 
         # Tyre compound lookup (matches src/lib/tyres.py)
         _COMPOUND = {0: "Soft", 1: "Medium", 2: "Hard", 3: "Inter", 4: "Wet"}
@@ -592,11 +656,7 @@ class EngineerChatWindow(PitWallWindow):
                 )
             prompt = "\n\n".join(parts)
 
-            messages = [
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": prompt},
-            ]
-            messages = _trim_messages(messages)
+            messages = self._build_messages(prompt)
             client = Groq(api_key=api_key)
             response = client.chat.completions.create(
                 model=MODEL,
@@ -616,6 +676,48 @@ class EngineerChatWindow(PitWallWindow):
     def _on_error(self, text):
         self._append_message("error", text)
         self._re_enable_input()
+
+    def _on_persona_changed(self, name: str):
+        if name not in PERSONAS:
+            return
+        self._persona = name
+        # Clear chat history and confirm switch
+        for i in reversed(range(self._msg_layout.count() - 1)):
+            widget = self._msg_layout.itemAt(i).widget()
+            if widget:
+                widget.deleteLater()
+        self._append_message("engineer", f"Switched to {name} mode.")
+
+    def _mom_rule(self) -> str:
+        """Return the session-appropriate DRS/MOM instruction for the system prompt."""
+        if uses_mom(self._session_year):
+            return (
+                "\n- DRS does not exist in 2026 and later seasons. "
+                "The overtaking aid is MOM (Manual Override Mode). "
+                "When a driver is described as having DRS available, correct this — "
+                "in 2026+ they have MOM. "
+                "MOM is an electrical power boost from the MGU-K, not a wing-opening mechanism."
+            )
+        return (
+            "\n- This session uses DRS (Drag Reduction System) as the overtaking aid. "
+            "Reference it as DRS, not MOM."
+        )
+
+    def _build_messages(self, prompt: str) -> list[dict]:
+        """Construct the messages list for the Groq API using the active persona."""
+        persona_prompt = PERSONAS[self._persona]["prompt"]
+        system_content = (
+            persona_prompt
+            + _BASE_RULES
+            + self._mom_rule()
+            + "\n\n"
+            + self._season_context
+        )
+        messages = [
+            {"role": "system", "content": system_content},
+            {"role": "user",   "content": prompt},
+        ]
+        return _trim_messages(messages)
 
     def _re_enable_input(self):
         self._input.setEnabled(True)
