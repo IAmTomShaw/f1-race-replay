@@ -160,7 +160,7 @@ def _tavily_search(question: str, max_results: int = 8) -> str:
 # the smaller Groq model. The caller never sees a rate-limit error.
 
 _GROQ_PRIMARY   = "llama-3.3-70b-versatile"
-_CEREBRAS_MODEL = "llama-3.3-70b"
+_CEREBRAS_MODEL = "qwen-3-235b-a22b-instruct-2507"
 _GROQ_FALLBACK  = "llama-3.1-8b-instant"
 
 MODEL = _GROQ_PRIMARY  # legacy alias kept for any external references
@@ -798,14 +798,18 @@ class EngineerChatWindow(PitWallWindow):
             if cerebras_key:
                 try:
                     from cerebras.cloud.sdk import Cerebras  # optional dependency
-                    cb_client = Cerebras(api_key=cerebras_key)
+                    cb_client = Cerebras(
+                        api_key=cerebras_key,
+                        base_url="https://api.cerebras.ai/v1",
+                    )
                     response  = cb_client.chat.completions.create(
                         model=_CEREBRAS_MODEL,
                         messages=messages,
                         temperature=0.7,
                         max_tokens=512,
                     )
-                    signals.finished.emit(response.choices[0].message.content.strip())
+                    reply = response.choices[0].message.content.strip()
+                    signals.finished.emit(f"[Cerebras Mode]\n{reply}")
                     return
                 except Exception:
                     pass  # fall through to reduced-quality Groq
