@@ -167,6 +167,9 @@ MODEL = _GROQ_PRIMARY  # legacy alias kept for any external references
 
 # ── Base rules appended to every persona prompt ───────────────────────────────
 _BASE_RULES = (
+    " RULE 0 — MANDATORY: Your FIRST sentence must be one of these exact formats:"
+    " 'Box this lap.' | 'Stay out — pit on lap [X].' | 'Undercut now — box this lap.' | 'Cover [DRIVER] — box this lap.'"
+    " No other opening is acceptable. If you open with anything else, your answer is wrong."
     " Rules: plain English only; no em dashes; no filler phrases (\"worth noting\","
     " \"dive into\", \"certainly\", \"delve\"); be factual; if uncertain say so;"
     " use live leaderboard data for positions — never invent them;"
