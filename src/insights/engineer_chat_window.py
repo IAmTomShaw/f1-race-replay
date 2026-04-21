@@ -655,129 +655,83 @@ class EngineerChatWindow(PitWallWindow):
 
     # ── Race context builder ───────────────────────────────────────────────────
 
-    def build_race_context(self) -> str:
+    def build_race_context(self, max_drivers: int = 20) -> str:
         """
-        Build a rich plain-English race state block from the latest telemetry
-        snapshot. This is prepended to every user message so the AI always has
-        full, specific race data regardless of what the user typed.
+        Compact race state block (~300 tokens for 20 drivers).
+        Each driver line is one row: P1  PIA  | Med  | Age 17 | Leader
         """
-        _COMPOUND = {0: "Soft", 1: "Medium", 2: "Hard", 3: "Inter", 4: "Wet"}
-        _TRACK_STATUS = {
-            "1": "GREEN", "2": "YELLOW", "4": "SAFETY CAR",
-            "5": "RED FLAG", "6": "VSC", "7": "VSC ENDING",
-        }
+        _CMP = {0: "Sft", 1: "Med", 2: "Hrd", 3: "Int", 4: "Wet"}
+        _TS  = {"1": "None", "2": "YEL", "4": "SC", "5": "RED", "6": "VSC", "7": "VSC-end"}
 
         if self.latest_telemetry is None:
-            return "No live telemetry available. Answer based on general F1 knowledge."
+            return "No live telemetry. Answer from general F1 knowledge."
 
-        data        = self.latest_telemetry
-        frame       = data.get("frame", {}) or {}
-        session     = data.get("session_data", {}) or {}
+        data         = self.latest_telemetry
+        frame        = data.get("frame", {}) or {}
+        session      = data.get("session_data", {}) or {}
         session_info = data.get("session_info", {}) or {}
-        weather     = frame.get("weather", {}) or {}
-        drivers     = frame.get("drivers", {}) or {}
+        weather      = frame.get("weather", {}) or {}
+        drivers      = frame.get("drivers", {}) or {}
 
-        lap        = session.get("lap", frame.get("lap", "?"))
+        lap        = session.get("lap", "?")
         total_laps = session.get("total_laps", "?")
-        leader     = session.get("leader", "?")
         ts_raw     = str(data.get("track_status", "1"))
-        track_status = _TRACK_STATUS.get(ts_raw, f"STATUS {ts_raw}")
-        rain_state = weather.get("rain_state", "UNKNOWN")
+        sc_state   = _TS.get(ts_raw, ts_raw)
+        rain       = weather.get("rain_state", "DRY")
         track_temp = weather.get("track_temp")
-        air_temp   = weather.get("air_temp")
+        circuit    = session_info.get("circuit_name") or session_info.get("event_name") or "?"
+        temp_str   = f" {track_temp:.1f}°C" if track_temp is not None else ""
 
-        lines = ["=== CURRENT RACE STATE ==="]
-
-        # Event line
-        if session_info.get("event_name"):
-            ev = session_info["event_name"]
-            if session_info.get("circuit_name"):
-                ev += f" — {session_info['circuit_name']}"
-            if session_info.get("country"):
-                ev += f", {session_info['country']}"
-            if session_info.get("year"):
-                ev += f" ({session_info['year']} Round {session_info.get('round', '?')})"
-            lines.append(f"Event: {ev}")
-
-        # Summary line
-        temp_str = f" | Track Temp: {track_temp:.1f}°C" if track_temp is not None else ""
-        lines.append(
-            f"Lap: {lap} / {total_laps} | "
-            f"Leader: {leader} | "
-            f"Track Status: {track_status} | "
-            f"Weather: {rain_state}{temp_str}"
-        )
-        if air_temp is not None:
-            lines.append(f"Air Temp: {air_temp:.1f}°C")
+        header = f"=== RACE STATE: Lap {lap}/{total_laps} | {circuit} | {rain}{temp_str} | SC:{sc_state} ==="
 
         if not drivers:
-            lines.append("(No driver data in this frame)")
-            lines.append("=== END RACE STATE ===")
-            return "\n".join(lines)
+            return f"{header}\n(No driver data)\n=== END ==="
 
-        # Sort by position
         ranked = sorted(
             drivers.items(),
             key=lambda kv: int(kv[1].get("position") or 99),
-        )
+        )[:max_drivers]
 
-        # Compute gap to leader from rel_dist
-        leader_rel: float | None = None
-        if ranked:
-            leader_rel = float(ranked[0][1].get("rel_dist") or 0.0)
-
-        # Estimate average speed for gap conversion (use median of non-zero values)
+        leader_rel = float(ranked[0][1].get("rel_dist") or 0.0) if ranked else 0.0
         speeds = [float(d.get("speed") or 0) for _, d in ranked if float(d.get("speed") or 0) > 10]
         avg_speed_ms = (sum(speeds) / len(speeds) / 3.6) if speeds else (150 / 3.6)
-        circuit_len  = 5000.0  # metres; conservative default
+        circuit_len  = 5000.0
 
-        lines.append("")
-        lines.append("FULL LEADERBOARD:")
-
+        rows = []
         for i, (code, d) in enumerate(ranked):
-            pos       = int(d.get("position") or i + 1)
-            tyre_raw  = d.get("tyre")
-            compound  = _COMPOUND.get(int(tyre_raw), "?") if tyre_raw is not None else "?"
-            drv_lap   = int(d.get("lap") or 0)
-            rel       = float(d.get("rel_dist") or 0.0)
+            pos      = int(d.get("position") or i + 1)
+            tyre_raw = d.get("tyre")
+            cmp      = _CMP.get(int(tyre_raw), "?") if tyre_raw is not None else "?"
+            drv_lap  = int(d.get("lap") or 0)
+            rel      = float(d.get("rel_dist") or 0.0)
 
-            # Tyre age: laps completed on the current set of tyres.
-            # age_start_lap is the lap the current stint began (set at init
-            # or reset on pit detection, lap-delta aware for fast-forward).
-            hist = self._tyre_history.get(code)
+            hist      = self._tyre_history.get(code)
             age_start = hist.get("age_start_lap") if hist is not None else None
-            tyre_age  = max(0, drv_lap - age_start) if age_start is not None else drv_lap
+            age       = max(0, drv_lap - age_start) if age_start is not None else drv_lap
 
-            # Gap to leader
-            if i == 0 or leader_rel is None:
-                gap_str = "leader"
+            if i == 0:
+                gap = "Leader"
             else:
                 dist_diff = (leader_rel - rel) % 1.0
                 gap_s     = dist_diff * circuit_len / max(avg_speed_ms, 1.0)
-                gap_str   = f"+{gap_s:.1f}s"
+                gap       = f"+{gap_s:.1f}s"
 
-            # P2 gap shown in summary header
-            if i == 1:
-                lines[2] = lines[2].rstrip() + f" | Gap to P2 ({code}): {gap_str.lstrip('+')}"
+            rows.append(f"P{pos:<2} {code:<3} | {cmp:<3} | Age {age:<2} | {gap}")
 
-            compound_short = compound[:3]  # "Sof", "Med", "Har", "Int", "Wet"
-            lines.append(
-                f"  P{pos:<2} {code:<3} | Tyre: {compound_short:<3} | "
-                f"Tyre Age: {tyre_age:>2} laps | Gap: {gap_str}"
-            )
-
-        lines.append("")
-
-        # Pit stop history
+        # Pit summary (compact)
         if self._pitted_drivers:
             pit_entries = sorted(self._pitted_drivers.items(), key=lambda x: x[1])
-            pit_summary = ", ".join(f"{c} (lap {l})" for c, l in pit_entries)
-            lines.append(f"Pit stops this race: {pit_summary}")
+            pit_line = "Pits: " + " ".join(f"{c}(L{l})" for c, l in pit_entries)
         else:
-            lines.append("Pit stops this race: None yet")
+            pit_line = "Pits: none"
 
-        lines.append("=== END RACE STATE ===")
-        return "\n".join(lines)
+        context = "\n".join([header] + rows + [pit_line, "=== END ==="])
+
+        # Safety net: if still over 800 estimated tokens, trim to top 10
+        if len(context) // 4 > 800:
+            context = self.build_race_context(max_drivers=10)
+
+        return context
 
     def _call_groq(self, question: str, race_context: str, signals):
         """
@@ -853,12 +807,20 @@ class EngineerChatWindow(PitWallWindow):
                     pass  # fall through to reduced-quality Groq
 
             # ── Step 3: Groq reduced-quality fallback ─────────────────────────
+            # Rebuild with top-10-only context to stay under 8b token limits
+            compact_ctx = self.build_race_context(max_drivers=10)
+            compact_parts = [compact_ctx]
+            if extra_ctx:
+                compact_parts.append(extra_ctx)
+            compact_parts.append(f"Engineer question: {question}")
+            compact_messages = self._build_messages("\n\n".join(compact_parts))
+
             client   = Groq(api_key=groq_key)
             response = client.chat.completions.create(
                 model=_GROQ_FALLBACK,
-                messages=messages,
+                messages=compact_messages,
                 temperature=0.7,
-                max_tokens=1024,
+                max_tokens=512,
             )
             reply = response.choices[0].message.content.strip()
             signals.finished.emit(f"[Reduced Quality Mode]\n{reply}")
