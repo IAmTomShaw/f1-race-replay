@@ -232,6 +232,58 @@ def _trim_messages(messages: list, token_limit: int = 8000) -> list:
     return [system_msg] + trimmed + [user_msg]
 
 
+# ── Tyre age tracker ──────────────────────────────────────────────────────────
+
+class TyreAgeTracker:
+    """
+    Tracks tyre age for a single driver, lap-delta aware.
+
+    Handles high-speed fast-forward correctly: if the replay jumps from
+    lap 1 to lap 9 in one frame, tyre_age is incremented by 8, not 1.
+    On compound change, age is reset to lap_delta (the driver pitted
+    somewhere in the skipped window; worst-case they just fitted the tyre
+    at the start of that window, so they've already done lap_delta laps).
+    """
+
+    def __init__(self):
+        self.tyre_age: int      = 0
+        self.compound: int | None = None
+        self._last_lap: int     = 0
+
+    def update(self, driver_frame: dict) -> None:
+        lap      = int(driver_frame.get("lap") or 0)
+        raw_tyre = driver_frame.get("tyre")
+
+        lap_delta = max(0, lap - self._last_lap)
+
+        if self.compound is None:
+            # First frame — start the stint clock.
+            self.compound = raw_tyre
+            self.tyre_age = 0
+        elif raw_tyre is not None and raw_tyre != self.compound:
+            # Compound changed — pit happened somewhere in the skipped window.
+            self.compound = raw_tyre
+            self.tyre_age = lap_delta  # conservative: pitted at start of window
+        else:
+            self.tyre_age += lap_delta
+
+        self._last_lap = lap
+
+
+# def _test_tyre_age_fastforward():
+#     """Simulates fast-forward from lap 1 to lap 18 in 3 frames"""
+#     tracker = TyreAgeTracker()
+#     frames = [
+#         {"lap": 1,  "tyre": 2},
+#         {"lap": 9,  "tyre": 2},
+#         {"lap": 18, "tyre": 2},
+#     ]
+#     for f in frames:
+#         tracker.update(f)
+#     assert tracker.tyre_age == 17, f"Expected 17, got {tracker.tyre_age}"
+#     print("PASS")
+
+
 class _GroqWorkerSignals(QObject):
     finished = Signal(str)
     error = Signal(str)
@@ -530,12 +582,34 @@ class EngineerChatWindow(PitWallWindow):
 
                 prev = self._tyre_history.get(code)
                 if prev is None:
-                    # First frame — initialise without treating as a pit stop
-                    self._tyre_history[code] = {"tyre": raw_tyre, "lap": lap}
-                elif prev["tyre"] != raw_tyre and raw_tyre is not None:
-                    # Tyre compound changed — driver pitted
-                    self._pitted_drivers[code] = lap
-                    self._tyre_history[code] = {"tyre": raw_tyre, "lap": lap}
+                    # First frame — record the stint start lap as this lap.
+                    # age_start_lap is the lap this tyre was fitted (or the lap
+                    # we first saw the driver, whichever is earlier).
+                    self._tyre_history[code] = {
+                        "tyre": raw_tyre,
+                        "age_start_lap": lap,
+                    }
+                else:
+                    lap_delta = lap - prev.get("last_seen_lap", lap)
+
+                    if raw_tyre is not None and prev["tyre"] != raw_tyre:
+                        # Compound changed — driver pitted somewhere in this
+                        # frame window.  Record the pit on the current lap and
+                        # reset age_start_lap.  At high speed we can't know
+                        # exactly when they pitted, so we use the most
+                        # conservative estimate: they pitted at the START of
+                        # the skipped window, giving them the maximum possible
+                        # age on the new tyre (lap_delta laps already done).
+                        self._pitted_drivers[code] = lap
+                        self._tyre_history[code] = {
+                            "tyre": raw_tyre,
+                            "age_start_lap": lap - lap_delta,
+                            "last_seen_lap": lap,
+                        }
+                    else:
+                        # Same compound — just refresh last_seen_lap so the
+                        # next frame can compute an accurate lap_delta.
+                        prev["last_seen_lap"] = lap
 
             self._leaderboard = " | ".join(
                 f"P{int(d.get('position', i + 1))}: {code} ({self._current_tyres.get(code, '?')}, lap {int(d.get('lap') or 0)})"
@@ -659,13 +733,12 @@ class EngineerChatWindow(PitWallWindow):
             drv_lap   = int(d.get("lap") or 0)
             rel       = float(d.get("rel_dist") or 0.0)
 
-            # Tyre age: use pit lap from history if available, else approximate from current lap
-            pit_lap = None
+            # Tyre age: laps completed on the current set of tyres.
+            # age_start_lap is the lap the current stint began (set at init
+            # or reset on pit detection, lap-delta aware for fast-forward).
             hist = self._tyre_history.get(code)
-            if hist is not None:
-                pit_lap = hist.get("age_start_lap") or hist.get("lap")
-            tyre_age = (drv_lap - pit_lap) if pit_lap is not None else drv_lap
-            tyre_age = max(0, tyre_age)
+            age_start = hist.get("age_start_lap") if hist is not None else None
+            tyre_age  = max(0, drv_lap - age_start) if age_start is not None else drv_lap
 
             # Gap to leader
             if i == 0 or leader_rel is None:
