@@ -321,6 +321,7 @@ class EngineerChatWindow(PitWallWindow):
         self._persona: str = "Race Engineer"
         self._session_year: int = 2026
         self._season_context: str = build_season_context(2026)
+        self.latest_telemetry: dict | None = None  # full raw frame, used by build_race_context()
         super().__init__()
         self.setWindowTitle("BoxBox - Race Engineer")
         self.setGeometry(100, 100, 520, 720)
@@ -484,6 +485,8 @@ class EngineerChatWindow(PitWallWindow):
         self._conn_label.setText(status)
 
     def on_telemetry_data(self, data):
+        self.latest_telemetry = data  # full snapshot for build_race_context()
+
         frame = data.get("frame", {})
         session = data.get("session_data", {})
         weather = frame.get("weather", {})
@@ -559,105 +562,175 @@ class EngineerChatWindow(PitWallWindow):
         signals.finished.connect(self._on_reply)
         signals.error.connect(self._on_error)
 
-        ctx = dict(self._latest_context)
-        session_info = dict(self._session_info)
-        leaderboard = self._leaderboard
-        current_tyres = dict(self._current_tyres)
-        pitted_drivers = dict(self._pitted_drivers)
+        # Snapshot mutable state for the background thread
+        race_context = self.build_race_context()
         thread = threading.Thread(
             target=self._call_groq,
-            args=(question, ctx, session_info, leaderboard, current_tyres, pitted_drivers, signals),
+            args=(question, race_context, signals),
             daemon=True,
         )
         thread.start()
 
-    def _build_telemetry_context(
-        self, ctx, session_info, leaderboard, current_tyres, pitted_drivers, grid: str
-    ) -> str:
-        if ctx.get("frame_index") is None:
-            return "No live telemetry connected yet."
-        lines = []
+    # ── Race context builder ───────────────────────────────────────────────────
+
+    def build_race_context(self) -> str:
+        """
+        Build a rich plain-English race state block from the latest telemetry
+        snapshot. This is prepended to every user message so the AI always has
+        full, specific race data regardless of what the user typed.
+        """
+        _COMPOUND = {0: "Soft", 1: "Medium", 2: "Hard", 3: "Inter", 4: "Wet"}
+        _TRACK_STATUS = {
+            "1": "GREEN", "2": "YELLOW", "4": "SAFETY CAR",
+            "5": "RED FLAG", "6": "VSC", "7": "VSC ENDING",
+        }
+
+        if self.latest_telemetry is None:
+            return "No live telemetry available. Answer based on general F1 knowledge."
+
+        data        = self.latest_telemetry
+        frame       = data.get("frame", {}) or {}
+        session     = data.get("session_data", {}) or {}
+        session_info = data.get("session_info", {}) or {}
+        weather     = frame.get("weather", {}) or {}
+        drivers     = frame.get("drivers", {}) or {}
+
+        lap        = session.get("lap", frame.get("lap", "?"))
+        total_laps = session.get("total_laps", "?")
+        leader     = session.get("leader", "?")
+        ts_raw     = str(data.get("track_status", "1"))
+        track_status = _TRACK_STATUS.get(ts_raw, f"STATUS {ts_raw}")
+        rain_state = weather.get("rain_state", "UNKNOWN")
+        track_temp = weather.get("track_temp")
+        air_temp   = weather.get("air_temp")
+
+        lines = ["=== CURRENT RACE STATE ==="]
+
+        # Event line
         if session_info.get("event_name"):
-            event_line = f"Event: {session_info['event_name']}"
+            ev = session_info["event_name"]
             if session_info.get("circuit_name"):
-                event_line += f" — {session_info['circuit_name']}"
+                ev += f" — {session_info['circuit_name']}"
             if session_info.get("country"):
-                event_line += f", {session_info['country']}"
+                ev += f", {session_info['country']}"
             if session_info.get("year"):
-                event_line += f" ({session_info['year']} Round {session_info.get('round', '?')})"
-            lines.append(event_line)
+                ev += f" ({session_info['year']} Round {session_info.get('round', '?')})"
+            lines.append(f"Event: {ev}")
+
+        # Summary line
+        temp_str = f" | Track Temp: {track_temp:.1f}°C" if track_temp is not None else ""
         lines.append(
-            f"Live race state: Lap {ctx['lap']}/{ctx['total_laps']}, "
-            f"leader: {ctx['leader']}, track status: {ctx['track_status']}, "
-            f"conditions: {ctx['rain_state']}"
+            f"Lap: {lap} / {total_laps} | "
+            f"Leader: {leader} | "
+            f"Track Status: {track_status} | "
+            f"Weather: {rain_state}{temp_str}"
         )
-        if ctx.get("air_temp") is not None:
+        if air_temp is not None:
+            lines.append(f"Air Temp: {air_temp:.1f}°C")
+
+        if not drivers:
+            lines.append("(No driver data in this frame)")
+            lines.append("=== END RACE STATE ===")
+            return "\n".join(lines)
+
+        # Sort by position
+        ranked = sorted(
+            drivers.items(),
+            key=lambda kv: int(kv[1].get("position") or 99),
+        )
+
+        # Compute gap to leader from rel_dist
+        leader_rel: float | None = None
+        if ranked:
+            leader_rel = float(ranked[0][1].get("rel_dist") or 0.0)
+
+        # Estimate average speed for gap conversion (use median of non-zero values)
+        speeds = [float(d.get("speed") or 0) for _, d in ranked if float(d.get("speed") or 0) > 10]
+        avg_speed_ms = (sum(speeds) / len(speeds) / 3.6) if speeds else (150 / 3.6)
+        circuit_len  = 5000.0  # metres; conservative default
+
+        lines.append("")
+        lines.append("FULL LEADERBOARD:")
+
+        for i, (code, d) in enumerate(ranked):
+            pos       = int(d.get("position") or i + 1)
+            tyre_raw  = d.get("tyre")
+            compound  = _COMPOUND.get(int(tyre_raw), "?") if tyre_raw is not None else "?"
+            drv_lap   = int(d.get("lap") or 0)
+            rel       = float(d.get("rel_dist") or 0.0)
+
+            # Tyre age: use pit lap from history if available, else approximate from current lap
+            pit_lap = None
+            hist = self._tyre_history.get(code)
+            if hist is not None:
+                pit_lap = hist.get("age_start_lap") or hist.get("lap")
+            tyre_age = (drv_lap - pit_lap) if pit_lap is not None else drv_lap
+            tyre_age = max(0, tyre_age)
+
+            # Gap to leader
+            if i == 0 or leader_rel is None:
+                gap_str = "leader"
+            else:
+                dist_diff = (leader_rel - rel) % 1.0
+                gap_s     = dist_diff * circuit_len / max(avg_speed_ms, 1.0)
+                gap_str   = f"+{gap_s:.1f}s"
+
+            # P2 gap shown in summary header
+            if i == 1:
+                lines[2] = lines[2].rstrip() + f" | Gap to P2 ({code}): {gap_str.lstrip('+')}"
+
+            compound_short = compound[:3]  # "Sof", "Med", "Har", "Int", "Wet"
             lines.append(
-                f"Air temp: {ctx['air_temp']:.1f}°C, "
-                f"track temp: {ctx['track_temp']:.1f}°C"
+                f"  P{pos:<2} {code:<3} | Tyre: {compound_short:<3} | "
+                f"Tyre Age: {tyre_age:>2} laps | Gap: {gap_str}"
             )
-        if leaderboard:
-            lines.append(f"Live leaderboard: {leaderboard}")
-        if current_tyres:
-            tyre_str = " | ".join(f"{code}: {compound}" for code, compound in sorted(current_tyres.items()))
-            lines.append(f"Current tyres: {tyre_str}")
-        if pitted_drivers:
-            pit_str = " | ".join(
-                f"{code} pitted on lap {lap}"
-                for code, lap in sorted(pitted_drivers.items(), key=lambda x: x[1])
-            )
-            lines.append(f"Pit stops so far: {pit_str}")
+
+        lines.append("")
+
+        # Pit stop history
+        if self._pitted_drivers:
+            pit_entries = sorted(self._pitted_drivers.items(), key=lambda x: x[1])
+            pit_summary = ", ".join(f"{c} (lap {l})" for c, l in pit_entries)
+            lines.append(f"Pit stops this race: {pit_summary}")
         else:
-            lines.append("Pit stops so far: No pit stops yet")
-        if grid:
-            lines.append(grid)
+            lines.append("Pit stops this race: None yet")
+
+        lines.append("=== END RACE STATE ===")
         return "\n".join(lines)
 
-    def _call_groq(self, question, ctx, session_info, leaderboard, current_tyres, pitted_drivers, signals):
+    def _call_groq(self, question: str, race_context: str, signals):
         api_key = os.environ.get("GROQ_API_KEY", "")
         if not api_key:
             signals.error.emit("GROQ_API_KEY environment variable is not set.")
             return
         try:
-            # Fetch live grid from OpenF1 (cached, runs in this background thread)
-            grid = _fetch_openf1_drivers()
-
-            telemetry_ctx = self._build_telemetry_context(ctx, session_info, leaderboard, current_tyres, pitted_drivers, grid)
-
             question_lower = question.lower()
-            is_technical = any(kw in question_lower for kw in TECHNICAL_KEYWORDS)
+            is_technical   = any(kw in question_lower for kw in TECHNICAL_KEYWORDS)
             needs_live_search = any(kw in question_lower for kw in LIVE_KEYWORDS)
 
             extra_ctx = ""
-
             if is_technical:
-                # Try Wikipedia first for technical/definitional questions
                 topic = _extract_technical_topic(question)
-                wiki = _wikipedia_summary(f"Formula One {topic}")
-                if not wiki:
-                    wiki = _wikipedia_summary(topic)
-                if wiki:
-                    extra_ctx = wiki
-                else:
-                    # Fall back to Tavily if Wikipedia has nothing useful
-                    extra_ctx = _tavily_search(question)
+                wiki  = _wikipedia_summary(f"Formula One {topic}") or _wikipedia_summary(topic)
+                extra_ctx = wiki or _tavily_search(question)
             elif needs_live_search:
                 extra_ctx = _tavily_search(question)
 
-            parts = [telemetry_ctx]
+            # Build the user message: race state block first, then optional
+            # external context, then the question itself.
+            parts = [race_context]
             if extra_ctx:
                 parts.append(extra_ctx)
-            parts.append(f"The user is asking: {question}")
-            if extra_ctx:
                 parts.append(
-                    "Prioritise the provided context over training knowledge for current season information. "
-                    "For historical or technical questions, draw on your training knowledge. "
-                    "If you are not certain about something, say so rather than guessing."
+                    "Prioritise the provided race state and context over training knowledge "
+                    "for current season information. For historical or technical questions, "
+                    "draw on your training knowledge. If you are not certain, say so."
                 )
+            parts.append(f"Engineer question: {question}")
             prompt = "\n\n".join(parts)
 
             messages = self._build_messages(prompt)
-            client = Groq(api_key=api_key)
+            client   = Groq(api_key=api_key)
             response = client.chat.completions.create(
                 model=MODEL,
                 messages=messages,
