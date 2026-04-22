@@ -16,6 +16,9 @@ computed_data/
 .DS_Store
 .idea
 
+node_modules/
+project/dist/
+
 *.pyc
 *.avif
 *.mp4

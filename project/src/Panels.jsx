@@ -1,8 +1,14 @@
 // Right-side panels: tyre strategy, pit predictor, ghost radar, etc.
 
-const { TEAMS, COMPOUNDS, DRIVERS } = window.APEX;
+const { TEAMS, COMPOUNDS, DRIVERS, getStints, getPitStops } = window.APEX;
 
-// Stint strategy strip for top-10 drivers
+// Map fastf1 compound strings → APEX keys
+const COMPOUND_KEY = {
+  SOFT: "S", MEDIUM: "M", HARD: "H",
+  INTERMEDIATE: "I", WET: "W", UNKNOWN: "M",
+};
+
+// Stint strategy strip for top-10 drivers — uses real stint & pit stop data
 function StrategyStrip({ standings, totalLaps, lap }) {
   const top = standings.slice(0, 10);
   return (
@@ -15,13 +21,16 @@ function StrategyStrip({ standings, totalLaps, lap }) {
       <div style={{ padding: "6px 10px", fontFamily: "JetBrains Mono, monospace" }}>
         {top.map((s) => {
           const team = TEAMS[s.driver.team];
-          // Fictional stints for each driver
-          const seed = s.driver.num;
-          const stops = [
-            { start: 0, end: 14 + (seed % 5), c: "M" },
-            { start: 14 + (seed % 5), end: 32 + (seed % 7), c: "H" },
-            { start: 32 + (seed % 7), end: totalLaps, c: "S" },
-          ];
+          const rawStints = getStints(s.driver.code);
+          const pitStops = getPitStops(s.driver.code);
+          // Convert real stints → { start, end, c } for rendering
+          const stops = rawStints.length > 0
+            ? rawStints.map((st) => ({
+                start: st.start_lap - 1,   // 0-indexed for bar positioning
+                end: st.end_lap,
+                c: COMPOUND_KEY[st.compound] || "M",
+              }))
+            : [{ start: 0, end: totalLaps, c: "M" }]; // fallback
           return (
             <div key={s.driver.code} style={{
               display: "grid", gridTemplateColumns: "28px 36px 1fr",
@@ -44,15 +53,27 @@ function StrategyStrip({ standings, totalLaps, lap }) {
                     <div key={i} style={{
                       position: "absolute", left: `${sx}%`, width: `${sw}%`, top: 0, bottom: 0,
                       background: COMPOUNDS[stint.c].color,
-                      opacity: stint.start > lap ? 0.25 : 0.85,
+                      opacity: stint.end < lap ? 0.55 : stint.start > lap ? 0.25 : 0.85,
                       borderRight: "1px solid rgba(11,11,17,0.7)",
                     }}/>
                   );
                 })}
+                {/* Pit stop markers */}
+                {pitStops.map((ps, i) => (
+                  <div key={`pit-${i}`} style={{
+                    position: "absolute",
+                    left: `${(ps.lap / totalLaps) * 100}%`,
+                    top: -3, bottom: -3, width: 2,
+                    background: "#FFB800",
+                    borderRadius: 1,
+                    zIndex: 2,
+                  }}/>
+                ))}
                 {/* Current lap marker */}
                 <div style={{
                   position: "absolute", left: `${(lap / totalLaps) * 100}%`,
                   top: -2, bottom: -2, width: 1, background: "#FFFFFF",
+                  zIndex: 3,
                 }}/>
               </div>
             </div>
@@ -66,7 +87,7 @@ function StrategyStrip({ standings, totalLaps, lap }) {
 // Compact gap-to-leader visualizer (spider)
 function GapViz({ standings, pinned }) {
   const top = standings.slice(0, 10);
-  const maxGap = Math.max(...top.map(s => s.gap), 1);
+  const maxGap = Math.max(...top.map(s => s.gap ?? 0), 1);
   return (
     <div style={{
       background: "linear-gradient(180deg, rgba(20,20,30,0.92), rgba(11,11,17,0.94))",

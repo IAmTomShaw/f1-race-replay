@@ -3,7 +3,7 @@ import numpy as np
 
 from src.f1_data import FPS
 from src.web.ws_hub import WSHub
-from src.web.flags import FlagBisectByTime
+from src.web.flags import FlagBisectByTime, FLAG_MAP
 from src.web.serialization import safe_jsonable
 
 PUSH_HZ = 60
@@ -236,6 +236,15 @@ def build_snapshot(loaded: dict, playback: "Playback") -> dict:
         "fastest_qual_lap_s": loaded.get("fastest_qual_lap_s"),
         "stints": {code: lap_data[code]["stints"] for code in lap_data if "stints" in lap_data[code]},
         "pit_stops": {code: lap_data[code]["pit_stops"] for code in lap_data if "pit_stops" in lap_data[code]},
+        "track_statuses": [
+            {
+                "status": FLAG_MAP.get(e["status"], e["status"]),
+                "start_time": e["start_time"],
+                "end_time": e["end_time"],
+            }
+            for e in loaded["track_statuses"]
+        ],
+        "total_duration_s": frames[-1]["t"] if frames else 0,
     }
 
 

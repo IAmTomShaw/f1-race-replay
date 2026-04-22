@@ -1,98 +1,114 @@
 // Live data shim — populates window.APEX from the backend.
-// Synchronous bootstrap ensures CIRCUIT/TEAMS/DRIVERS are available
-// before IsoTrack / Leaderboard / etc. evaluate their top-level consts.
+// Async bootstrap fetches CIRCUIT/TEAMS/DRIVERS without blocking paint.
+// Fallbacks are installed immediately so components can destructure safely;
+// real data mutates the same objects in-place once fetched.
 
 const BASE = `${location.protocol}//${location.host}`;
 
-function syncGet(path) {
+async function asyncFetch(path) {
   try {
-    const req = new XMLHttpRequest();
-    req.open("GET", BASE + path, false);
-    req.send();
-    if (req.status === 200) return JSON.parse(req.responseText);
+    const r = await fetch(BASE + path);
+    if (r.ok) return await r.json();
   } catch {}
   return null;
 }
 
-const _summary  = syncGet("/api/session/summary");
-const _geometry = syncGet("/api/session/geometry");
-
 // --- Compound int → APEX key mapping ---
-const COMPOUND_MAP = { 0: "H", 1: "M", 2: "S", 3: "I", 4: "W", 5: "W", 6: "I", 7: "H" };
+const COMPOUND_MAP = { 0: "S", 1: "M", 2: "H", 3: "I", 4: "W" };
 
 // --- TEAMS (mutable — colors updated from WS snapshot) ---
 const TEAMS = {};
 const DRIVERS = [];
 
-if (_summary && _summary.drivers) {
-  const teamsSeen = {};
-  for (const d of _summary.drivers) {
-    const teamKey = d.team || "Unknown";
-    if (!teamsSeen[teamKey]) {
-      teamsSeen[teamKey] = true;
-      TEAMS[teamKey] = { name: teamKey, color: "#FF1E00", sub: "#8A0A00" };
+// --- CIRCUIT / SECTORS / DRS_ZONES (const arrays, mutated in-place) ---
+const CIRCUIT = [{ x: 0, y: 0 }];
+const SECTORS = [
+  { idx: 0, color: "#FF1E00", name: "S1" },
+  { idx: 0, color: "#FFD93A", name: "S2" },
+  { idx: 0, color: "#00D9FF", name: "S3" },
+];
+const DRS_ZONES = [];
+
+// --- Populate from summary / geometry (async, non-blocking) ---
+let _dataResolved;
+const APEX_DATA_READY = new Promise((resolve) => { _dataResolved = resolve; });
+
+async function _initAPEX() {
+  const [_summary, _geometry] = await Promise.all([
+    asyncFetch("/api/session/summary"),
+    asyncFetch("/api/session/geometry"),
+  ]);
+
+  if (_summary && _summary.drivers) {
+    const teamsSeen = {};
+    for (const d of _summary.drivers) {
+      const teamKey = d.team || "Unknown";
+      if (!teamsSeen[teamKey]) {
+        teamsSeen[teamKey] = true;
+        TEAMS[teamKey] = { name: teamKey, color: "#FF1E00", sub: "#8A0A00" };
+      }
+      DRIVERS.push({
+        code: d.code,
+        num: d.number || 0,
+        name: d.full_name || d.code,
+        team: teamKey,
+        country: d.country || "",
+      });
     }
-    DRIVERS.push({
-      code: d.code,
-      num: d.number || 0,
-      name: d.full_name || d.code,
-      team: teamKey,
-      country: d.country || "",
-    });
   }
-}
 
-// --- CIRCUIT from geometry ---
-let CIRCUIT = [];
-let SECTORS = [];
-let DRS_ZONES = [];
+  if (_geometry) {
+    const cx = _geometry.centerline?.x || [];
+    const cy = _geometry.centerline?.y || [];
+    CIRCUIT.splice(0, CIRCUIT.length, ...cx.map((x, i) => ({ x, y: cy[i] || 0 })));
 
-if (_geometry) {
-  const cx = _geometry.centerline?.x || [];
-  const cy = _geometry.centerline?.y || [];
-  CIRCUIT = cx.map((x, i) => ({ x, y: cy[i] || 0 }));
+    DRS_ZONES.splice(0, DRS_ZONES.length, ...(_geometry.drs_zones || []).map(z => ({
+      start: z.start_idx,
+      end: z.end_idx,
+    })));
 
-  DRS_ZONES = (_geometry.drs_zones || []).map(z => ({
-    start: z.start_idx,
-    end: z.end_idx,
-  }));
+    const totalLength = _geometry.total_length_m || 1;
+    const n = CIRCUIT.length;
+    const boundaries = _geometry.sector_boundaries_m || [];
+    const sectorColors = ["#FF1E00", "#FFD93A", "#00D9FF"];
 
-  const totalLength = _geometry.total_length_m || 1;
-  const n = CIRCUIT.length;
-  const boundaries = _geometry.sector_boundaries_m || [];
-  const sectorColors = ["#FF1E00", "#FFD93A", "#00D9FF"];
+    if (boundaries.length >= 2) {
+      SECTORS.splice(0, SECTORS.length,
+        { idx: 0, color: sectorColors[0], name: "S1" },
+        ...boundaries.slice(0, 2).map((m, i) => ({
+          idx: Math.round((m / totalLength) * (n - 1)) % n,
+          color: sectorColors[i + 1] || "#FFFFFF",
+          name: `S${i + 2}`,
+        })),
+      );
+    } else if (n > 1) {
+      SECTORS.splice(0, SECTORS.length,
+        { idx: 0, color: "#FF1E00", name: "S1" },
+        { idx: Math.floor(n / 3), color: "#FFD93A", name: "S2" },
+        { idx: Math.floor(2 * n / 3), color: "#00D9FF", name: "S3" },
+      );
+    }
+  }
 
-  if (boundaries.length >= 2) {
-    SECTORS = [
-      { idx: 0, color: sectorColors[0], name: "S1" },
-      ...boundaries.slice(0, 2).map((m, i) => ({
-        idx: Math.round((m / totalLength) * (n - 1)) % n,
-        color: sectorColors[i + 1] || "#FFFFFF",
-        name: `S${i + 2}`,
-      })),
-    ];
-  } else if (n > 1) {
-    SECTORS = [
+  // Fallbacks (only fill if still empty after fetch)
+  if (CIRCUIT.length === 0) CIRCUIT.push({ x: 0, y: 0 });
+  if (DRIVERS.length === 0) {
+    DRIVERS.push({ code: "???", num: 0, name: "Loading...", team: "Loading", country: "" });
+    TEAMS["Loading"] = { name: "Loading", color: "#FF1E00", sub: "#8A0A00" };
+  }
+  if (SECTORS.length === 0) {
+    SECTORS.push(
       { idx: 0, color: "#FF1E00", name: "S1" },
-      { idx: Math.floor(n / 3), color: "#FFD93A", name: "S2" },
-      { idx: Math.floor(2 * n / 3), color: "#00D9FF", name: "S3" },
-    ];
+      { idx: Math.floor(CIRCUIT.length / 3), color: "#FFD93A", name: "S2" },
+      { idx: Math.floor(2 * CIRCUIT.length / 3), color: "#00D9FF", name: "S3" },
+    );
   }
+
+  _dataResolved();
 }
 
-// Fallbacks
-if (CIRCUIT.length === 0) CIRCUIT = [{ x: 0, y: 0 }];
-if (DRIVERS.length === 0) {
-  DRIVERS.push({ code: "???", num: 0, name: "Loading...", team: "Loading", country: "" });
-  TEAMS["Loading"] = { name: "Loading", color: "#FF1E00", sub: "#8A0A00" };
-}
-if (SECTORS.length === 0) {
-  SECTORS = [
-    { idx: 0, color: "#FF1E00", name: "S1" },
-    { idx: Math.floor(CIRCUIT.length / 3), color: "#FFD93A", name: "S2" },
-    { idx: Math.floor(2 * CIRCUIT.length / 3), color: "#00D9FF", name: "S3" },
-  ];
-}
+_initAPEX();
+
 
 const COMPOUNDS = {
   S:  { label: "SOFT",   color: "#FF3A3A" },
@@ -108,8 +124,14 @@ window.__LIVE_FRAME = null;
 // --- Snapshot installer (called from live_state.jsx on WS snapshot) ---
 function _installSnapshot(snap) {
   if (!snap) return;
-  const colors = snap.driver_colors || {};
   const meta = snap.driver_meta || {};
+  // Clear sentinel "???" entry on first real snapshot
+  if (Object.keys(meta).length > 0) {
+    const sentinelIdx = DRIVERS.findIndex(d => d.code === "???");
+    if (sentinelIdx !== -1) DRIVERS.splice(sentinelIdx, 1);
+    delete TEAMS["Loading"];
+  }
+  const colors = snap.driver_colors || {};
   for (const [code, info] of Object.entries(meta)) {
     const teamKey = info.team;
     if (TEAMS[teamKey] && colors[code]) {
@@ -133,6 +155,39 @@ function _installSnapshot(snap) {
         team: info.team || "Unknown",
         country: info.country || "",
       });
+    }
+  }
+  // Rebuild geometry from snapshot if present (mutate in-place)
+  const geo = snap.geometry;
+  if (geo) {
+    const cx = geo.centerline?.x || [];
+    const cy = geo.centerline?.y || [];
+    if (cx.length > 1) {
+      CIRCUIT.splice(0, CIRCUIT.length, ...cx.map((x, i) => ({ x, y: cy[i] || 0 })));
+      DRS_ZONES.splice(0, DRS_ZONES.length, ...(geo.drs_zones || []).map(z => ({
+        start: z.start_idx,
+        end: z.end_idx,
+      })));
+      const totalLength = geo.total_length_m || 1;
+      const n = CIRCUIT.length;
+      const boundaries = geo.sector_boundaries_m || [];
+      const sectorColors = ["#FF1E00", "#FFD93A", "#00D9FF"];
+      if (boundaries.length >= 2) {
+        SECTORS.splice(0, SECTORS.length,
+          { idx: 0, color: sectorColors[0], name: "S1" },
+          ...boundaries.slice(0, 2).map((m, i) => ({
+            idx: Math.round((m / totalLength) * (n - 1)) % n,
+            color: sectorColors[i + 1] || "#FFFFFF",
+            name: `S${i + 2}`,
+          })),
+        );
+      } else if (n > 1) {
+        SECTORS.splice(0, SECTORS.length,
+          { idx: 0, color: "#FF1E00", name: "S1" },
+          { idx: Math.floor(n / 3), color: "#FFD93A", name: "S2" },
+          { idx: Math.floor(2 * n / 3), color: "#00D9FF", name: "S3" },
+        );
+      }
     }
   }
 }
@@ -170,6 +225,7 @@ function computeStandings(t, lap, totalLaps) {
       pit: s.in_pit || false,
       inDRS: s.in_drs || false,
       speedKph: s.speed_kph ?? 0,
+      fraction: s.fraction ?? 0,
     };
   }).sort((a, b) => a.pos - b.pos);
 }
@@ -190,32 +246,57 @@ function telemetryFor(driverCode, t) {
   };
 }
 
-// --- lapTrace: Phase-2 placeholder (fictional) ---
-const rand = (seed) => {
-  let s = seed | 0 || 1;
-  return () => {
-    s = (s * 1664525 + 1013904223) | 0;
-    return ((s >>> 0) % 10000) / 10000;
-  };
-};
+// --- Telemetry accumulator: stores real per-lap samples from live frames ---
+window.__LAP_TELEMETRY = {};  // { driverCode: { lapNum: [{fraction, speed, throttle, brake, gear, rpm}, ...] } }
+
+function _accumulateFrame(frame) {
+  if (!frame?.standings) return;
+  for (const s of frame.standings) {
+    const code = s.code;
+    const lap = s.lap;
+    const frac = s.fraction != null ? s.fraction % 1 : (s.rel_dist != null && s.rel_dist >= 0 && s.rel_dist <= 1.01 ? s.rel_dist : 0);
+    if (frac == null || frac < 0) continue;
+
+    if (!window.__LAP_TELEMETRY[code]) window.__LAP_TELEMETRY[code] = {};
+    if (!window.__LAP_TELEMETRY[code][lap]) window.__LAP_TELEMETRY[code][lap] = [];
+
+    const bucket = window.__LAP_TELEMETRY[code][lap];
+    // Skip if fraction hasn't advanced (avoid duplicates)
+    const last = bucket[bucket.length - 1];
+    if (last && Math.abs(frac - last.fraction) < 0.0005) continue;
+
+    bucket.push({
+      fraction: frac,
+      speed: s.speed_kph ?? 0,
+      throttle: s.throttle_pct ?? 0,
+      brake: s.brake_pct ?? 0,
+      gear: s.gear ?? 1,
+      rpm: s.rpm ?? 0,
+    });
+  }
+}
 
 function lapTrace(driverCode, lap, channel = "speed") {
-  const idx = DRIVERS.findIndex((d) => d.code === driverCode);
-  const r = rand(idx * 13 + lap);
-  const n = 200;
+  const lapData = window.__LAP_TELEMETRY?.[driverCode]?.[lap];
+  if (!lapData || lapData.length < 2) return [];
+
+  // Sort by fraction and resample to 200 evenly-spaced points
+  const sorted = [...lapData].sort((a, b) => a.fraction - b.fraction);
+  const N = 200;
   const out = [];
-  for (let i = 0; i < n; i++) {
-    const x = i / (n - 1);
-    const phase = x * Math.PI * 12 + idx;
-    const base =
-      channel === "speed"
-        ? 220 + Math.sin(phase) * 95 + Math.sin(phase * 2.3) * 40
-        : channel === "throttle"
-        ? (Math.sin(phase) > 0 ? 95 : 10) + Math.sin(phase * 3) * 10
-        : channel === "brake"
-        ? Math.max(0, -Math.sin(phase) * 80) + Math.sin(phase * 4) * 15
-        : Math.min(8, Math.max(1, Math.round((220 + Math.sin(phase) * 95) / 50) + 1));
-    out.push(base + (r() - 0.5) * (channel === "speed" ? 6 : 3));
+  for (let i = 0; i < N; i++) {
+    const targetFrac = i / (N - 1);
+    // Binary-style bracket search
+    let lo = 0, hi = sorted.length - 1;
+    for (let j = 0; j < sorted.length - 1; j++) {
+      if (sorted[j].fraction <= targetFrac && sorted[j + 1].fraction >= targetFrac) {
+        lo = j; hi = j + 1; break;
+      }
+    }
+    const sLo = sorted[lo], sHi = sorted[hi];
+    const span = sHi.fraction - sLo.fraction;
+    const t = span > 0 ? (targetFrac - sLo.fraction) / span : 0;
+    out.push(sLo[channel] + t * (sHi[channel] - sLo[channel]));
   }
   return out;
 }
@@ -233,6 +314,7 @@ function getPitStops(code) {
 window.APEX = {
   TEAMS, DRIVERS, COMPOUNDS, CIRCUIT, SECTORS, DRS_ZONES,
   computeStandings, telemetryFor, lapTrace,
-  _installSnapshot,
+  _installSnapshot, _accumulateFrame,
   getSessionBest, getStints, getPitStops,
 };
+window.APEX_DATA_READY = APEX_DATA_READY;

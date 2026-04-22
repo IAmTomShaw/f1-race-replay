@@ -218,8 +218,8 @@ function Timeline({ t, setT, playing, setPlaying, speed, setSpeed, lap, totalLap
         {/* Lap ticks */}
         <div style={{ position: "absolute", inset: "0 0 auto 0", top: 6, height: 2, background: "rgba(255,255,255,0.04)" }}/>
         <div style={{ position: "absolute", inset: "auto 0 6px 0", height: 14, background: "rgba(255,255,255,0.03)", borderTop: "1px solid rgba(255,255,255,0.04)", borderBottom: "1px solid rgba(255,255,255,0.04)" }}/>
-        {Array.from({ length: totalLaps + 1 }).map((_, i) => {
-          const pct = (i / totalLaps) * 100;
+        {(() => { const safeTotalLaps = Math.max(totalLaps, 1); return Array.from({ length: safeTotalLaps + 1 }).map((_, i) => {
+          const pct = (i / safeTotalLaps) * 100;
           const major = i % 10 === 0;
           return (
             <div key={i} style={{
@@ -228,15 +228,15 @@ function Timeline({ t, setT, playing, setPlaying, speed, setSpeed, lap, totalLap
               background: major ? "rgba(230,230,239,0.35)" : "rgba(230,230,239,0.12)",
             }}/>
           );
-        })}
-        {Array.from({ length: Math.floor(totalLaps / 10) + 1 }).map((_, i) => (
+        }); })()}
+        {(() => { const safeTotalLaps = Math.max(totalLaps, 1); return Array.from({ length: Math.floor(safeTotalLaps / 10) + 1 }).map((_, i) => (
           <div key={i} style={{
-            position: "absolute", left: `${(i * 10 / totalLaps) * 100}%`,
+            position: "absolute", left: `${(i * 10 / safeTotalLaps) * 100}%`,
             top: 0, fontSize: 8, color: "rgba(180,180,200,0.5)",
             transform: "translateX(-50%)",
             letterSpacing: "0.1em",
           }}>L{i * 10 || 1}</div>
-        ))}
+        )); })()}
         {/* SC zones */}
         {safetyCarEvents.map((e, i) => (
           <div key={i} style={{

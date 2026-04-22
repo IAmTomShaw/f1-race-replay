@@ -2,7 +2,7 @@
 
 const { TEAMS, COMPOUNDS, DRIVERS, lapTrace } = window.APEX;
 
-function DriverCard({ code, data, accent = "#FF1E00", secondary = false }) {
+function DriverCard({ code, data, accent = "#FF1E00", secondary = false, standings = [] }) {
   if (!code) {
     return (
       <div style={{
@@ -18,8 +18,22 @@ function DriverCard({ code, data, accent = "#FF1E00", secondary = false }) {
     );
   }
   const d = DRIVERS.find((x) => x.code === code);
+  if (!d) {
+    return (
+      <div style={{
+        padding: 16, minHeight: 120,
+        fontFamily: "JetBrains Mono, monospace",
+        fontSize: 10, color: "rgba(180,180,200,0.4)",
+        letterSpacing: "0.12em",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        border: "1px dashed rgba(255,255,255,0.08)",
+      }}>
+        SELECT DRIVER ON TRACK OR LEADERBOARD
+      </div>
+    );
+  }
   const team = TEAMS[d.team];
-  const live = window.APEX.computeStandings().find(s => s.driver.code === code);
+  const live = standings.find(s => s.driver.code === code);
   const compoundKey = live?.compound || "M";
   const compound = COMPOUNDS[compoundKey];
   return (
@@ -164,11 +178,12 @@ function MicroStat({ label, value, color, strong }) {
 function CompareTraces({ pinned, secondary, lap, channel = "speed", setChannel, tWithinLap }) {
   const codes = [pinned, secondary].filter(Boolean);
   const traces = codes.map((c) => lapTrace(c, lap, channel));
+  const hasData = traces.some((t) => t.length > 0);
   const W = 480, H = 140, PAD_L = 30, PAD_B = 18, PAD_T = 10, PAD_R = 8;
   const iw = W - PAD_L - PAD_R, ih = H - PAD_T - PAD_B;
   const all = traces.flat();
-  const min = Math.min(...all) * 0.95;
-  const max = Math.max(...all) * 1.02;
+  const min = all.length > 0 ? Math.min(...all) * 0.95 : 0;
+  const max = all.length > 0 ? Math.max(...all) * 1.02 : 100;
   const colors = ["#FF1E00", "#00D9FF"];
 
   const pathFor = (t) => {
@@ -189,16 +204,18 @@ function CompareTraces({ pinned, secondary, lap, channel = "speed", setChannel, 
     }}>
       <PanelHeader title={`TRACE · ${channel.toUpperCase()}`} meta={`LAP ${lap}`} />
       <div style={{ position: "relative" }}>
-        <div style={{
-          position: "absolute", top: 8, right: 10,
-          fontFamily: "JetBrains Mono, monospace",
-          fontSize: 9, fontWeight: 700,
-          letterSpacing: "0.12em",
-          color: "rgba(180,180,200,0.6)",
-          padding: "1px 4px",
-          border: "1px solid rgba(255,255,255,0.12)",
-          zIndex: 2,
-        }}>SIM</div>
+        {!hasData && (
+          <div style={{
+            position: "absolute", top: 8, right: 10,
+            fontFamily: "JetBrains Mono, monospace",
+            fontSize: 9, fontWeight: 700,
+            letterSpacing: "0.12em",
+            color: "rgba(180,180,200,0.4)",
+            padding: "1px 4px",
+            border: "1px solid rgba(255,255,255,0.08)",
+            zIndex: 2,
+          }}>WAIT</div>
+        )}
         <div style={{
           position: "absolute", top: 6, left: 120,
           display: "flex", gap: 4,

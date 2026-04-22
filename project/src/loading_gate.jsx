@@ -1,11 +1,23 @@
 function LoadingGate({ children }) {
   const { loading } = window.LIVE.useLive();
   const [poll, setPoll] = React.useState(null);
+  const [dataReady, setDataReady] = React.useState(false);
+
+  // Wait for APEX bootstrap data (summary + geometry fetch)
+  React.useEffect(() => {
+    if (window.APEX_DATA_READY) {
+      window.APEX_DATA_READY.then(() => setDataReady(true));
+    } else {
+      setDataReady(true); // legacy path if promise not present
+    }
+  }, []);
 
   // Poll /api/session/status as belt-and-braces for the WS loading pings.
   React.useEffect(() => {
+    if (loading?.status === "ready") return;
     let alive = true;
     const tick = async () => {
+      if (!alive) return;
       try {
         const s = await window.APEX_CLIENT.get("/api/session/status");
         if (alive) setPoll(s);
@@ -14,11 +26,11 @@ function LoadingGate({ children }) {
     tick();
     const id = setInterval(tick, 1000);
     return () => { alive = false; clearInterval(id); };
-  }, []);
+  }, [loading?.status]);
 
   const status = loading?.status || poll?.status || "loading";
   const progress = Math.max(loading?.progress || 0, poll?.progress || 0);
-  if (status === "ready") return children;
+  if (status === "ready" && dataReady) return children;
   return (
     <>
       {children}

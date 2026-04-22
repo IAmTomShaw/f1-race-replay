@@ -2,7 +2,7 @@
 // Supports: rotate, zoom, DRS zones toggle, driver labels toggle,
 // safety car deployment animation, clickable cars.
 
-const { TEAMS, DRIVERS, CIRCUIT, SECTORS, DRS_ZONES, COMPOUNDS } = window.APEX;
+const { TEAMS, DRIVERS, COMPOUNDS } = window.APEX;
 
 // Bounding box of the circuit → viewport
 function bounds(pts) {
@@ -15,36 +15,39 @@ function bounds(pts) {
   }
   return { minX, maxX, minY, maxY };
 }
-const B = bounds(CIRCUIT);
-const CIRCUIT_EXTENT = Math.max(B.maxX - B.minX, B.maxY - B.minY);
-const S = Math.max(1, CIRCUIT_EXTENT / 600);
-const PAD = 80 * S;
-const VB_W = (B.maxX - B.minX) + PAD * 2;
-const VB_H = (B.maxY - B.minY) + PAD * 2;
-const OX = -B.minX + PAD;
-const OY = -B.minY + PAD;
 
-const CENTROID = {
-  x: CIRCUIT.reduce((s, p) => s + p.x, 0) / CIRCUIT.length,
-  y: CIRCUIT.reduce((s, p) => s + p.y, 0) / CIRCUIT.length,
-};
+function computeDerived(circuit) {
+  const B = bounds(circuit);
+  const CIRCUIT_EXTENT = Math.max(B.maxX - B.minX, B.maxY - B.minY);
+  const S = Math.max(1, CIRCUIT_EXTENT / 600);
+  const PAD = 80 * S;
+  const VB_W = (B.maxX - B.minX) + PAD * 2;
+  const VB_H = (B.maxY - B.minY) + PAD * 2;
+  const OX = -B.minX + PAD;
+  const OY = -B.minY + PAD;
+  const CENTROID = {
+    x: circuit.reduce((s, p) => s + p.x, 0) / circuit.length,
+    y: circuit.reduce((s, p) => s + p.y, 0) / circuit.length,
+  };
+  return { B, CIRCUIT_EXTENT, S, PAD, VB_W, VB_H, OX, OY, CENTROID };
+}
 
-function pathFromPts(pts, closed = true) {
+function pathFromPts(pts, OX, OY, closed = true) {
   let d = `M ${pts[0].x + OX} ${pts[0].y + OY}`;
   for (let i = 1; i < pts.length; i++) d += ` L ${pts[i].x + OX} ${pts[i].y + OY}`;
   if (closed) d += " Z";
   return d;
 }
 
-function outwardNormal(idx) {
-  const n = CIRCUIT.length;
-  const p = CIRCUIT[idx];
-  const p2 = CIRCUIT[(idx + 1) % n];
+function outwardNormal(idx, circuit, centroid) {
+  const n = circuit.length;
+  const p = circuit[idx];
+  const p2 = circuit[(idx + 1) % n];
   const dx = p2.x - p.x, dy = p2.y - p.y;
   const mag = Math.hypot(dx, dy) || 1;
   const nx = -dy / mag, ny = dx / mag;
-  const dPlus = Math.hypot(p.x + nx - CENTROID.x, p.y + ny - CENTROID.y);
-  const dMinus = Math.hypot(p.x - nx - CENTROID.x, p.y - ny - CENTROID.y);
+  const dPlus = Math.hypot(p.x + nx - centroid.x, p.y + ny - centroid.y);
+  const dMinus = Math.hypot(p.x - nx - centroid.x, p.y - ny - centroid.y);
   return dPlus >= dMinus ? { nx, ny } : { nx: -nx, ny: -ny };
 }
 
@@ -57,14 +60,14 @@ function textColorFor(hex) {
   return Y > 140 ? "#0B0B11" : "#FFFFFF";
 }
 
-function sliceRange(start, end) {
+function sliceRange(start, end, circuit) {
   const out = [];
-  const n = CIRCUIT.length;
+  const n = circuit.length;
   if (start < end) {
-    for (let i = start; i <= end; i++) out.push(CIRCUIT[i]);
+    for (let i = start; i <= end; i++) out.push(circuit[i]);
   } else {
-    for (let i = start; i < n; i++) out.push(CIRCUIT[i]);
-    for (let i = 0; i <= end; i++) out.push(CIRCUIT[i]);
+    for (let i = start; i < n; i++) out.push(circuit[i]);
+    for (let i = 0; i <= end; i++) out.push(circuit[i]);
   }
   return out;
 }
@@ -83,12 +86,22 @@ function IsoTrack({
 }) {
   const [hover, setHover] = React.useState(null);
 
-  const trackPath = pathFromPts(CIRCUIT, true);
+  // Memoize geometry derivations against CIRCUIT.length so they recompute when snapshot arrives
+  const CIRCUIT = window.APEX.CIRCUIT;
+  const SECTORS = window.APEX.SECTORS;
+  const DRS_ZONES = window.APEX.DRS_ZONES;
+  const geoKey = CIRCUIT.length;
+  const { B, CIRCUIT_EXTENT, S, PAD, VB_W, VB_H, OX, OY, CENTROID } = React.useMemo(
+    () => computeDerived(CIRCUIT),
+    [geoKey]
+  );
+
+  const trackPath = pathFromPts(CIRCUIT, OX, OY, true);
 
   // Offset path for track shoulders (cheap outline)
   const shoulderScale = 1.012;
   const shoulderPts = CIRCUIT.map((p) => ({ x: p.x * shoulderScale, y: p.y * shoulderScale }));
-  const shoulderPath = pathFromPts(shoulderPts, true);
+  const shoulderPath = pathFromPts(shoulderPts, OX, OY, true);
 
   // Sector start/finish marker pts
   const sfIdx = 0;
@@ -165,8 +178,8 @@ function IsoTrack({
 
           {/* DRS zones (emissive red tint over the track) */}
           {showDRS && DRS_ZONES.map((z, i) => {
-            const seg = sliceRange(z.start, z.end);
-            const d = pathFromPts(seg, false);
+            const seg = sliceRange(z.start, z.end, CIRCUIT);
+            const d = pathFromPts(seg, OX, OY, false);
             return (
               <g key={i}>
                 <path d={d} fill="none" stroke="#FF1E00" strokeWidth={22*S} strokeLinejoin="round" opacity="0.22"/>
@@ -178,7 +191,6 @@ function IsoTrack({
           {/* Sector markers */}
           {SECTORS.map((s, i) => {
             const p = CIRCUIT[s.idx];
-            // Perpendicular tick
             const p2 = CIRCUIT[(s.idx + 1) % CIRCUIT.length];
             const dx = p2.x - p.x, dy = p2.y - p.y;
             const mag = Math.hypot(dx, dy) || 1;
@@ -195,14 +207,13 @@ function IsoTrack({
           })}
 
           {/* Start/finish checker */}
-          <StartFinish pt={sf} next={CIRCUIT[1]} />
+          <StartFinish pt={sf} next={CIRCUIT[1]} S={S} OX={OX} OY={OY} />
 
           {/* Pit lane (offset parallel on part of the track) */}
-          <PitLane />
+          <PitLane circuit={CIRCUIT} S={S} OX={OX} OY={OY} />
 
           {/* Cars — Phase 5 visibility overhaul */}
           {(() => {
-            // 5.1 Battle-spread: group by trackIdx bucket
             const BUCKET = 6;
             const buckets = {};
             const activeCars = standings.filter(s => s.status !== "OUT");
@@ -216,13 +227,12 @@ function IsoTrack({
               group.sort((a, b) => a.pos - b.pos);
               const n = group.length;
               if (n <= 1) continue;
-              const { nx, ny } = outwardNormal(group[0].trackIdx);
               for (let i = 0; i < n; i++) {
+                const { nx, ny } = outwardNormal(group[i].trackIdx, CIRCUIT, CENTROID);
                 const off = (i - (n - 1) / 2) * 14 * S;
                 spreadOffsets[group[i].driver.code] = { dx: nx * off, dy: ny * off };
               }
             }
-            // 5.5 OUT cars: hollow grey circles
             const outCars = standings.filter(s => s.status === "OUT");
             return [
               ...outCars.map((s) => {
@@ -241,7 +251,7 @@ function IsoTrack({
                 const isSecondary = secondary === s.driver.code;
                 const isHover = hover === s.driver.code;
                 const off = spreadOffsets[s.driver.code] || { dx: 0, dy: 0 };
-                const { nx: onx, ny: ony } = outwardNormal(s.trackIdx);
+                const { nx: onx, ny: ony } = outwardNormal(s.trackIdx, CIRCUIT, CENTROID);
                 const isPit = s.status === "PIT" || s.pit;
                 const cx = p.x + OX + off.dx;
                 const cy = p.y + OY + off.dy;
@@ -257,26 +267,20 @@ function IsoTrack({
                     onMouseLeave={() => setHover(null)}
                     onClick={(e) => onPickDriver && onPickDriver(s.driver.code, e)}
                   >
-                    {/* 5.6 Pinned dashed ring */}
                     {isPinned && (
                       <circle r="16" fill="none" stroke="#FF1E00" strokeWidth="2" strokeDasharray="4 3"/>
                     )}
-                    {/* 5.6 Secondary dashed ring */}
                     {isSecondary && (
                       <circle r="16" fill="none" stroke="#00D9FF" strokeWidth="2" strokeDasharray="4 3"/>
                     )}
-                    {/* 5.6 Hover halo */}
                     {isHover && (
                       <circle r="22" fill={isSecondary ? "#00D9FF" : team.color} opacity="0.22"/>
                     )}
-                    {/* 5.4 Velocity halo */}
                     {!isPit && (
                       <circle r="15" fill="none" stroke={team.color} strokeWidth="1" opacity={haloOpacity}/>
                     )}
-                    {/* 5.2 Larger car glyph with contrast rings */}
                     <circle r="11" fill={team.color} stroke="#0B0B11" strokeWidth="1.5"/>
                     <circle r="11" fill="none" stroke="rgba(255,255,255,0.25)" strokeWidth="0.5"/>
-                    {/* Position number — luminance-based text color */}
                     <text
                       x="0" y="3.5"
                       textAnchor="middle"
@@ -287,11 +291,9 @@ function IsoTrack({
                     >
                       {s.pos}
                     </text>
-                    {/* 5.5 Pit overlay */}
                     {isPit && (
                       <text x="0" y="-8" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="7" fontWeight="700" fill="#FFB800">P</text>
                     )}
-                    {/* 5.3 Dynamic label — outward from centroid */}
                     {showLabels && (
                       <g transform={`translate(${onx * 18}, ${ony * 18})`}>
                         <rect x="0" y="-7" width="34" height="12" rx="2" fill="rgba(11,11,17,0.85)" stroke={team.color} strokeWidth="0.6"/>
@@ -308,7 +310,6 @@ function IsoTrack({
                         </text>
                       </g>
                     )}
-                    {/* DRS badge — inward side (opposite label) */}
                     {s.inDRS && showDRS && (
                       <g transform={`translate(${-onx * 24}, ${-ony * 24})`}>
                         <rect x="0" y="-6" width="22" height="10" rx="1" fill="#FF1E00"/>
@@ -322,17 +323,17 @@ function IsoTrack({
           })()}
 
           {/* Safety car */}
-          {safetyCar && <SafetyCarGlyph sc={safetyCar} />}
+          {safetyCar && <SafetyCarGlyph sc={safetyCar} circuit={CIRCUIT} S={S} OX={OX} OY={OY} />}
         </svg>
       </div>
 
       {/* Corner labels (flat, on top of 3D plate, don't tilt) */}
-      <CornerLabels rotateX={rotateX} rotateZ={rotateZ} zoom={zoom} />
+      <CornerLabels rotateX={rotateX} rotateZ={rotateZ} zoom={zoom} circuit={CIRCUIT} S={S} OX={OX} OY={OY} VB_W={VB_W} VB_H={VB_H} />
     </div>
   );
 }
 
-function StartFinish({ pt, next }) {
+function StartFinish({ pt, next, S, OX, OY }) {
   const dx = next.x - pt.x, dy = next.y - pt.y;
   const mag = Math.hypot(dx, dy) || 1;
   const nx = -dy / mag, ny = dx / mag;
@@ -365,11 +366,12 @@ function StartFinish({ pt, next }) {
   );
 }
 
-function PitLane() {
-  // Offset pit lane parallel to first ~55 pts, slightly inside
+function PitLane({ circuit, S, OX, OY }) {
+  // Offset pit lane parallel to ~55% of circuit onward, slightly inside
+  const startIdx = Math.floor(circuit.length * 0.55);
   const seg = [];
-  for (let i = 250; i < CIRCUIT.length; i++) seg.push(CIRCUIT[i]);
-  for (let i = 0; i < 15; i++) seg.push(CIRCUIT[i]);
+  for (let i = startIdx; i < circuit.length; i++) seg.push(circuit[i]);
+  for (let i = 0; i < 15; i++) seg.push(circuit[i]);
   const offset = seg.map((p, i) => {
     const n = seg[Math.min(i + 1, seg.length - 1)];
     const dx = n.x - p.x, dy = n.y - p.y;
@@ -388,8 +390,8 @@ function PitLane() {
   );
 }
 
-function SafetyCarGlyph({ sc }) {
-  const p = CIRCUIT[sc.trackIdx];
+function SafetyCarGlyph({ sc, circuit, S, OX, OY }) {
+  const p = circuit[sc.trackIdx];
   const pulseR = 22 + Math.sin(sc.pulse) * 6;
   return (
     <g transform={`translate(${p.x + OX}, ${p.y + OY}) scale(${S})`} opacity={sc.alpha}>
@@ -406,14 +408,14 @@ function SafetyCarGlyph({ sc }) {
   );
 }
 
-function CornerLabels({ rotateX, rotateZ, zoom }) {
+function CornerLabels({ rotateX, rotateZ, zoom, circuit, S, OX, OY, VB_W, VB_H }) {
   // Place corner numbers at tight-radius points along circuit
   const corners = [];
-  const n = CIRCUIT.length;
+  const n = circuit.length;
   for (let i = 0; i < n; i++) {
-    const pPrev = CIRCUIT[(i - 5 + n) % n];
-    const p     = CIRCUIT[i];
-    const pNext = CIRCUIT[(i + 5) % n];
+    const pPrev = circuit[(i - 5 + n) % n];
+    const p     = circuit[i];
+    const pNext = circuit[(i + 5) % n];
     const v1x = p.x - pPrev.x, v1y = p.y - pPrev.y;
     const v2x = pNext.x - p.x, v2y = pNext.y - p.y;
     const a1 = Math.atan2(v1y, v1x);
@@ -444,8 +446,8 @@ function CornerLabels({ rotateX, rotateZ, zoom }) {
     }}>
       <svg viewBox={`0 0 ${VB_W} ${VB_H}`} style={{ width: "82%", height: "82%" }}>
         {picked.map((c, n) => {
-          const p = CIRCUIT[c.idx];
-          const pn = CIRCUIT[(c.idx + 1) % CIRCUIT.length];
+          const p = circuit[c.idx];
+          const pn = circuit[(c.idx + 1) % circuit.length];
           const dx = pn.x - p.x, dy = pn.y - p.y;
           const mag = Math.hypot(dx, dy) || 1;
           const nx = -dy / mag, ny = dx / mag;

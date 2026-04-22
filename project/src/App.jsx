@@ -1,6 +1,7 @@
 // Top-level app — stitches it all together.
 
 const { DRIVERS, TEAMS, CIRCUIT, computeStandings, telemetryFor } = window.APEX;
+const { buildHotkeyHandler } = window.APEX_HOTKEY;
 
 const TWEAK_DEFAULTS = /*EDITMODE-BEGIN*/{
   "accent": "#FF1E00",
@@ -26,7 +27,7 @@ function fmtRcTime(secs) {
 
 function App() {
   // Live data from WS
-  const { frame, rc, playback, snapshot } = window.LIVE.useLive();
+  const { frame, rc, playback, snapshot, trackStatuses } = window.LIVE.useLive();
 
   // Server-authoritative state
   // t must be 0–1 fraction for Timeline scrub bar; backend sends total_frames
@@ -34,7 +35,6 @@ function App() {
   const t = frame?.frame_index != null ? frame.frame_index / Math.max(totalFrames - 1, 1) : 0;
   const tSeconds = frame?.t_seconds ?? frame?.t ?? 0;
   const totalLaps = frame?.total_laps ?? snapshot?.total_laps ?? 1;
-  const tWithinLap = totalLaps > 0 ? (t * totalLaps) % 1 : 0;
   const lap = frame?.lap ?? 1;
   const clock = frame?.clock ?? "00:00:00";
   const flagState = frame?.flag_state ?? "green";
@@ -52,7 +52,7 @@ function App() {
   const SESSION = {
     event: ev ? `R${ev.round} · ${ev.event_name}` : "LOADING...",
     name: "RACE",
-    circuit: ev ? `${ev.circuit_name ?? ""} · ${snapshot?.geometry?.total_length_m ? (snapshot.geometry.total_length_m / 1000).toFixed(3) + "KM" : ""}` : "",
+    circuit: ev ? [ev.circuit_name, snapshot?.geometry?.total_length_m ? (snapshot.geometry.total_length_m / 1000).toFixed(3) + "KM" : ""].filter(Boolean).join(" · ") : "",
   };
 
   // Selections
@@ -92,27 +92,29 @@ function App() {
     window.APEX_CLIENT.post("/api/playback/seek", { t: tVal });
   };
 
-  // Hotkeys
+  // Refs for stable hotkey handler (avoids re-subscribing every frame)
+  const tRef = React.useRef(t);
+  const speedRef = React.useRef(speed);
+  const isPausedRef = React.useRef(isPaused);
+  React.useEffect(() => { tRef.current = t; }, [t]);
+  React.useEffect(() => { speedRef.current = speed; }, [speed]);
+  React.useEffect(() => { isPausedRef.current = isPaused; }, [isPaused]);
+
+  // Hotkeys — listener registered once, reads from refs
   React.useEffect(() => {
-    const onKey = (e) => {
-      if (e.target && (e.target.tagName === "INPUT" || e.target.tagName === "TEXTAREA")) return;
-      if (e.code === "Space") { e.preventDefault(); togglePlay(); }
-      else if (e.code === "ArrowLeft")  seekRemote(Math.max(0, t - (e.shiftKey ? 0.05 : 0.01)));
-      else if (e.code === "ArrowRight") seekRemote(Math.min(1, t + (e.shiftKey ? 0.05 : 0.01)));
-      else if (e.code === "ArrowUp")   setSpeedRemote(speed === 0.5 ? 1 : speed === 1 ? 2 : speed === 2 ? 4 : 4);
-      else if (e.code === "ArrowDown") setSpeedRemote(speed === 4 ? 2 : speed === 2 ? 1 : 0.5);
-      else if (e.key === "1") setSpeedRemote(0.5);
-      else if (e.key === "2") setSpeedRemote(1);
-      else if (e.key === "3") setSpeedRemote(2);
-      else if (e.key === "4") setSpeedRemote(4);
-      else if (e.key === "d" || e.key === "D") setShowDRS(v => !v);
-      else if (e.key === "l" || e.key === "L") setShowLabels(v => !v);
-      else if (e.key === "b" || e.key === "B") setShowProgress(v => !v);
-      else if (e.key === "r" || e.key === "R") seekRemote(0);
-    };
+    const onKey = buildHotkeyHandler(
+      { t: tRef, speed: speedRef, isPaused: isPausedRef },
+      window.APEX_CLIENT.post.bind(window.APEX_CLIENT),
+      togglePlay,
+      seekRemote,
+      setSpeedRemote,
+      setShowDRS,
+      setShowLabels,
+      setShowProgress,
+    );
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [t, speed, isPaused]);
+  }, []);
 
   // Tweaks protocol
   React.useEffect(() => {
@@ -127,10 +129,33 @@ function App() {
   }, []);
 
   // Compute race state from live frame
-  const standings = React.useMemo(() => computeStandings(t, lap, totalLaps), [t, lap, totalLaps, frame]);
+  const standings = React.useMemo(() => computeStandings(t, lap, totalLaps), [frame]);
   const bestLapCode = standings.length > 0
     ? standings.reduce((a, b) => ((a.lastLap ?? Infinity) < (b.lastLap ?? Infinity) ? a : b)).driver.code
     : null;
+
+  // Playhead within lap: use pinned driver's true fraction from backend,
+  // which correctly handles SC/pit laps (unlike t * totalLaps % 1).
+  const tWithinLap = React.useMemo(() => {
+    if (pinned) {
+      const entry = standings.find(s => s.driver.code === pinned);
+      if (entry?.fraction != null) return entry.fraction % 1;
+    }
+    return totalLaps > 0 ? (t * totalLaps) % 1 : 0;
+  }, [standings, pinned, t, totalLaps]);
+
+  // Safety car events for Timeline: convert track_statuses to {start, end} fractions
+  const SC_LABELS = new Set(["sc", "vsc", "red"]);
+  const totalDurationS = snapshot?.total_duration_s || 0;
+  const safetyCarEvents = React.useMemo(() => {
+    if (!trackStatuses?.length || totalDurationS <= 0) return [];
+    return trackStatuses
+      .filter((e) => SC_LABELS.has(e.status))
+      .map((e) => ({
+        start: e.start_time / totalDurationS,
+        end: (e.end_time ?? totalDurationS) / totalDurationS,
+      }));
+  }, [trackStatuses, totalDurationS]);
 
   // Safety car from live frame — project world coords to nearest CIRCUIT index
   let safetyCar = null;
@@ -343,9 +368,9 @@ function App() {
 
         {/* Right: driver panels */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0, overflow: "auto" }}>
-          <DriverCard code={pinned} data={primaryData} accent="#FF1E00"/>
+          <DriverCard code={pinned} data={primaryData} accent="#FF1E00" standings={standings}/>
           {secondary
-            ? <DriverCard code={secondary} data={secondaryData} accent="#00D9FF" secondary/>
+            ? <DriverCard code={secondary} data={secondaryData} accent="#00D9FF" secondary standings={standings}/>
             : <div style={{
                 padding: 14,
                 border: "1px dashed rgba(0,217,255,0.2)",
@@ -365,7 +390,7 @@ function App() {
         playing={!isPaused} setPlaying={togglePlay}
         speed={speed} setSpeed={setSpeedRemote}
         lap={lap} totalLaps={totalLaps}
-        safetyCarEvents={[]}
+        safetyCarEvents={safetyCarEvents}
       />
 
       {tweaksOn && <TweaksPanel accent={accent} setAccent={setAccent} rotateX={rotateX} setRotateX={setRotateX} rotateZ={rotateZ} setRotateZ={setRotateZ} zoom={zoom} setZoom={setZoom}/>}
