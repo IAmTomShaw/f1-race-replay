@@ -10,5 +10,7 @@ import "./Leaderboard.jsx";
 import "./Telemetry.jsx";
 import "./Controls.jsx";
 import "./Panels.jsx";
+import "./PanelRegistry.jsx";
+import "./PanelFrame.jsx";
 import "./hotkeyHandler.js";
 import "./App.jsx";

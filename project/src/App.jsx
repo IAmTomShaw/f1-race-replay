@@ -70,6 +70,14 @@ function App() {
   const [rotateZ, setRotateZ] = React.useState(TWEAK_DEFAULTS.rotateDefault);
   const [zoom, setZoom] = React.useState(1);
 
+  // View mode: "iso" (3D-looking) or "top" (2D top-down). Persist across reloads.
+  const [viewMode, setViewMode] = React.useState(() => {
+    try { return localStorage.getItem("apex.viewMode") || "iso"; } catch { return "iso"; }
+  });
+  React.useEffect(() => {
+    try { localStorage.setItem("apex.viewMode", viewMode); } catch {}
+  }, [viewMode]);
+
   // Toggles
   const [showDRS, setShowDRS] = React.useState(true);
   const [showLabels, setShowLabels] = React.useState(true);
@@ -111,6 +119,7 @@ function App() {
       setShowDRS,
       setShowLabels,
       setShowProgress,
+      setViewMode,
     );
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -204,6 +213,83 @@ function App() {
     else setSecondary(code);
   };
 
+  // Panel layout (collapse / hide / maximize) — Tier 1.
+  const layout = window.useLayout();
+  const registry = window.PANEL_REGISTRY;
+
+  // Panel body renderers — keyed by panel id. Used both for slotted render
+  // and for MaximizedOverlay. Keeps props wiring in one place.
+  const panelBodies = {
+    leaderboard: (
+      <Leaderboard
+        standings={standings}
+        pinned={pinned}
+        secondary={secondary}
+        onPick={onPick}
+        onShiftPick={onShiftPick}
+        bestLapCode={bestLapCode}
+      />
+    ),
+    strategy: <StrategyStrip standings={standings} totalLaps={totalLaps} lap={lap}/>,
+    compare: <CompareTraces pinned={pinned} secondary={secondary} lap={lap} channel={compareChannel} setChannel={setCompareChannel} tWithinLap={tWithinLap}/>,
+    sectors: <SectorTimes pinned={pinned} secondary={secondary} lap={lap} standings={standings}/>,
+    feed: <RaceFeed events={FEED}/>,
+    driverCard: <DriverCard code={pinned} data={primaryData} accent="#FF1E00" standings={standings}/>,
+    driverCard2: secondary
+      ? <DriverCard code={secondary} data={secondaryData} accent="#00D9FF" secondary standings={standings}/>
+      : <div style={{
+          padding: 14, height: "100%",
+          border: "1px dashed rgba(0,217,255,0.2)",
+          fontFamily: "JetBrains Mono, monospace",
+          fontSize: 9, color: "rgba(180,180,200,0.45)",
+          letterSpacing: "0.12em", textAlign: "center",
+          display: "flex", alignItems: "center", justifyContent: "center",
+        }}>SHIFT + CLICK DRIVER TO COMPARE</div>,
+    gap: <GapViz standings={standings} pinned={pinned}/>,
+    track: (
+      <div className="scanline" style={{
+        width: "100%", height: "100%", position: "relative",
+        background: "linear-gradient(180deg, #0E0E16, #05050A)",
+        border: "1px solid rgba(255,255,255,0.06)",
+        overflow: "hidden",
+      }}>
+        <div style={{
+          position: "absolute", top: 12, right: 12,
+          display: "flex", flexDirection: "column", gap: 8,
+          zIndex: 3,
+        }}>
+          <CameraControls
+            rotateX={rotateX} setRotateX={setRotateX}
+            rotateZ={rotateZ} setRotateZ={setRotateZ}
+            zoom={zoom} setZoom={setZoom}
+            showDRS={showDRS} setShowDRS={setShowDRS}
+            showLabels={showLabels} setShowLabels={setShowLabels}
+            showProgress={showProgress} setShowProgress={setShowProgress}
+            viewMode={viewMode} setViewMode={setViewMode}
+          />
+        </div>
+        <IsoTrack
+          standings={standings}
+          safetyCar={safetyCar}
+          pinned={pinned}
+          secondary={secondary}
+          onPickDriver={(code, e) => {
+            if (e && e.shiftKey) onShiftPick(code);
+            else onPick(code);
+          }}
+          showDRS={showDRS}
+          showLabels={showLabels}
+          rotateX={rotateX}
+          rotateZ={rotateZ}
+          zoom={zoom}
+          viewMode={viewMode}
+        />
+      </div>
+    ),
+  };
+  const panelTitle = (id) => (registry.find((p) => p.id === id)?.title) || id;
+  const visible = (id) => layout.getState(id).visible;
+
   return (
     <div style={{ position: "fixed", inset: 0, display: "grid", gridTemplateRows: "auto 1fr auto" }}>
       <TopBar
@@ -213,36 +299,39 @@ function App() {
         weather={weather}
         flagState={flagState}
         safetyCar={!!safetyCar}
+        extras={<window.PanelsMenu layout={layout} registry={registry}/>}
       />
 
-      {/* Main layout */}
+      {/* Main layout — position:relative so MaximizedOverlay can fill it */}
       <div style={{
+        position: "relative",
         display: "grid",
-        gridTemplateColumns: "320px 1fr 360px",
+        gridTemplateColumns: `${visible("leaderboard") ? "320px" : "0"} 1fr ${(visible("driverCard") || visible("driverCard2") || visible("gap")) ? "360px" : "0"}`,
         gap: 10, padding: 10,
         minHeight: 0,
       }}>
         {/* Left: leaderboard */}
         <div style={{ display: "flex", flexDirection: "column", minHeight: 0 }}>
-          <Leaderboard
-            standings={standings}
-            pinned={pinned}
-            secondary={secondary}
-            onPick={onPick}
-            onShiftPick={onShiftPick}
-            bestLapCode={bestLapCode}
-          />
+          <window.PanelSlot id="leaderboard" title={panelTitle("leaderboard")} layout={layout}
+            style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0 }}
+            buttonStyle={{ top: 6, right: 6 }}>
+            {panelBodies.leaderboard}
+          </window.PanelSlot>
         </div>
 
         {/* Center: track + bottom panels */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
-          {/* Track */}
+          {/* Track — PanelSlot with buttons anchored top-right but offset to clear CameraControls */}
+          <window.PanelSlot id="track" title={panelTitle("track")} layout={layout}
+            style={{ flex: 1, minHeight: 0, display: "flex" }}
+            buttonStyle={{ top: 14, right: 180 }}>
           <div className="scanline" style={{
             flex: 1, position: "relative",
             background: "linear-gradient(180deg, #0E0E16, #05050A)",
             border: "1px solid rgba(255,255,255,0.06)",
             overflow: "hidden",
             minHeight: 0,
+            width: "100%",
           }}>
             {/* Corner HUD (top-left) */}
             <div style={{
@@ -252,7 +341,7 @@ function App() {
               zIndex: 3,
             }}>
               <div style={{ fontSize: 9, color: "rgba(180,180,200,0.55)", letterSpacing: "0.2em" }}>
-                CIRCUIT VIEW · ISO
+                CIRCUIT VIEW · {viewMode === "top" ? "TOP" : "ISO"}
               </div>
               <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ fontSize: 24, fontWeight: 800, color: "#F6F6FA", letterSpacing: "-0.02em" }}>
@@ -280,6 +369,7 @@ function App() {
                 showDRS={showDRS} setShowDRS={setShowDRS}
                 showLabels={showLabels} setShowLabels={setShowLabels}
                 showProgress={showProgress} setShowProgress={setShowProgress}
+                viewMode={viewMode} setViewMode={setViewMode}
               />
             </div>
 
@@ -310,6 +400,7 @@ function App() {
               rotateX={rotateX}
               rotateZ={rotateZ}
               zoom={zoom}
+              viewMode={viewMode}
             />
 
             {/* Bottom HUD: selected driver pip + compare toggle */}
@@ -352,41 +443,58 @@ function App() {
               <div style={{ color: "#1EFF6A" }}>● LIVE · SECTOR {t < 0.33 ? 1 : t < 0.66 ? 2 : 3}</div>
             </div>
           </div>
+          </window.PanelSlot>
 
           {/* Bottom strip: strategy + compare + feed */}
-          <div style={{
-            display: "grid",
-            gridTemplateColumns: "1.2fr 1.4fr 1fr",
-            gap: 10,
-            height: 260,
-            minHeight: 0,
-          }}>
-            <StrategyStrip standings={standings} totalLaps={totalLaps} lap={lap}/>
-            <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
-              <CompareTraces pinned={pinned} secondary={secondary} lap={lap} channel={compareChannel} setChannel={setCompareChannel} tWithinLap={tWithinLap}/>
-              <SectorTimes pinned={pinned} secondary={secondary} lap={lap} standings={standings}/>
+          {(visible("strategy") || visible("compare") || visible("sectors") || visible("feed")) && (
+            <div style={{
+              display: "grid",
+              gridTemplateColumns: `${visible("strategy") ? "1.2fr" : "0"} ${(visible("compare") || visible("sectors")) ? "1.4fr" : "0"} ${visible("feed") ? "1fr" : "0"}`,
+              gap: 10,
+              height: 260,
+              minHeight: 0,
+            }}>
+              <window.PanelSlot id="strategy" title={panelTitle("strategy")} layout={layout}
+                style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+                {panelBodies.strategy}
+              </window.PanelSlot>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0 }}>
+                <window.PanelSlot id="compare" title={panelTitle("compare")} layout={layout}
+                  style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+                  {panelBodies.compare}
+                </window.PanelSlot>
+                <window.PanelSlot id="sectors" title={panelTitle("sectors")} layout={layout}
+                  style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+                  {panelBodies.sectors}
+                </window.PanelSlot>
+              </div>
+              <window.PanelSlot id="feed" title={panelTitle("feed")} layout={layout}
+                style={{ minHeight: 0, display: "flex", flexDirection: "column" }}>
+                {panelBodies.feed}
+              </window.PanelSlot>
             </div>
-            <RaceFeed events={FEED}/>
-          </div>
+          )}
         </div>
 
         {/* Right: driver panels */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, minHeight: 0, overflow: "auto" }}>
-          <DriverCard code={pinned} data={primaryData} accent="#FF1E00" standings={standings}/>
-          {secondary
-            ? <DriverCard code={secondary} data={secondaryData} accent="#00D9FF" secondary standings={standings}/>
-            : <div style={{
-                padding: 14,
-                border: "1px dashed rgba(0,217,255,0.2)",
-                fontFamily: "JetBrains Mono, monospace",
-                fontSize: 9, color: "rgba(180,180,200,0.45)",
-                letterSpacing: "0.12em", textAlign: "center",
-              }}>
-                SHIFT + CLICK DRIVER TO COMPARE
-              </div>
-          }
-          <GapViz standings={standings} pinned={pinned}/>
+          <window.PanelSlot id="driverCard" title={panelTitle("driverCard")} layout={layout}>
+            {panelBodies.driverCard}
+          </window.PanelSlot>
+          <window.PanelSlot id="driverCard2" title={panelTitle("driverCard2")} layout={layout}>
+            {panelBodies.driverCard2}
+          </window.PanelSlot>
+          <window.PanelSlot id="gap" title={panelTitle("gap")} layout={layout}>
+            {panelBodies.gap}
+          </window.PanelSlot>
         </div>
+
+        {/* Maximize overlay — sized to the main grid area */}
+        {layout.maximized && (
+          <window.MaximizedOverlay layout={layout} title={panelTitle(layout.maximized)}>
+            {panelBodies[layout.maximized]}
+          </window.MaximizedOverlay>
+        )}
       </div>
 
       <Timeline

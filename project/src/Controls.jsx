@@ -2,7 +2,7 @@
 
 const { SECTORS } = window.APEX;
 
-function TopBar({ session, lap, totalLaps, clock, weather, flagState, safetyCar }) {
+function TopBar({ session, lap, totalLaps, clock, weather, flagState, safetyCar, extras }) {
   return (
     <div style={{
       display: "grid",
@@ -42,6 +42,7 @@ function TopBar({ session, lap, totalLaps, clock, weather, flagState, safetyCar 
       </div>
 
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        {extras}
         <LiveDot/>
         <div style={{ fontSize: 9, letterSpacing: "0.16em", color: "rgba(180,180,200,0.7)" }}>TELEMETRY STREAM</div>
       </div>
@@ -308,7 +309,8 @@ function TransportBtn({ children, onClick, title, primary }) {
 }
 
 // Camera controls
-function CameraControls({ rotateX, setRotateX, rotateZ, setRotateZ, zoom, setZoom, showDRS, setShowDRS, showLabels, setShowLabels, showProgress, setShowProgress }) {
+function CameraControls({ rotateX, setRotateX, rotateZ, setRotateZ, zoom, setZoom, showDRS, setShowDRS, showLabels, setShowLabels, showProgress, setShowProgress, viewMode, setViewMode }) {
+  const isTop = viewMode === "top";
   return (
     <div style={{
       display: "flex", flexDirection: "column", gap: 6,
@@ -327,7 +329,22 @@ function CameraControls({ rotateX, setRotateX, rotateZ, setRotateZ, zoom, setZoo
           fontFamily: "inherit", fontSize: 8, letterSpacing: "0.12em",
         }}>RESET</button>
       </div>
-      <Slider label="TILT" value={rotateX} onChange={setRotateX} min={0} max={85} suffix="°"/>
+      {/* View mode toggle — segmented ISO / TOP */}
+      {setViewMode && (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginBottom: 2 }}>
+          {["iso", "top"].map((m) => (
+            <button key={m} onClick={() => setViewMode(m)} style={{
+              padding: "4px 2px",
+              background: viewMode === m ? "#FF1E00" : "transparent",
+              color: viewMode === m ? "#FFFFFF" : "rgba(230,230,239,0.7)",
+              border: `1px solid ${viewMode === m ? "#FF1E00" : "rgba(255,255,255,0.1)"}`,
+              cursor: "pointer",
+              fontFamily: "inherit", fontSize: 9, fontWeight: 700, letterSpacing: "0.16em",
+            }}>{m === "iso" ? "ISO" : "TOP"} {m === "top" && <span style={{ opacity: 0.6 }}>[M]</span>}</button>
+          ))}
+        </div>
+      )}
+      <Slider label="TILT" value={rotateX} onChange={setRotateX} min={0} max={85} suffix="°" disabled={isTop}/>
       <Slider label="ROT"  value={rotateZ} onChange={setRotateZ} min={-180} max={180} suffix="°"/>
       <Slider label="ZOOM" value={zoom*100} onChange={(v) => setZoom(v/100)} min={50} max={400} suffix="%"/>
       <div style={{ height: 1, background: "rgba(255,255,255,0.05)", margin: "4px 0" }}/>
@@ -338,11 +355,12 @@ function CameraControls({ rotateX, setRotateX, rotateZ, setRotateZ, zoom, setZoo
   );
 }
 
-function Slider({ label, value, onChange, min, max, suffix = "" }) {
+function Slider({ label, value, onChange, min, max, suffix = "", disabled = false }) {
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "50px 1fr 38px", gap: 6, alignItems: "center" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "50px 1fr 38px", gap: 6, alignItems: "center", opacity: disabled ? 0.35 : 1 }}>
       <div style={{ color: "rgba(180,180,200,0.55)", letterSpacing: "0.1em" }}>{label}</div>
-      <input type="range" min={min} max={max} value={value} onChange={(e) => onChange(Number(e.target.value))}
+      <input type="range" min={min} max={max} value={value} disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
         style={{ width: "100%", accentColor: "#FF1E00", height: 2 }}/>
       <div style={{ color: "#E6E6EF", fontVariantNumeric: "tabular-nums", textAlign: "right" }}>{Math.round(value)}{suffix}</div>
     </div>

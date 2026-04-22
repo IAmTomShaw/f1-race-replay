@@ -119,7 +119,12 @@ function IsoTrack({
   rotateX = 62,
   rotateZ = -18,
   zoom = 1,
+  viewMode = "iso",
 }) {
+  // Top-down mode flattens tilt only — rotateZ still spins the map. No fake shadow.
+  const isTop = viewMode === "top";
+  const rX = isTop ? 0 : rotateX;
+  const rZ = rotateZ;
   const [hover, setHover] = React.useState(null);
 
   // Memoize geometry derivations against CIRCUIT.length so they recompute when snapshot arrives
@@ -178,7 +183,7 @@ function IsoTrack({
           linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px)
         `,
         backgroundSize: "100% 100%, 40px 40px, 40px 40px",
-        transform: `rotateX(${rotateX}deg) rotateZ(${rotateZ}deg) scale(${zoom * 2.6})`,
+        transform: `rotateX(${rX}deg) rotateZ(${rZ}deg) scale(${zoom * 2.6})`,
         transformOrigin: "center center",
         transformStyle: "preserve-3d",
         pointerEvents: "none",
@@ -191,12 +196,12 @@ function IsoTrack({
       <div style={{
         position: "relative",
         width: "82%", height: "82%",
-        transform: `rotateX(${rotateX}deg) rotateZ(${rotateZ}deg) scale(${zCSS * 2.0})`,
+        transform: `rotateX(${rX}deg) rotateZ(${rZ}deg) scale(${zCSS * 2.0})`,
         transformStyle: "preserve-3d",
         transition: "transform 240ms cubic-bezier(.2,.7,.2,1)",
       }}>
-        {/* Track shadow (flat plate) */}
-        <svg viewBox={viewBox}
+        {/* Track shadow (flat plate) — iso only; flat in top-down. */}
+        {!isTop && <svg viewBox={viewBox}
           preserveAspectRatio="xMidYMid meet"
           shapeRendering="geometricPrecision" textRendering="geometricPrecision"
           style={{
@@ -207,7 +212,7 @@ function IsoTrack({
           opacity: 0.7,
         }}>
           <path d={trackPath} fill="#000" />
-        </svg>
+        </svg>}
 
         {/* Base plate (deeper than track) */}
         <svg viewBox={viewBox}
@@ -398,7 +403,7 @@ function IsoTrack({
       </div>
 
       {/* Corner labels (flat, on top of 3D plate, don't tilt) */}
-      <CornerLabels rotateX={rotateX} rotateZ={rotateZ} zoom={zoom} viewBox={viewBox} circuit={CIRCUIT} S={S} OX={OX} OY={OY} VB_W={VB_W} VB_H={VB_H} />
+      <CornerLabels rotateX={rX} rotateZ={rZ} zoom={zoom} viewBox={viewBox} circuit={CIRCUIT} S={S} OX={OX} OY={OY} VB_W={VB_W} VB_H={VB_H} />
     </div>
   );
 }
