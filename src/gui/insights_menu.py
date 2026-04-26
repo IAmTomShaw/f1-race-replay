@@ -68,6 +68,15 @@ class InsightsMenu(QMainWindow):
         ))
 
         content_layout.addWidget(self.create_category_section(
+            "Strategy",
+            [
+                ("Virtual Position", "Estimate pit rejoin position and clean-air risk", self.launch_virtual_position),
+                ("Undercut / Overcut", "Compare two cars for stop-first versus stay-out calls", self.launch_undercut_overcut),
+                ("DRS Train / Traffic", "Detect trains, local traffic, and attack blockers", self.launch_drs_traffic),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
             "Race Events",
             [
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
@@ -197,6 +206,27 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Race Control Feed")
         from src.insights.race_control_feed_window import RaceControlFeedWindow
         window = RaceControlFeedWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_virtual_position(self):
+        print("Launching: Virtual Position")
+        from src.insights.virtual_position_window import VirtualPositionWindow
+        window = VirtualPositionWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_undercut_overcut(self):
+        print("Launching: Undercut / Overcut")
+        from src.insights.undercut_overcut_window import UndercutOvercutWindow
+        window = UndercutOvercutWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_drs_traffic(self):
+        print("Launching: DRS Train / Traffic")
+        from src.insights.drs_traffic_window import DrsTrafficWindow
+        window = DrsTrafficWindow()
         window.show()
         self.opened_windows.append(window)
 
