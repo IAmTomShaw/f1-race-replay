@@ -23,6 +23,14 @@ TYRE_NAMES = {
     3.0: "Hard",    4.0: "Inter", 5.0: "Wet", 6.0: "Unknown"
 }
 
+TYRE_REMAP = {
+    0: 1,  # SOFT
+    1: 2,  # MEDIUM
+    2: 3,  # HARD
+    3: 4,  # INTERMEDIATE
+    4: 5,  # WET
+}
+
 BG          = "#0f0f0f"
 ROW_BG      = "#1a1a1a"
 ROW_ALT     = "#141414"
@@ -130,8 +138,6 @@ class StintBar(QWidget):
         # Thin separator line
         painter.setPen(QPen(QColor(BORDER), 1))
         painter.drawLine(0, H - 1, W, H - 1)
-
-        painter.end()
 
         painter.end()
 
@@ -293,41 +299,42 @@ class TyreStrategyWindow(PitWallWindow):
         outer.addWidget(status_bar)
 
     # --------------------------------------------------------- Telemetry ---
+def on_telemetry_data(self, data):
+    if "frame" not in data:
+        return
 
-    def on_telemetry_data(self, data):
-        if "frame" not in data:
-            return
+    frame   = data["frame"]
+    drivers = frame.get("drivers", {})
 
-        frame   = data["frame"]
-        drivers = frame.get("drivers", {})
+    sess = data.get("session_data", {})
+    if sess.get("total_laps"):
+        self.total_laps = int(sess["total_laps"])
 
-        # Total laps from session_data
-        sess = data.get("session_data", {})
-        if sess.get("total_laps"):
-            self.total_laps = int(sess["total_laps"])
+    self.current_lap = int(frame.get("lap", self.current_lap))
 
-        self.current_lap = int(frame.get("lap", self.current_lap))
+    for code, driver in drivers.items():
+        tyre = driver.get("tyre")
+        lap  = driver.get("lap")
+        pos  = driver.get("position")
 
-        for code, driver in drivers.items():
-            tyre = driver.get("tyre")
-            lap  = driver.get("lap")
-            pos  = driver.get("position")
-            if tyre is None or lap is None or not isinstance(tyre, (int, float)):
-                continue
-            
-            lap = int(lap)
-            if pos is not None:
-                self.positions[code] = int(pos)
+        if pos is not None:
+            self.positions[code] = int(pos)
 
-            if code not in self.stints:
-                self.stints[code]   = [{"tyre": tyre, "start_lap": lap, "end_lap": None}]
-                self.prev_tyres[code] = tyre
-            elif tyre != self.prev_tyres[code]:
-                self.stints[code][-1]["end_lap"] = lap - 1
-                self.stints[code].append({"tyre": tyre, "start_lap": lap, "end_lap": None})
-                self.prev_tyres[code] = tyre
+        if tyre is not None and isinstance(tyre, (int, float)):
+            tyre = TYRE_REMAP.get(round(float(tyre)), tyre)
+        if tyre is None or lap is None or not isinstance(tyre, (int, float)) or tyre == 0.0:
+            continue
 
-        self._redraw_pending = True
+        lap = int(lap)
+        if code not in self.stints:
+            self.stints[code]     = [{"tyre": tyre, "start_lap": lap, "end_lap": None}]
+            self.prev_tyres[code] = tyre
+        elif tyre != self.prev_tyres[code]:
+            self.stints[code][-1]["end_lap"] = lap - 1
+            self.stints[code].append({"tyre": tyre, "start_lap": lap, "end_lap": None})
+            self.prev_tyres[code] = tyre
+
+    self._redraw_pending = True
 
     # ----------------------------------------------------------- Render ----
 
@@ -350,14 +357,11 @@ class TyreStrategyWindow(PitWallWindow):
 
         for i, code in enumerate(sorted_codes):
             pos = self.positions.get(code)
-            if code in self._row_widgets:
-                self._row_widgets[code].update_data(
-                self.stints[code], self.total_laps, pos, self.current_lap
-)
-            else:
-                bar = StintBar(code, self.stints[code], self.total_laps, pos, self.current_lap)
+            if code not in self._row_widgets:
+                bar = StintBar(code, self.stints[code], self.total_laps, pos, self.current_lap)       # 16 spaces
                 self._row_widgets[code] = bar
-                # Insert before the trailing stretch (last item)
-                self.rows_layout.insertWidget(
-                    self.rows_layout.count() - 1, bar
+            else:
+                self._row_widgets[code].update_data(
+                    self.stints[code], self.total_laps, pos, self.current_lap
                 )
+            self.rows_layout.insertWidget(i, self._row_widgets[code])
