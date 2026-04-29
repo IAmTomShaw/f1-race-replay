@@ -1,3 +1,4 @@
+import math
 import os
 import pickle
 import sys
@@ -677,6 +678,49 @@ def get_race_telemetry(session, session_type="R"):
             }
         )
 
+    # 4a. Parse race control messages (flags, penalties, SC/VSC, DRS, etc.)
+    formatted_rc_messages = []
+    rc_messages = getattr(session, "race_control_messages", None)
+
+    def _safe_str(val, as_int=False):
+        """Convert a value to string, returning '' for None/NaN."""
+        if val is None:
+            return ""
+        try:
+            if isinstance(val, float) and math.isnan(val):
+                return ""
+        except (TypeError, ValueError):
+            pass
+        if as_int:
+            try:
+                return str(int(float(val)))
+            except (ValueError, TypeError):
+                return str(val)
+        return str(val)
+
+    if rc_messages is not None and not rc_messages.empty:
+        for msg in rc_messages.to_dict("records"):
+            time_val = msg["Time"]
+            if hasattr(time_val, 'total_seconds'):
+                # Timedelta (session-relative) — same as track_status
+                seconds = time_val.total_seconds()
+            else:
+                # Timestamp (absolute) — subtract the data stream origin
+                seconds = (time_val - session.t0_date).total_seconds()
+            msg_time = seconds - global_t_min
+
+            if msg_time > 0.0:
+                formatted_rc_messages.append({
+                    "time": round(msg_time, 3),
+                    "category": _safe_str(msg.get("Category", "")),
+                    "message": _safe_str(msg.get("Message", "")),
+                    "flag": _safe_str(msg.get("Flag", "")),
+                    "scope": _safe_str(msg.get("Scope", "")),
+                    "sector": _safe_str(msg.get("Sector", ""), as_int=True),
+                    "racing_number": _safe_str(msg.get("RacingNumber", ""), as_int=True),
+                })
+        formatted_rc_messages.sort(key=lambda m: m["time"])
+
     # 4.1. Resample weather data onto the same timeline for playback
     weather_resampled = None
     weather_df = getattr(session, "weather_data", None)
@@ -840,6 +884,7 @@ def get_race_telemetry(session, session_type="R"):
             "frames": frames,
             "driver_colors": get_driver_colors(session),
             "track_statuses": formatted_track_statuses,
+            "race_control_messages": formatted_rc_messages,
             "total_laps": int(max_lap_number),
             "max_tyre_life": max_tyre_life_map,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
@@ -850,6 +895,7 @@ def get_race_telemetry(session, session_type="R"):
         "frames": frames,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
+        "race_control_messages": formatted_rc_messages,
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
     }

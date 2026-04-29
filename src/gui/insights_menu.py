@@ -63,7 +63,14 @@ class InsightsMenu(QMainWindow):
         content_layout.addWidget(self.create_category_section(
             "Track",
             [
-                ("Track Position Map", "Live driver positions plotted on a circular track map", self.launch_track_position),
+                ("Track Position Map", "Live driver positions on real or circular track map", self.launch_track_position),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Race Events",
+            [
+                ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
             ]
         ))
         
@@ -183,6 +190,13 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Track Position Map")
         from src.insights.track_position_window import TrackPositionWindow
         window = TrackPositionWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_race_control_feed(self):
+        print("🚀 Launching: Race Control Feed")
+        from src.insights.race_control_feed_window import RaceControlFeedWindow
+        window = RaceControlFeedWindow()
         window.show()
         self.opened_windows.append(window)
 
