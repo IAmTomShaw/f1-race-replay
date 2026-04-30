@@ -57,6 +57,7 @@ class InsightsMenu(QMainWindow):
             [
                 ("Telemetry Stream Viewer", "View raw telemetry data", self.launch_telemetry_viewer),
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
+                ("Live Tyre Strategy", "Live tyre stints and pit stop timeline per driver", self.launch_tyre_strategy),
             ]
         ))
 
@@ -219,8 +220,11 @@ class InsightsMenu(QMainWindow):
         self.show_placeholder_message("Position Tracker")
     
     def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
-        self.show_placeholder_message("Tyre Strategy")
+        print("🚀 Launching: Live Tyre Strategy")
+        from src.insights.tyre_strategy_window import TyreStrategyWindow
+        window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
     
     def launch_pit_analysis(self):
         print("🚀 Launching: Pit Stop Analysis")

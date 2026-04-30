@@ -17,6 +17,46 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
 - **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **Live Tyre Strategy Window:** Real-time stint tracker for all 22 drivers with compound detection and pit stop timeline.
+
+## Live Tyre Strategy Window
+
+The **Live Tyre Strategy** insight window provides a real-time overview of every driver's tyre usage across the race. Accessible from the Insights Menu, it visualises stint lengths, compound changes, and pit stop events as they happen.
+
+![Tyre Strategy Window](./images/tyre-strategy/tyre-strategy-preview.png)
+
+### Features
+
+- **Live stint tracker** for all 22 drivers
+- **Compound detection** — Soft / Medium / Hard / Inter / Wet
+- **Pit stop detection** via tyre change events in the telemetry stream
+- **Position-sorted rows** (P1→P22) with gold/red position badges
+- **4fps throttled redraws** — smooth UI, zero freeze
+- **Connects to the existing telemetry stream** — no extra setup required
+
+### How to open
+
+1. Start a race replay
+2. Open the **Insights Menu** (launches automatically, or press `H`)
+3. Click **Live Tyre Strategy** under the Live Telemetry section
+
+![Tyre Strategy in Insights Menu](./images/tyre-strategy/f1%20insight%20live%20tyre%20strategy.png)
+
+### Technical details
+
+Built as a `PitWallWindow` subclass in `src/insights/tyre_strategy_window.py`. Subscribes to the live telemetry stream and redraws the stint bars at 4fps. Compound colours follow the official F1 palette:
+
+| Compound | Colour |
+|----------|--------|
+| Soft | 🔴 Red |
+| Medium | 🟡 Yellow |
+| Hard | ⚪ White |
+| Inter | 🟢 Green |
+| Wet | 🔵 Blue |
+
+> **Contribution:** This feature was added in [PR #286](https://github.com/loisekk/f1-race-replay) by [@loisekk](https://github.com/loisekk).
+
+---
 
 ## Controls
 
@@ -114,6 +154,7 @@ To get started with this project locally, you can follow these steps:
 
 4. **Run the Application:**
     You can now run the application using the instructions in the Usage section below.
+
 ## Troubleshooting
 If the pull data proccess fails, run:
 ```bash
@@ -188,6 +229,8 @@ f1-race-replay/
 │   ├── f1_data.py            # Telemetry loading, processing, frame generation & SC position simulation
 │   ├── arcade_replay.py      # Visualization and UI logic
 │   └── ui_components.py      # UI components like buttons and leaderboard
+│   ├── insights/
+│   │   └── tyre_strategy_window.py  # Live Tyre Strategy insight window (PR #286)
 │   ├── interfaces/
 │   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
 │   │   └── race_replay.py    # Race replay interface, SC rendering & telemetry visualization
@@ -261,3 +304,4 @@ No copyright infringement intended. Formula 1 and related trademarks are the pro
 ---
 
 Built with ❤️ by [Tom Shaw](https://tomshaw.dev)
+Live Tyre Strategy Window contributed by Yash Brahmankar
