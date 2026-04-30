@@ -2,6 +2,8 @@ from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, 
 from src.run_session import run_arcade_replay, launch_insights_menu
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
+import fastf1
+import fastf1.exceptions
 from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
@@ -20,8 +22,11 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   if session_type == 'Q' or session_type == 'SQ':
 
     # Get the drivers who participated and their lap times
-
-    qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+    try:
+        qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
+    except ValueError as e:
+        print(f"\n[ERROR] Failed to process qualifying telemetry: {e}")
+        sys.exit(1)
 
     # Run the arcade screen showing qualifying results
 
@@ -37,16 +42,21 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   else:
 
     # Get the drivers who participated in the race
-
-    race_telemetry = get_race_telemetry(session, session_type=session_type)
+    try:
+        race_telemetry = get_race_telemetry(session, session_type=session_type)
+    except ValueError as e:
+        print(f"\n[ERROR] Failed to process race telemetry: {e}")
+        sys.exit(1)
 
     # Get example lap for track layout
     # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
     example_lap = None
     
+    # Attempt to load qualifying session for better track metadata (DRS zones)
     try:
         print("Attempting to load qualifying session for track layout...")
-        quali_session = load_session(year, round_number, 'Q')
+        quali_session = load_session(year, round_number, 'Q', exit_on_failure=False)
+        
         if quali_session is not None and len(quali_session.laps) > 0:
             fastest_quali = quali_session.laps.pick_fastest()
             if fastest_quali is not None:
@@ -54,8 +64,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
                 if 'DRS' in quali_telemetry.columns:
                     example_lap = quali_telemetry
                     print(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
-    except Exception as e:
-        print(f"Could not load qualifying session: {e}")
+    except (fastf1.exceptions.DataNotLoadedError, fastf1.exceptions.NoLapDataError, ValueError) as e:
+        print(f"Qualifying data not available for track layout (proceeding with fallback): {e}")
 
     # fallback: Use fastest race lap
     if example_lap is None:

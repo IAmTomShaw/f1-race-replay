@@ -35,120 +35,180 @@ DT = 1 / FPS
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
     driver_no, session, driver_code = args
+    try:
+        print(f"Getting telemetry for driver: {driver_code}")
 
-    print(f"Getting telemetry for driver: {driver_code}")
+        laps_driver = session.laps.pick_drivers(driver_no)
+        if laps_driver.empty:
+            return None
 
-    laps_driver = session.laps.pick_drivers(driver_no)
-    if laps_driver.empty:
+        driver_max_lap = laps_driver.LapNumber.max() if not laps_driver.empty else 0
+
+        t_all = []
+        x_all = []
+        y_all = []
+        race_dist_all = []
+        rel_dist_all = []
+        lap_numbers = []
+        tyre_compounds = []
+        tyre_life_all = []
+        speed_all = []
+        gear_all = []
+        drs_all = []
+        throttle_all = []
+        brake_all = []
+
+        total_dist_so_far = 0.0
+
+        # iterate laps in order
+        for _, lap in laps_driver.iterlaps():
+            try:
+                # get telemetry for THIS lap only
+                lap_tel = lap.get_telemetry()
+                lap_number = lap.LapNumber
+                tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
+                tyre_life = lap.TyreLife if pd.notna(lap.TyreLife) else 0
+
+                if lap_tel.empty:
+                    continue
+
+                t_lap = lap_tel["SessionTime"].dt.total_seconds().to_numpy()
+                x_lap = lap_tel["X"].to_numpy()
+                y_lap = lap_tel["Y"].to_numpy()
+                d_lap = lap_tel["Distance"].to_numpy()
+                rd_lap = lap_tel["RelativeDistance"].to_numpy()
+                speed_kph_lap = lap_tel["Speed"].to_numpy()
+                gear_lap = lap_tel["nGear"].to_numpy()
+                drs_lap = lap_tel["DRS"].to_numpy()
+                throttle_lap = lap_tel["Throttle"].to_numpy()
+                brake_lap = lap_tel["Brake"].to_numpy().astype(float)
+
+                # race distance = distance before this lap + distance within this lap
+                race_d_lap = total_dist_so_far + d_lap
+
+                t_all.append(t_lap)
+                x_all.append(x_lap)
+                y_all.append(y_lap)
+                race_dist_all.append(race_d_lap)
+                rel_dist_all.append(rd_lap)
+                lap_numbers.append(np.full_like(t_lap, lap_number))
+                tyre_compounds.append(np.full_like(t_lap, tyre_compund_as_int))
+                tyre_life_all.append(np.full_like(t_lap, tyre_life))
+                speed_all.append(speed_kph_lap)
+                gear_all.append(gear_lap)
+                drs_all.append(drs_lap)
+                throttle_all.append(throttle_lap)
+                brake_all.append(brake_lap)
+                
+                # Update total distance for next lap
+                if len(d_lap) > 0:
+                    total_dist_so_far += d_lap[-1]
+                    
+            except (fastf1.exceptions.DataNotLoadedError, fastf1.exceptions.NoLapDataError) as e:
+                print(f"Warning: Telemetry for driver {driver_code} Lap {lap.LapNumber} could not be loaded: {e}")
+                continue
+            except Exception as e:
+                print(f"Warning: Unexpected error processing driver {driver_code} Lap {lap.LapNumber}: {e}")
+                continue
+
+        if not t_all:
+            return None
+
+        # Concatenate all arrays at once for better performance
+        all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
+                    lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
+        
+        t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
+        tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+
+        # Sort all arrays by time in one operation
+        order = np.argsort(t_all)
+        all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
+                    lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
+        
+        t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
+        tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
+
+        throttle_all = np.concatenate(throttle_all)[order]
+        brake_all = np.concatenate(brake_all)[order]
+
+        print(f"Completed telemetry for driver: {driver_code}")
+
+        return {
+            "code": driver_code,
+            "data": {
+                "t": t_all,
+                "x": x_all,
+                "y": y_all,
+                "dist": race_dist_all,
+                "rel_dist": rel_dist_all,
+                "lap": lap_numbers,
+                "tyre": tyre_compounds,
+                "tyre_life": tyre_life_all,
+                "speed": speed_all,
+                "gear": gear_all,
+                "drs": drs_all,
+                "throttle": throttle_all,
+                "brake": brake_all,
+            },
+            "t_min": t_all.min(),
+            "t_max": t_all.max(),
+            "max_lap": driver_max_lap,
+        }
+    except Exception as e:
+        print(f"Error processing driver {driver_code}: {e}")
         return None
 
-    driver_max_lap = laps_driver.LapNumber.max() if not laps_driver.empty else 0
 
-    t_all = []
-    x_all = []
-    y_all = []
-    race_dist_all = []
-    rel_dist_all = []
-    lap_numbers = []
-    tyre_compounds = []
-    tyre_life_all = []
-    speed_all = []
-    gear_all = []
-    drs_all = []
-    throttle_all = []
-    brake_all = []
+import fastf1.exceptions
+import requests.exceptions
 
-    total_dist_so_far = 0.0
-
-    # iterate laps in order
-    for _, lap in laps_driver.iterlaps():
-        # get telemetry for THIS lap only
-        lap_tel = lap.get_telemetry()
-        lap_number = lap.LapNumber
-        tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
-        tyre_life = lap.TyreLife if pd.notna(lap.TyreLife) else 0
-
-        if lap_tel.empty:
-            continue
-
-        t_lap = lap_tel["SessionTime"].dt.total_seconds().to_numpy()
-        x_lap = lap_tel["X"].to_numpy()
-        y_lap = lap_tel["Y"].to_numpy()
-        d_lap = lap_tel["Distance"].to_numpy()
-        rd_lap = lap_tel["RelativeDistance"].to_numpy()
-        speed_kph_lap = lap_tel["Speed"].to_numpy()
-        gear_lap = lap_tel["nGear"].to_numpy()
-        drs_lap = lap_tel["DRS"].to_numpy()
-        throttle_lap = lap_tel["Throttle"].to_numpy()
-        brake_lap = lap_tel["Brake"].to_numpy().astype(float)
-
-        # race distance = distance before this lap + distance within this lap
-        race_d_lap = total_dist_so_far + d_lap
-
-        t_all.append(t_lap)
-        x_all.append(x_lap)
-        y_all.append(y_lap)
-        race_dist_all.append(race_d_lap)
-        rel_dist_all.append(rd_lap)
-        lap_numbers.append(np.full_like(t_lap, lap_number))
-        tyre_compounds.append(np.full_like(t_lap, tyre_compund_as_int))
-        tyre_life_all.append(np.full_like(t_lap, tyre_life))
-        speed_all.append(speed_kph_lap)
-        gear_all.append(gear_lap)
-        drs_all.append(drs_lap)
-        throttle_all.append(throttle_lap)
-        brake_all.append(brake_lap)
-
-    if not t_all:
+def load_session(year, round_number, session_type="R", exit_on_failure=True):
+    """
+    Helper to fetch and load a FastF1 session.
+    session_type: 'R' (Race), 'S' (Sprint), 'Q' (Qualifying), 'SQ' (Sprint Qualifying).
+    """
+    try:
+        session = fastf1.get_session(year, round_number, session_type)
+    except (ValueError, fastf1.exceptions.InvalidSessionError, fastf1.exceptions.ErgastError) as e:
+        if exit_on_failure:
+            print(f"[ERROR] Session metadata could not be fetched: {e}")
+            print(f"Please verify that Year {year} and Round {round_number} are valid for session type '{session_type}'.")
+            sys.exit(1)
         return None
+    except fastf1.exceptions.FastF1CriticalError as e:
+        print(f"[CRITICAL ERROR] A FastF1 critical error occurred: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"[ERROR] An unexpected error occurred while fetching session metadata ({type(e).__name__}): {e}")
+        sys.exit(1)
 
-    # Concatenate all arrays at once for better performance
-    all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
-    
-    t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    try:
+        session.load(telemetry=True, weather=True)
+    except (fastf1.exceptions.DataNotLoadedError, fastf1.exceptions.NoLapDataError) as e:
+        if exit_on_failure:
+            print(f"\n[ERROR] Session data could not be loaded: {e}")
+            print("This usually means the session hasn't happened yet or the data hasn't been processed.")
+            sys.exit(1)
+        return None
+    except (requests.exceptions.ConnectionError, requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
+        if exit_on_failure:
+            print(f"\n[ERROR] Network connectivity issue: {e}")
+            print("Please check your internet connection and try again.")
+            sys.exit(1)
+        return None
+    except fastf1.exceptions.RateLimitExceededError as e:
+        print(f"\n[ERROR] API Rate limit exceeded: {e}")
+        print("Wait a few moments or use a proxy if necessary.")
+        sys.exit(1)
+    except fastf1.exceptions.FastF1CriticalError as e:
+        print(f"[CRITICAL ERROR] A FastF1 critical error occurred: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"\n[ERROR] An unexpected error occurred while loading session data ({type(e).__name__}): {e}")
+        print("The FastF1 cache might be corrupted (try deleting .fastf1-cache/) or the requested data is missing from the provider.")
+        sys.exit(1)
 
-    # Sort all arrays by time in one operation
-    order = np.argsort(t_all)
-    all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
-    
-    t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
-
-    throttle_all = np.concatenate(throttle_all)[order]
-    brake_all = np.concatenate(brake_all)[order]
-
-    print(f"Completed telemetry for driver: {driver_code}")
-
-    return {
-        "code": driver_code,
-        "data": {
-            "t": t_all,
-            "x": x_all,
-            "y": y_all,
-            "dist": race_dist_all,
-            "rel_dist": rel_dist_all,
-            "lap": lap_numbers,
-            "tyre": tyre_compounds,
-            "tyre_life": tyre_life_all,
-            "speed": speed_all,
-            "gear": gear_all,
-            "drs": drs_all,
-            "throttle": throttle_all,
-            "brake": brake_all,
-        },
-        "t_min": t_all.min(),
-        "t_max": t_all.max(),
-        "max_lap": driver_max_lap,
-    }
-
-
-def load_session(year, round_number, session_type="R"):
-    # session_type: 'R' (Race), 'S' (Sprint) etc.
-    session = fastf1.get_session(year, round_number, session_type)
-    session.load(telemetry=True, weather=True)
     return session
 
 
@@ -966,7 +1026,11 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
     if fastest_lap is None:
         raise ValueError(f"No valid laps for driver '{driver_code}' in {quali_segment}")
 
-    telemetry = fastest_lap.get_telemetry()
+    try:
+        telemetry = fastest_lap.get_telemetry()
+    except (fastf1.exceptions.DataNotLoadedError, fastf1.exceptions.NoLapDataError) as e:
+        print(f"Warning: Qualifying telemetry for driver '{driver_code}' could not be loaded: {e}")
+        return {"frames": [], "track_statuses": []}
 
     # Guard: if telemetry has no time data, return empty
     if (
@@ -1239,39 +1303,43 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
 def _process_quali_driver(args):
     """Process qualifying telemetry data for a single driver - must be top-level for multiprocessing"""
     session, driver_code = args
-    print(f"Getting qualifying telemetry for driver: {driver_code}")
+    try:
+        print(f"Getting qualifying telemetry for driver: {driver_code}")
 
-    driver_telemetry_data = {}
+        driver_telemetry_data = {}
 
-    max_speed = 0.0
-    min_speed = 0.0
+        max_speed = 0.0
+        min_speed = 0.0
 
-    for segment in ["Q1", "Q2", "Q3"]:
-        try:
-            segment_telemetry = get_driver_quali_telemetry(
-                session, driver_code, segment
-            )
-            driver_telemetry_data[segment] = segment_telemetry
+        for segment in ["Q1", "Q2", "Q3"]:
+            try:
+                segment_telemetry = get_driver_quali_telemetry(
+                    session, driver_code, segment
+                )
+                driver_telemetry_data[segment] = segment_telemetry
 
-            # Update global max/min speed
-            if segment_telemetry["max_speed"] > max_speed:
-                max_speed = segment_telemetry["max_speed"]
-            if segment_telemetry["min_speed"] < min_speed or min_speed == 0.0:
-                min_speed = segment_telemetry["min_speed"]
+                # Update global max/min speed
+                if segment_telemetry["max_speed"] > max_speed:
+                    max_speed = segment_telemetry["max_speed"]
+                if segment_telemetry["min_speed"] < min_speed or min_speed == 0.0:
+                    min_speed = segment_telemetry["min_speed"]
 
-        except ValueError:
-            driver_telemetry_data[segment] = {"frames": [], "track_statuses": []}
+            except ValueError:
+                driver_telemetry_data[segment] = {"frames": [], "track_statuses": []}
 
-    print(
-        f"Finished processing qualifying telemetry for driver: {driver_code}, {session.get_driver(driver_code)['FullName']},"
-    )
-    return {
-        "driver_code": driver_code,
-        "driver_full_name": session.get_driver(driver_code)["FullName"],
-        "driver_telemetry_data": driver_telemetry_data,
-        "max_speed": max_speed,
-        "min_speed": min_speed,
-    }
+        print(
+            f"Finished processing qualifying telemetry for driver: {driver_code}, {session.get_driver(driver_code)['FullName']},"
+        )
+        return {
+            "driver_code": driver_code,
+            "driver_full_name": session.get_driver(driver_code)["FullName"],
+            "driver_telemetry_data": driver_telemetry_data,
+            "max_speed": max_speed,
+            "min_speed": min_speed,
+        }
+    except Exception as e:
+        print(f"Warning: Failed to process qualifying telemetry for driver '{driver_code}': {e}")
+        return None
 
 
 def get_quali_telemetry(session, session_type="Q"):
@@ -1328,6 +1396,8 @@ def get_quali_telemetry(session, session_type="Q"):
     with Pool(processes=num_processes) as pool:
         results = pool.map(_process_quali_driver, driver_args)
     for result in results:
+        if result is None:
+            continue
         driver_code = result["driver_code"]
         telemetry_data[driver_code] = {
             "full_name": result["driver_full_name"],
