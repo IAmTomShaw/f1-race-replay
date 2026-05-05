@@ -73,6 +73,13 @@ class InsightsMenu(QMainWindow):
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
             ]
         ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Race Analysis",
+            [
+                ("Lap Time Evolution", "Lap times for all drivers across the race", self.launch_lap_time_chart),
+            ]
+        ))
         
         content_layout.addStretch()
         
@@ -197,6 +204,13 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Race Control Feed")
         from src.insights.race_control_feed_window import RaceControlFeedWindow
         window = RaceControlFeedWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_lap_time_chart(self):
+        print("🚀 Launching: Lap Time Evolution")
+        from src.insights.lap_time_chart_window import LapTimeChartWindow
+        window = LapTimeChartWindow()
         window.show()
         self.opened_windows.append(window)
 
