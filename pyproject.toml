@@ -1,0 +1,32 @@
+[project]
+name = "f1-race-replay"
+version = "0.1.0"
+description = "F1 telemetry replay and pit-wall style insights tooling."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastf1",
+  "pandas",
+  "matplotlib",
+  "numpy",
+  "arcade",
+  "pyglet",
+  "pyside6",
+  "questionary",
+  "rich",
+]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.6.0",
+  "mypy>=1.10.0",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]

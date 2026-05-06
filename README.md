@@ -17,6 +17,8 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
 - **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **Insights Windows:** Launch Driver Live Telemetry, Track Position Map, and Race Control Feed from the Insights Menu.
+- **Tyre Strategy Window:** Monitor live compound usage, tyre life, pit status, and running intervals.
 
 ## Controls
 
@@ -79,7 +81,12 @@ Recently added support for Qualifying session replays with telemetry visualizati
 - [Arcade](https://api.arcade.academy/en/latest/)
 - numpy
 
-Install dependencies:
+Install dependencies with `uv` (recommended):
+```bash
+uv sync
+```
+
+Install dependencies with `pip`:
 ```bash
 pip install -r requirements.txt
 ```
@@ -108,6 +115,11 @@ To get started with this project locally, you can follow these steps:
       .\venv\Scripts\activate
       ```
 3. **Install Dependencies:**
+    - With `uv` (recommended):
+      ```bash
+      uv sync
+      ```
+    - With `pip`:
     ```bash
     pip install -r requirements.txt
     ```
@@ -147,6 +159,11 @@ Run the main script and specify the year and round:
 python main.py --viewer --year 2025 --round 12
 ```
 
+To start playback at a custom speed:
+```bash
+python main.py --viewer --year 2025 --round 12 --playback-speed 2.0
+```
+
 To run without HUD:
 ```bash
 python main.py --viewer --year 2025 --round 12 --no-hud
@@ -169,10 +186,19 @@ To run a Qualifying session replay, use the `--qualifying` flag:
 python main.py --viewer --year 2025 --round 12 --qualifying
 ```
 
-To run a Sprint Qualifying session (if the event has one), add `--sprint`:
+To run a Sprint Qualifying session (if the event has one), add `--sprint-qualifying`:
 ```bash
-python main.py --viewer --year 2025 --round 12 --qualifying --sprint
+python main.py --viewer --year 2025 --round 12 --sprint-qualifying
 ```
+
+### Practice Session Replay
+
+To run a practice session replay:
+```bash
+python main.py --viewer --year 2025 --round 12 --practice 1
+```
+
+Aliases are also available: `--fp1`, `--fp2`, `--fp3`.
 
 ## File Structure
 
@@ -180,21 +206,24 @@ python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 f1-race-replay/
 ├── main.py                    # Entry point, handles session loading and starts the replay
 ├── requirements.txt           # Python dependencies
+├── pyproject.toml             # Project metadata and uv dependency groups
 ├── README.md                  # Project documentation
 ├── roadmap.md                 # Planned features and project vision
 ├── resources/
 │   └── preview.png           # Race replay preview image
 ├── src/
 │   ├── f1_data.py            # Telemetry loading, processing, frame generation & SC position simulation
-│   ├── arcade_replay.py      # Visualization and UI logic
-│   └── ui_components.py      # UI components like buttons and leaderboard
+│   ├── run_session.py        # Replay bootstrapping and helper process launchers
+│   ├── ui_components.py      # UI components like buttons and leaderboard
 │   ├── interfaces/
-│   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
-│   │   └── race_replay.py    # Race replay interface, SC rendering & telemetry visualization
+│   │   ├── qualifying.py     # Qualifying session interface and telemetry visualization
+│   │   └── race_replay.py    # Race replay interface and telemetry rendering
+│   ├── insights/             # Insights windows launched from Insights Menu
+│   ├── gui/                  # GUI menu, selectors, and pit-wall window base class
 │   └── lib/
-│       └── tyres.py          # Type definitions for telemetry data structures
+│       ├── tyres.py          # Type definitions for telemetry data structures
 │       └── time.py           # Time formatting utilities
-└── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
+├── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
 └── computed_data/            # Computed telemetry data (created automatically upon first run)
 ```
 
@@ -226,8 +255,17 @@ The `PitWallWindow` base class handles all telemetry stream connection logic aut
 **Documentation & Examples:**
 - See [docs/PitWallWindow.md](./docs/PitWallWindow.md) for complete guide
 - See [docs/InsightsMenu.md](./docs/InsightsMenu.md) for adding insights to the menu
-- Run the example: `python -m src.gui.example_pit_wall_window`
+- Run the example: `python -m src.insights.example_pit_wall_window`
 - Test the menu: `python -m src.gui.insights_menu`
+
+## Development Checks
+
+With `uv`:
+```bash
+uv sync --group dev
+uv run python -m compileall main.py src tests
+uv run python -m pytest tests/test_main_cli.py -q
+```
 
 ## Customization
 

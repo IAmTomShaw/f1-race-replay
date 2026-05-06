@@ -6,6 +6,18 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
+SHOW_EXPERIMENTAL_INSIGHTS = False
+EXPERIMENTAL_INSIGHTS = [
+    "Pit Stop Analysis",
+    "Gap Analysis",
+    "Sector Times",
+    "Lap Time Evolution",
+    "Top Speed Tracker",
+    "Flag Tracker",
+    "Overtake Counter",
+    "DRS Usage",
+]
+
 
 class InsightsMenu(QMainWindow):
     
@@ -61,6 +73,13 @@ class InsightsMenu(QMainWindow):
         ))
 
         content_layout.addWidget(self.create_category_section(
+            "Strategy",
+            [
+                ("Tyre Strategy", "Live compounds, tyre life, pit status and gaps", self.launch_tyre_strategy),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
             "Track",
             [
                 ("Track Position Map", "Live driver positions on real or circular track map", self.launch_track_position),
@@ -73,6 +92,9 @@ class InsightsMenu(QMainWindow):
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
             ]
         ))
+
+        if SHOW_EXPERIMENTAL_INSIGHTS:
+            content_layout.addWidget(self.create_experimental_section())
         
         content_layout.addStretch()
         
@@ -167,8 +189,59 @@ class InsightsMenu(QMainWindow):
         button.clicked.connect(callback)
         
         return button
-    
-    # Insight launch methods (placeholders for now)
+
+    def create_disabled_insight_button(self, name, description):
+        button = QPushButton()
+        button.setEnabled(False)
+
+        btn_layout = QVBoxLayout()
+        btn_layout.setSpacing(2)
+        btn_layout.setContentsMargins(4, 4, 4, 4)
+
+        name_label = QLabel(name)
+        name_label.setFont(QFont("Arial", 12, QFont.Bold))
+        name_label.setStyleSheet("color: #666666;")
+
+        desc_label = QLabel(description)
+        desc_label.setFont(QFont("Arial", 10))
+        desc_label.setStyleSheet("color: #666666;")
+
+        btn_layout.addWidget(name_label)
+        btn_layout.addWidget(desc_label)
+        button.setLayout(btn_layout)
+        button.setMinimumHeight(50)
+        return button
+
+    def create_experimental_section(self):
+        section = QFrame()
+        section.setFrameShape(QFrame.NoFrame)
+
+        layout = QVBoxLayout(section)
+        layout.setSpacing(4)
+
+        category_label = QLabel("EXPERIMENTAL")
+        category_label.setFont(QFont("Arial", 12, QFont.Bold))
+        layout.addWidget(category_label)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        layout.addWidget(separator)
+
+        info_label = QLabel(
+            "These windows are planned but disabled by default.\n"
+            "Set SHOW_EXPERIMENTAL_INSIGHTS=True to preview menu entries."
+        )
+        info_label.setFont(QFont("Arial", 9))
+        layout.addWidget(info_label)
+
+        for name in EXPERIMENTAL_INSIGHTS:
+            btn = self.create_disabled_insight_button(
+                name,
+                "Planned insight (not yet implemented)",
+            )
+            layout.addWidget(btn)
+
+        return section
     
     def launch_example_window(self):
         print("🚀 Launching: Example Insight Window")
@@ -200,6 +273,13 @@ class InsightsMenu(QMainWindow):
         window.show()
         self.opened_windows.append(window)
 
+    def launch_tyre_strategy(self):
+        print("🚀 Launching: Tyre Strategy")
+        from src.insights.tyre_strategy_window import TyreStrategyWindow
+        window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
+
     def launch_telemetry_viewer(self):
         print("🚀 Launching: Telemetry Stream Viewer")
         try:
@@ -208,61 +288,17 @@ class InsightsMenu(QMainWindow):
             subprocess.Popen([sys.executable, "-m", "src.insights.telemetry_stream_viewer"])
         except Exception as e:
             print(f"Failed to launch telemetry viewer: {e}")
-            self.show_placeholder_message("Telemetry Stream Viewer")
-    
-    def launch_speed_monitor(self):
-        print("🚀 Launching: Speed Monitor")
-        self.show_placeholder_message("Speed Monitor")
-    
-    def launch_position_tracker(self):
-        print("🚀 Launching: Position Tracker")
-        self.show_placeholder_message("Position Tracker")
-    
-    def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
-        self.show_placeholder_message("Tyre Strategy")
-    
-    def launch_pit_analysis(self):
-        print("🚀 Launching: Pit Stop Analysis")
-        self.show_placeholder_message("Pit Stop Analysis")
-    
-    def launch_gap_analysis(self):
-        print("🚀 Launching: Gap Analysis")
-        self.show_placeholder_message("Gap Analysis")
-    
-    def launch_sector_times(self):
-        print("🚀 Launching: Sector Times")
-        self.show_placeholder_message("Sector Times")
-    
-    def launch_lap_evolution(self):
-        print("🚀 Launching: Lap Time Evolution")
-        self.show_placeholder_message("Lap Time Evolution")
-    
-    def launch_top_speed(self):
-        print("🚀 Launching: Top Speed Tracker")
-        self.show_placeholder_message("Top Speed Tracker")
-    
-    def launch_flag_tracker(self):
-        print("🚀 Launching: Flag Tracker")
-        self.show_placeholder_message("Flag Tracker")
-    
-    def launch_overtake_counter(self):
-        print("🚀 Launching: Overtake Counter")
-        self.show_placeholder_message("Overtake Counter")
-    
-    def launch_drs_usage(self):
-        print("🚀 Launching: DRS Usage")
-        self.show_placeholder_message("DRS Usage")
-    
-    def show_placeholder_message(self, insight_name):
+            self.show_unavailable_message("Telemetry Stream Viewer")
+
+    def show_unavailable_message(self, insight_name):
         from PySide6.QtWidgets import QMessageBox
         
         msg = QMessageBox(self)
-        msg.setWindowTitle("Coming Soon")
+        msg.setWindowTitle("Unavailable")
         msg.setIcon(QMessageBox.Information)
-        msg.setText(f"{insight_name} will be available soon!")
+        msg.setText(f"{insight_name} could not be launched.")
         msg.setInformativeText(
-            "This insight is planned for a future release.\n\n"
+            "Make sure a replay session is running and telemetry streaming is enabled.\n\n"
             "Developers can use PitWallWindow to create custom insights.\n"
             "See docs/PitWallWindow.md for more information."
         )

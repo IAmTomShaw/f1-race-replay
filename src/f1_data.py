@@ -98,6 +98,12 @@ def _process_single_driver(args):
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
 
+        # Track total completed distance so race distance remains cumulative
+        # across laps (needed for stable leaderboard ordering).
+        lap_distance_m = float(np.nanmax(d_lap)) if len(d_lap) else 0.0
+        if np.isfinite(lap_distance_m) and lap_distance_m > 0:
+            total_dist_so_far += lap_distance_m
+
     if not t_all:
         return None
 
@@ -206,7 +212,6 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         
         ref_xs = tel["X"].to_numpy().astype(float)
         ref_ys = tel["Y"].to_numpy().astype(float)
-        ref_dist = tel["Distance"].to_numpy().astype(float)
         
         if len(ref_xs) < 10:
             print("Safety Car: Insufficient reference points, skipping")
@@ -218,7 +223,6 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         t_new = np.linspace(0, 1, 4000)
         ref_xs_dense = np.interp(t_new, t_old, ref_xs)
         ref_ys_dense = np.interp(t_new, t_old, ref_ys)
-        ref_dist_dense = np.interp(t_new, t_old, ref_dist)
         
         # Build KD-Tree for fast position lookups
         ref_tree = cKDTree(np.column_stack((ref_xs_dense, ref_ys_dense)))
@@ -538,7 +542,14 @@ def _compute_safety_car_positions(frames, track_statuses, session):
 
 def get_race_telemetry(session, session_type="R"):
     event_name = str(session).replace(" ", "_")
-    cache_suffix = "sprint" if session_type == "S" else "race"
+    cache_suffix_map = {
+        "R": "race",
+        "S": "sprint",
+        "FP1": "fp1",
+        "FP2": "fp2",
+        "FP3": "fp3",
+    }
+    cache_suffix = cache_suffix_map.get(session_type, str(session_type).lower())
 
     # Check if this data has already been computed
 
@@ -840,14 +851,29 @@ def get_race_telemetry(session, session_type="R"):
         leader = snapshot[0]
         leader_lap = leader["lap"]
 
-        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
-
-        # 5c. Compute gap to car in front in SECONDS
+        # 5c. Compute intervals in seconds using distance deltas and speed.
+        # These metrics are optional and backward-compatible for consumers.
         frame_data = {}
+        leader_dist = float(leader["dist"])
 
         for idx, car in enumerate(snapshot):
             code = car["code"]
             position = idx + 1
+
+            speed_ms = max(float(car["speed"]) / 3.6, 1.0)
+            gap_to_leader_m = max(0.0, leader_dist - float(car["dist"]))
+            gap_to_leader_s = 0.0 if idx == 0 else gap_to_leader_m / speed_ms
+
+            if idx == 0:
+                interval_ahead_s = 0.0
+            else:
+                car_ahead = snapshot[idx - 1]
+                gap_ahead_m = max(0.0, float(car_ahead["dist"]) - float(car["dist"]))
+                avg_speed_ms = max(
+                    (float(car_ahead["speed"]) + float(car["speed"])) / 7.2,
+                    1.0,
+                )
+                interval_ahead_s = gap_ahead_m / avg_speed_ms
 
             #Pit stop detection
             in_pit=False
@@ -871,6 +897,8 @@ def get_race_telemetry(session, session_type="R"):
                 "drs": car["drs"],
                 "throttle": car["throttle"],
                 "brake": car["brake"],
+                "gap_to_leader_s": round(gap_to_leader_s, 3),
+                "interval_ahead_s": round(interval_ahead_s, 3),
                 "in_pit": in_pit
             }
 
