@@ -94,3 +94,29 @@ class TyreStrategyWindow(PitWallWindow):
                 item = QTableWidgetItem(value)
                 item.setTextAlignment(Qt.AlignCenter)
                 self.table.setItem(row_idx, col_idx, item)
+
+
+if __name__ == "__main__":
+    import sys
+    from PySide6.QtWidgets import QApplication
+
+    app = QApplication(sys.argv)
+    window = TyreStrategyWindow()
+    window.setup_ui()
+    
+    # Add dummy data for the screenshot
+    dummy_data = {
+        "session_data": {"lap": 45, "total_laps": 70, "time": "01:15:22"},
+        "frame": {
+            "drivers": {
+                "VER": {"position": 1, "tyre": 3, "tyre_life": 12, "lap": 45, "in_pit": False, "gap_to_leader_s": 0, "interval_ahead_s": 0, "speed": 285.4},
+                "HAM": {"position": 2, "tyre": 3, "tyre_life": 15, "lap": 45, "in_pit": False, "gap_to_leader_s": 5.234, "interval_ahead_s": 5.234, "speed": 282.1},
+                "NOR": {"position": 3, "tyre": 2, "tyre_life": 8, "lap": 45, "in_pit": False, "gap_to_leader_s": 12.876, "interval_ahead_s": 7.642, "speed": 288.9},
+                "LEC": {"position": 4, "tyre": 3, "tyre_life": 22, "lap": 44, "in_pit": True, "gap_to_leader_s": 35.122, "interval_ahead_s": 22.246, "speed": 78.5},
+            }
+        }
+    }
+    window.on_telemetry_data(dummy_data)
+    
+    window.show()
+    sys.exit(app.exec())
