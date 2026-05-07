@@ -69,6 +69,7 @@ class InsightsMenu(QMainWindow):
             [
                 ("Telemetry Stream Viewer", "View raw telemetry data", self.launch_telemetry_viewer),
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
+                ("Live Tyre Strategy", "Live tyre stints and pit stop timeline per driver", self.launch_tyre_strategy),
             ]
         ))
 
@@ -288,9 +289,56 @@ class InsightsMenu(QMainWindow):
             subprocess.Popen([sys.executable, "-m", "src.insights.telemetry_stream_viewer"])
         except Exception as e:
             print(f"Failed to launch telemetry viewer: {e}")
-            self.show_unavailable_message("Telemetry Stream Viewer")
-
-    def show_unavailable_message(self, insight_name):
+            self.show_placeholder_message("Telemetry Stream Viewer")
+    
+    def launch_speed_monitor(self):
+        print("🚀 Launching: Speed Monitor")
+        self.show_placeholder_message("Speed Monitor")
+    
+    def launch_position_tracker(self):
+        print("🚀 Launching: Position Tracker")
+        self.show_placeholder_message("Position Tracker")
+    
+    def launch_tyre_strategy(self):
+        print("🚀 Launching: Live Tyre Strategy")
+        from src.insights.tyre_strategy_window import TyreStrategyWindow
+        window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
+    
+    def launch_pit_analysis(self):
+        print("🚀 Launching: Pit Stop Analysis")
+        self.show_placeholder_message("Pit Stop Analysis")
+    
+    def launch_gap_analysis(self):
+        print("🚀 Launching: Gap Analysis")
+        self.show_placeholder_message("Gap Analysis")
+    
+    def launch_sector_times(self):
+        print("🚀 Launching: Sector Times")
+        self.show_placeholder_message("Sector Times")
+    
+    def launch_lap_evolution(self):
+        print("🚀 Launching: Lap Time Evolution")
+        self.show_placeholder_message("Lap Time Evolution")
+    
+    def launch_top_speed(self):
+        print("🚀 Launching: Top Speed Tracker")
+        self.show_placeholder_message("Top Speed Tracker")
+    
+    def launch_flag_tracker(self):
+        print("🚀 Launching: Flag Tracker")
+        self.show_placeholder_message("Flag Tracker")
+    
+    def launch_overtake_counter(self):
+        print("🚀 Launching: Overtake Counter")
+        self.show_placeholder_message("Overtake Counter")
+    
+    def launch_drs_usage(self):
+        print("🚀 Launching: DRS Usage")
+        self.show_placeholder_message("DRS Usage")
+    
+    def show_placeholder_message(self, insight_name):
         from PySide6.QtWidgets import QMessageBox
         
         msg = QMessageBox(self)
