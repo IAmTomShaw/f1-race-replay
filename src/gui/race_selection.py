@@ -1,19 +1,35 @@
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox, QPushButton, QTreeWidget, QTreeWidgetItem, QMessageBox
+    QApplication,
+    QMainWindow,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QComboBox,
+    QPushButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QMessageBox,
 )
 from PySide6.QtWidgets import QProgressDialog
 from PySide6.QtCore import QThread, Signal, Qt, QTimer
-#from PySide6.QtGui import QPixmap, QFont
+
+# from PySide6.QtGui import QPixmap, QFont
 import sys
 import os
 import subprocess
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names, load_session
+from src.f1_data import (
+    get_race_weekends_by_year,
+    get_race_weekends_by_place,
+    get_all_unique_race_names,
+    load_session,
+)
 from src.gui.settings_dialog import SettingsDialog
 from src.lib.season import get_season
+
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -24,11 +40,12 @@ class FetchScheduleWorker(QThread):
         super().__init__(parent)
         self.year = year
 
-    def run(self): #check
+    def run(self):  # check
         try:
             # enable cache if available in project
             try:
                 from src.f1_data import enable_cache
+
                 enable_cache()
             except Exception:
                 pass
@@ -37,6 +54,7 @@ class FetchScheduleWorker(QThread):
         except Exception as e:
             self.error.emit(str(e))
 
+
 class RaceSelectionWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -44,7 +62,7 @@ class RaceSelectionWindow(QMainWindow):
         self.loading_session = False
         self.selected_session_title = None
         self.current_year = get_season()
-        self.selected_year=self.current_year 
+        self.selected_year = self.current_year
 
         self.setWindowTitle("F1 Race Replay - Session Selection")
         self._setup_ui()
@@ -71,7 +89,7 @@ class RaceSelectionWindow(QMainWindow):
         font.setBold(True)
         header_label.setFont(font)
         header_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        
+
         header_layout.addWidget(header_label)
         header_layout.addStretch()
         header_layout.addWidget(settings_btn)
@@ -93,14 +111,13 @@ class RaceSelectionWindow(QMainWindow):
         year_layout.addWidget(self.year_combo)
         main_layout.addLayout(year_layout)
 
-        #Race Selection
-        place_layout=QHBoxLayout()
-        place_label=QLabel("Select Race:")
-        self.place_combo=QComboBox()
+        # Race Selection
+        place_layout = QHBoxLayout()
+        place_label = QLabel("Select Race:")
+        self.place_combo = QComboBox()
         self.place_combo.addItem("All Races")
         self.place_combo.addItems(get_all_unique_race_names())
         self.place_combo.currentTextChanged.connect(self.load_by_place)
-
 
         place_layout.addWidget(place_label)
         place_layout.addWidget(self.place_combo)
@@ -145,25 +162,25 @@ class RaceSelectionWindow(QMainWindow):
         # hide sessions panel until a weekend is selected
         self.session_panel.hide()
         self.load_schedule(year=self.current_year)
-        
+
     def load_schedule(self, year=None, events=None):
         if self.loading_session:
             return
-        
+
         self.schedule_tree.clear()
         # hide sessions panel while loading / when nothing selected
         try:
             self.session_panel.hide()
         except Exception:
             pass
-        
-        #Race filter
+
+        # Race filter
         if events is not None:
             self.populate_schedule(events)
             self.loading_session = False
             return
-        
-        #Year filter
+
+        # Year filter
         if year is not None:
             self.loading_session = True
             self.worker = FetchScheduleWorker(int(year))
@@ -171,45 +188,45 @@ class RaceSelectionWindow(QMainWindow):
             self.worker.error.connect(self.show_error)
             self.worker.start()
             return
-        
-        self.loading_session=False
+
+        self.loading_session = False
 
     def load_by_year(self, year_text):
         if self.loading_session:
             return
-        
-        #Reset by_race filter
-        if year_text!="All Years":
+
+        # Reset by_race filter
+        if year_text != "All Years":
             self.place_combo.blockSignals(True)
             self.place_combo.setCurrentText("All Races")
             self.place_combo.blockSignals(False)
 
-        if year_text=="All Years":
-            self.selected_year=None
+        if year_text == "All Years":
+            self.selected_year = None
             self.schedule_tree.clear()
             return
-        
+
         if not year_text.isdigit():
             return
-        
-        self.selected_year=int(year_text)
+
+        self.selected_year = int(year_text)
         self.load_schedule(year=self.selected_year)
 
-    def load_by_place(self,race_name):
-        if race_name=="All Races":
+    def load_by_place(self, race_name):
+        if race_name == "All Races":
             if self.selected_year is not None:
                 self.load_schedule(year=self.selected_year)
             return
-        
-        #Reset year filter
+
+        # Reset year filter
         self.year_combo.blockSignals(True)
         self.year_combo.setCurrentText("All Years")
         self.year_combo.blockSignals(False)
-        self.selected_year=None
+        self.selected_year = None
 
         self.schedule_tree.clear()
-        
-        events=get_race_weekends_by_place(race_name)
+
+        events = get_race_weekends_by_place(race_name)
         self.load_schedule(events=events)
 
     def populate_schedule(self, events):
@@ -281,7 +298,9 @@ class RaceSelectionWindow(QMainWindow):
                 if s in available_sessions:
                     btn = QPushButton(s)
                     btn.clicked.connect(
-                        lambda _, sname=s, e=ev: self._on_session_button_clicked(e, sname)
+                        lambda _, sname=s, e=ev: self._on_session_button_clicked(
+                            e, sname
+                        )
                     )
                     self.session_list_layout.addWidget(btn)
 
@@ -334,13 +353,13 @@ class RaceSelectionWindow(QMainWindow):
         QApplication.processEvents()
 
         # Map label -> fastf1 session type code
-        session_code = 'R'
+        session_code = "R"
         if session_label == "Qualifying":
-            session_code = 'Q'
+            session_code = "Q"
         elif session_label == "Sprint Qualifying":
-            session_code = 'SQ'
+            session_code = "SQ"
         elif session_label == "Sprint":
-            session_code = 'S'
+            session_code = "S"
 
         class FetchSessionWorker(QThread):
             result = Signal(object)
@@ -356,6 +375,7 @@ class RaceSelectionWindow(QMainWindow):
                 try:
                     try:
                         from src.f1_data import enable_cache
+
                         enable_cache()
                     except Exception:
                         pass
@@ -366,7 +386,9 @@ class RaceSelectionWindow(QMainWindow):
 
         def _on_loaded(session_obj):
             # create a unique ready-file path and pass it to the child
-            ready_path = os.path.join(tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}")
+            ready_path = os.path.join(
+                tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}"
+            )
             cmd_with_ready = list(cmd) + ["--ready-file", ready_path]
 
             try:
@@ -376,7 +398,9 @@ class RaceSelectionWindow(QMainWindow):
                     dlg.close()
                 except Exception:
                     pass
-                QMessageBox.critical(self, "Playback error", f"Failed to start playback:\n{exc}")
+                QMessageBox.critical(
+                    self, "Playback error", f"Failed to start playback:\n{exc}"
+                )
                 return
 
             # Poll for ready file or child exit
@@ -402,7 +426,11 @@ class RaceSelectionWindow(QMainWindow):
                         except Exception:
                             pass
                         timer.stop()
-                        QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
+                        QMessageBox.critical(
+                            self,
+                            "Playback error",
+                            "Playback process exited before signaling readiness",
+                        )
                 except Exception:
                     # ignore transient file-system errors
                     pass
@@ -418,7 +446,9 @@ class RaceSelectionWindow(QMainWindow):
                 dlg.close()
             except Exception:
                 pass
-            QMessageBox.critical(self, "Load error", f"Failed to load session data:\n{msg}")
+            QMessageBox.critical(
+                self, "Load error", f"Failed to load session data:\n{msg}"
+            )
 
         worker = FetchSessionWorker(year, round_no, session_code)
         worker.result.connect(_on_loaded)
@@ -426,6 +456,7 @@ class RaceSelectionWindow(QMainWindow):
         # Keep a reference so it doesn't get GC'd
         self._session_worker = worker
         worker.start()
+
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False

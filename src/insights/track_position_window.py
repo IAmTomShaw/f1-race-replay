@@ -8,34 +8,61 @@ available: the actual circuit layout, or a circular schematic.
 import sys
 import math
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+    QApplication,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
 )
 from PySide6.QtCore import Qt, QPointF
 from PySide6.QtGui import (
-    QPainter, QPen, QBrush, QColor, QFont, QFontMetrics, QPolygonF,
-    QPainterPath
+    QPainter,
+    QPen,
+    QBrush,
+    QColor,
+    QFont,
+    QFontMetrics,
+    QPolygonF,
+    QPainterPath,
 )
 from src.gui.pit_wall_window import PitWallWindow
 
 # Visually distinct colours assigned to drivers in order of first appearance
 _PALETTE = [
-    "#E8002D", "#FF8000", "#00D2BE", "#1565C0", "#F596C8",
-    "#DC0000", "#B6BABD", "#5E8FAA", "#2293D1", "#FFF500",
-    "#006F62", "#900000", "#0090FF", "#FF87BC", "#64C4FF",
-    "#358C75", "#AAAAAA", "#6CD3BF", "#ABB7C4", "#C92D4B",
+    "#E8002D",
+    "#FF8000",
+    "#00D2BE",
+    "#1565C0",
+    "#F596C8",
+    "#DC0000",
+    "#B6BABD",
+    "#5E8FAA",
+    "#2293D1",
+    "#FFF500",
+    "#006F62",
+    "#900000",
+    "#0090FF",
+    "#FF87BC",
+    "#64C4FF",
+    "#358C75",
+    "#AAAAAA",
+    "#6CD3BF",
+    "#ABB7C4",
+    "#C92D4B",
 ]
 
-_TRACK_BG          = QColor("#1a1a1a")
-_TRACK_ROAD        = QColor("#383838")
-_TRACK_EDGE        = QColor("#555555")
-_TRACK_CENTRE      = QColor("#2a2a2a")
-_TRACK_RING_DARK   = QColor("#303030")
-_TRACK_RING_LINE   = QColor("#303030")
-_SF_LINE_COLOR     = QColor("#FFFFFF")
-_LABEL_SHADOW      = QColor(0, 0, 0, 180)
-_LEADER_ARROW      = QColor("#FFD700")
+_TRACK_BG = QColor("#1a1a1a")
+_TRACK_ROAD = QColor("#383838")
+_TRACK_EDGE = QColor("#555555")
+_TRACK_CENTRE = QColor("#2a2a2a")
+_TRACK_RING_DARK = QColor("#303030")
+_TRACK_RING_LINE = QColor("#303030")
+_SF_LINE_COLOR = QColor("#FFFFFF")
+_LABEL_SHADOW = QColor(0, 0, 0, 180)
+_LEADER_ARROW = QColor("#FFD700")
 _DIST_MARKER_COLOR = QColor("#606060")
-_DIST_LABEL_COLOR  = QColor("#585858")
+_DIST_LABEL_COLOR = QColor("#585858")
 
 
 class _TrackMapWidget(QWidget):
@@ -43,8 +70,8 @@ class _TrackMapWidget(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.driver_positions: dict[str, float] = {}   # code -> fraction 0-1
-        self.driver_colors: dict[str, str] = {}        # code -> hex colour
+        self.driver_positions: dict[str, float] = {}  # code -> fraction 0-1
+        self.driver_colors: dict[str, str] = {}  # code -> hex colour
         self.leader_code: str | None = None
         self.circuit_length_m: float | None = None
         self.setMinimumSize(420, 420)
@@ -294,11 +321,19 @@ class _TrackMapWidget(QWidget):
 
         frac_lo = self._cum_fracs[idx]
         frac_hi = self._cum_fracs[idx_next] if idx_next != 0 else 1.0
-        seg_frac = (fraction - frac_lo) / (frac_hi - frac_lo) if (frac_hi - frac_lo) > 0 else 0.0
+        seg_frac = (
+            (fraction - frac_lo) / (frac_hi - frac_lo)
+            if (frac_hi - frac_lo) > 0
+            else 0.0
+        )
         seg_frac = max(0.0, min(1.0, seg_frac))
 
-        wx = self._center_xs[idx] + seg_frac * (self._center_xs[idx_next] - self._center_xs[idx])
-        wy = self._center_ys[idx] + seg_frac * (self._center_ys[idx_next] - self._center_ys[idx])
+        wx = self._center_xs[idx] + seg_frac * (
+            self._center_xs[idx_next] - self._center_xs[idx]
+        )
+        wy = self._center_ys[idx] + seg_frac * (
+            self._center_ys[idx_next] - self._center_ys[idx]
+        )
         return to_widget(wx, wy)
 
     def _frac_to_index(self, fraction):
@@ -349,11 +384,13 @@ class _TrackMapWidget(QWidget):
         tip_y = y - ny * tip_off
         base_x = x - nx * (tip_off + base_off)
         base_y = y - ny * (tip_off + base_off)
-        triangle = QPolygonF([
-            QPointF(tip_x, tip_y),
-            QPointF(base_x + px * half_w, base_y + py * half_w),
-            QPointF(base_x - px * half_w, base_y - py * half_w),
-        ])
+        triangle = QPolygonF(
+            [
+                QPointF(tip_x, tip_y),
+                QPointF(base_x + px * half_w, base_y + py * half_w),
+                QPointF(base_x - px * half_w, base_y - py * half_w),
+            ]
+        )
         painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(QColor(0, 0, 0, 140)))
         painter.drawPolygon(QPolygonF([p + QPointF(1.5, 1.5) for p in triangle]))
@@ -416,7 +453,8 @@ class _TrackMapWidget(QWidget):
         painter.setFont(font)
         label_r = radius - 22
         painter.drawText(
-            QPointF(cx + label_r * nx - 8, cy + label_r * ny + 4), "S/F",
+            QPointF(cx + label_r * nx - 8, cy + label_r * ny + 4),
+            "S/F",
         )
 
     def _draw_distance_markers(self, painter, cx, cy, radius, sf_angle):
@@ -469,11 +507,13 @@ class _TrackMapWidget(QWidget):
         tip_y = cy + tip_r * ny
         base_x = cx + base_r * nx
         base_y = cy + base_r * ny
-        triangle = QPolygonF([
-            QPointF(tip_x, tip_y),
-            QPointF(base_x + px * half_w, base_y + py * half_w),
-            QPointF(base_x - px * half_w, base_y - py * half_w),
-        ])
+        triangle = QPolygonF(
+            [
+                QPointF(tip_x, tip_y),
+                QPointF(base_x + px * half_w, base_y + py * half_w),
+                QPointF(base_x - px * half_w, base_y - py * half_w),
+            ]
+        )
         shadow_color = QColor(0, 0, 0, 140)
         painter.setPen(Qt.NoPen)
         painter.setBrush(QBrush(shadow_color))
@@ -510,6 +550,7 @@ class _TrackMapWidget(QWidget):
 
 
 # -------------------------------------------------------------------------
+
 
 class TrackPositionWindow(PitWallWindow):
     """
@@ -558,7 +599,7 @@ class TrackPositionWindow(PitWallWindow):
 
         self._btn_schematic = QPushButton("Circular")
         self._btn_schematic.setFixedHeight(24)
-        self._btn_schematic.setStyleSheet(_btn_active) # default active
+        self._btn_schematic.setStyleSheet(_btn_active)  # default active
         self._btn_schematic.clicked.connect(lambda: self._set_view_mode("schematic"))
 
         toggle_row = QHBoxLayout()
@@ -580,7 +621,7 @@ class TrackPositionWindow(PitWallWindow):
 
     def _set_view_mode(self, mode: str):
         """Toggle between Real Track and Schematic circle views."""
-        is_schematic = (mode == "schematic")
+        is_schematic = mode == "schematic"
         self._map.force_circle = is_schematic
         self._btn_real.setStyleSheet(
             self._btn_style_inactive if is_schematic else self._btn_style_active
@@ -613,9 +654,12 @@ class TrackPositionWindow(PitWallWindow):
             rotation = geo.get("rotation_deg", 0.0)
             if x_center and y_center and x_inner and x_outer:
                 self._map.set_track_geometry(
-                    x_center, y_center,
-                    x_inner, y_inner,
-                    x_outer, y_outer,
+                    x_center,
+                    y_center,
+                    x_inner,
+                    y_inner,
+                    x_outer,
+                    y_outer,
                     rotation,
                 )
                 self._geometry_received = True
@@ -639,13 +683,19 @@ class TrackPositionWindow(PitWallWindow):
                 positions[code] = info["fraction"]
             else:
                 dist = info.get("dist", 0.0)
-                positions[code] = (dist % self._circuit_length_m) / self._circuit_length_m
+                positions[code] = (
+                    dist % self._circuit_length_m
+                ) / self._circuit_length_m
 
         leader_code = next(
             (code for code, info in drivers.items() if info.get("position") == 1),
-            max(drivers, key=lambda c: drivers[c].get("dist", 0.0)) if drivers else None,
+            max(drivers, key=lambda c: drivers[c].get("dist", 0.0))
+            if drivers
+            else None,
         )
-        self._map.update_positions(positions, self._driver_colors, leader_code, self._circuit_length_m)
+        self._map.update_positions(
+            positions, self._driver_colors, leader_code, self._circuit_length_m
+        )
 
     def on_connection_status_changed(self, status):
         if status == "Disconnected":
@@ -667,6 +717,7 @@ class TrackPositionWindow(PitWallWindow):
 
 
 # -------------------------------------------------------------------------
+
 
 def main():
     app = QApplication(sys.argv)

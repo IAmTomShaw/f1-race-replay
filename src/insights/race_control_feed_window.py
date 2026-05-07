@@ -7,42 +7,40 @@ DRS, investigations) as a scrolling feed synced to replay time.
 
 import sys
 import math
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QLabel, QTextBrowser
-)
+from PySide6.QtWidgets import QApplication, QWidget, QVBoxLayout, QLabel, QTextBrowser
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QColor
 from src.gui.pit_wall_window import PitWallWindow
 
 
 # ── Colour palette (matches the app's existing dark theme) ────────────────
-_BG           = "#282828"
-_BG_DARKER    = "#1E1E1E"
-_BORDER       = "#3A3A3A"
-_TEXT_PRIMARY  = "#E0E0E0"
-_TEXT_DIMMED   = "#888888"
-_TEXT_TIME     = "#999999"
+_BG = "#282828"
+_BG_DARKER = "#1E1E1E"
+_BORDER = "#3A3A3A"
+_TEXT_PRIMARY = "#E0E0E0"
+_TEXT_DIMMED = "#888888"
+_TEXT_TIME = "#999999"
 
 # Category accent colours (used for the left-edge indicator bar)
 _CAT_COLOURS = {
-    "Flag":      "#FFD700",   # amber/gold
-    "SafetyCar": "#FF8C00",   # orange
-    "Drs":       "#00CED1",   # cyan
-    "Other":     "#666666",   # subtle grey
-    "CarEvent":  "#B0B0B0",   # light grey
+    "Flag": "#FFD700",  # amber/gold
+    "SafetyCar": "#FF8C00",  # orange
+    "Drs": "#00CED1",  # cyan
+    "Other": "#666666",  # subtle grey
+    "CarEvent": "#B0B0B0",  # light grey
 }
 
 # Flag-specific overrides for the accent colour
 _FLAG_COLOURS = {
-    "YELLOW":         "#FFD700",
-    "DOUBLE YELLOW":  "#FFD700",
-    "RED":            "#E74C3C",
-    "GREEN":          "#2ECC71",
-    "CHEQUERED":      "#F0F0F0",
-    "BLUE":           "#3498DB",
-    "BLACK AND WHITE":"#B0B0B0",
-    "BLACK AND ORANGE":"#FF8C00",
-    "CLEAR":          "#2ECC71",
+    "YELLOW": "#FFD700",
+    "DOUBLE YELLOW": "#FFD700",
+    "RED": "#E74C3C",
+    "GREEN": "#2ECC71",
+    "CHEQUERED": "#F0F0F0",
+    "BLUE": "#3498DB",
+    "BLACK AND WHITE": "#B0B0B0",
+    "BLACK AND ORANGE": "#FF8C00",
+    "CLEAR": "#2ECC71",
 }
 
 
@@ -212,7 +210,11 @@ class RaceControlFeedWindow(PitWallWindow):
 
         # Detect rewinds or restarts to flush the feed
         frame_idx = data.get("frame_index", -1)
-        if frame_idx >= 0 and self._last_frame_index >= 0 and frame_idx < self._last_frame_index:
+        if (
+            frame_idx >= 0
+            and self._last_frame_index >= 0
+            and frame_idx < self._last_frame_index
+        ):
             self._seen_hashes.clear()
             self._text_browser.clear()
             self._set_state("init")
@@ -245,9 +247,13 @@ class RaceControlFeedWindow(PitWallWindow):
         time_str = _format_time(event["time"])
         message = event.get("message", "")
         sector = _clean_sector(event.get("sector", ""))
-        
-        sector_html = f'<br><span style="color: {_TEXT_DIMMED}; font-size: 11px;">Sector {sector}</span>' if sector else ""
-        
+
+        sector_html = (
+            f'<br><span style="color: {_TEXT_DIMMED}; font-size: 11px;">Sector {sector}</span>'
+            if sector
+            else ""
+        )
+
         # We use a reliable HTML table structure to render the color accent bar
         # alongside the text content inside the QTextBrowser.
         html = f"""
@@ -264,9 +270,9 @@ class RaceControlFeedWindow(PitWallWindow):
             </tr>
         </table>
         """
-        
+
         self._text_browser.append(html)
-        
+
         # Scroll to bottom
         scrollbar = self._text_browser.verticalScrollBar()
         scrollbar.setValue(scrollbar.maximum())
@@ -281,6 +287,7 @@ class RaceControlFeedWindow(PitWallWindow):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+
 
 def main():
     app = QApplication(sys.argv)

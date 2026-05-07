@@ -1,0 +1,25 @@
+[project]
+name = "f1-race-replay"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "arcade>=3.3.3",
+    "fastf1>=3.8.3",
+    "matplotlib>=3.10.9",
+    "numpy>=2.4.4",
+    "opencv-python-headless>=4.13.0.92",
+    "pandas>=2.3.3",
+    "pyglet>=2.1.14",
+    "pyside6>=6.11.0",
+    "questionary>=2.1.1",
+    "rich>=15.0.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.3",
+    "ruff>=0.15.12",
+    "ty>=0.0.34",
+]

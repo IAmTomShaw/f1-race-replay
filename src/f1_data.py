@@ -14,6 +14,7 @@ from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
 
+
 def enable_cache():
     # Get cache location from settings
     settings = get_settings()
@@ -102,19 +103,63 @@ def _process_single_driver(args):
         return None
 
     # Concatenate all arrays at once for better performance
-    all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
-    
-    t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    all_arrays = [
+        t_all,
+        x_all,
+        y_all,
+        race_dist_all,
+        rel_dist_all,
+        lap_numbers,
+        tyre_compounds,
+        tyre_life_all,
+        speed_all,
+        gear_all,
+        drs_all,
+    ]
+
+    (
+        t_all,
+        x_all,
+        y_all,
+        race_dist_all,
+        rel_dist_all,
+        lap_numbers,
+        tyre_compounds,
+        tyre_life_all,
+        speed_all,
+        gear_all,
+        drs_all,
+    ) = [np.concatenate(arr) for arr in all_arrays]
 
     # Sort all arrays by time in one operation
     order = np.argsort(t_all)
-    all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
-    
-    t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
+    all_data = [
+        t_all,
+        x_all,
+        y_all,
+        race_dist_all,
+        rel_dist_all,
+        lap_numbers,
+        tyre_compounds,
+        tyre_life_all,
+        speed_all,
+        gear_all,
+        drs_all,
+    ]
+
+    (
+        t_all,
+        x_all,
+        y_all,
+        race_dist_all,
+        rel_dist_all,
+        lap_numbers,
+        tyre_compounds,
+        tyre_life_all,
+        speed_all,
+        gear_all,
+        drs_all,
+    ) = [arr[order] for arr in all_data]
 
     throttle_all = np.concatenate(throttle_all)[order]
     brake_all = np.concatenate(brake_all)[order]
@@ -174,17 +219,17 @@ def get_circuit_rotation(session):
 def _compute_safety_car_positions(frames, track_statuses, session):
     """
     Simulate safety car (SC) positions for each frame based on track status.
-    
+
     The F1 API does not provide SC GPS data, so we simulate it:
     - SC appears when track status is "4" (Safety Car deployed)
     - SC enters from pitlane, travels along the track until the first car catches up
     - SC leads the pack while on track
     - When the SC period ends, SC accelerates away and enters the pitlane
-    
+
     Handles edge cases:
     - The first car behind the SC may be a lapped car, not the race leader
     - Lapped cars can be let through (e.g. Abu Dhabi 2021 scenario)
-    
+
     Each frame gets a 'safety_car' key with:
       - x, y: world coordinates of the SC
       - phase: 'deploying' | 'on_track' | 'returning' | None
@@ -203,31 +248,32 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         if tel is None or tel.empty:
             print("Safety Car: No telemetry data, skipping SC position computation")
             return
-        
+
         ref_xs = tel["X"].to_numpy().astype(float)
         ref_ys = tel["Y"].to_numpy().astype(float)
         ref_dist = tel["Distance"].to_numpy().astype(float)
-        
+
         if len(ref_xs) < 10:
             print("Safety Car: Insufficient reference points, skipping")
             return
-        
+
         # Interpolate reference to high density for smooth positioning
         from scipy.spatial import cKDTree
+
         t_old = np.linspace(0, 1, len(ref_xs))
         t_new = np.linspace(0, 1, 4000)
         ref_xs_dense = np.interp(t_new, t_old, ref_xs)
         ref_ys_dense = np.interp(t_new, t_old, ref_ys)
         ref_dist_dense = np.interp(t_new, t_old, ref_dist)
-        
+
         # Build KD-Tree for fast position lookups
         ref_tree = cKDTree(np.column_stack((ref_xs_dense, ref_ys_dense)))
-        
+
         # Cumulative distance along reference
-        diffs = np.sqrt(np.diff(ref_xs_dense)**2 + np.diff(ref_ys_dense)**2)
+        diffs = np.sqrt(np.diff(ref_xs_dense) ** 2 + np.diff(ref_ys_dense) ** 2)
         ref_cumdist = np.concatenate(([0.0], np.cumsum(diffs)))
         ref_total = float(ref_cumdist[-1])
-        
+
         # Compute normals (for pit lane offset)
         dx = np.gradient(ref_xs_dense)
         dy = np.gradient(ref_ys_dense)
@@ -235,7 +281,7 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         norm[norm == 0] = 1.0
         ref_nx = -dy / norm
         ref_ny = dx / norm
-        
+
     except Exception as e:
         print(f"Safety Car: Failed to build reference polyline: {e}")
         return
@@ -244,50 +290,56 @@ def _compute_safety_car_positions(frames, track_statuses, session):
     sc_periods = []
     for status in track_statuses:
         if str(status.get("status", "")) == "4":
-            sc_periods.append({
-                "start_time": status["start_time"],
-                "end_time": status.get("end_time"),
-            })
-    
+            sc_periods.append(
+                {
+                    "start_time": status["start_time"],
+                    "end_time": status.get("end_time"),
+                }
+            )
+
     if not sc_periods:
         print("Safety Car: No SC periods found in this session")
         return
 
     print(f"Safety Car: Found {len(sc_periods)} SC deployment period(s)")
-    
+
     # ---- Constants ----
     # Deployment: SC exits pit, cruises on track at realistic SC speed, waits for leader
-    DEPLOY_PIT_EXIT_DURATION = 4.0   # seconds to transition from pitlane to track surface
-    DEPLOY_CRUISE_SPEED = 55.0       # m/s (~200 km/h, realistic safety car speed)
-    DEPLOY_TOTAL_MAX = 120.0         # max seconds for deploying phase before forcing on_track
-    
+    DEPLOY_PIT_EXIT_DURATION = (
+        4.0  # seconds to transition from pitlane to track surface
+    )
+    DEPLOY_CRUISE_SPEED = 55.0  # m/s (~200 km/h, realistic safety car speed)
+    DEPLOY_TOTAL_MAX = 120.0  # max seconds for deploying phase before forcing on_track
+
     # On track
-    SC_OFFSET_METERS = 150           # how far ahead of the first car the SC drives
-    
+    SC_OFFSET_METERS = 150  # how far ahead of the first car the SC drives
+
     # Returning: SC accelerates away, then enters pitlane
-    RETURN_ACCEL_DURATION = 5.0      # seconds SC accelerates ahead of the field
-    RETURN_ACCEL_SPEED = 400.0       # m/s (fast, to pull away from field)
+    RETURN_ACCEL_DURATION = 5.0  # seconds SC accelerates ahead of the field
+    RETURN_ACCEL_SPEED = 400.0  # m/s (fast, to pull away from field)
     RETURN_PIT_ENTER_DURATION = 3.0  # seconds to transition from track into pitlane
-    RETURN_TOTAL = RETURN_ACCEL_DURATION + RETURN_PIT_ENTER_DURATION  # total return phase
-    
+    RETURN_TOTAL = (
+        RETURN_ACCEL_DURATION + RETURN_PIT_ENTER_DURATION
+    )  # total return phase
+
     # Pit lane entry/exit positions
     # Use a point ~10% of track ahead of start/finish as pit exit, and
     # a point ~90% as pit entry (approximates most circuits)
     PIT_OFFSET_INWARD = 400  # metres offset inward from track to simulate pitlane
-    
+
     def _pos_at_dist(dist_m):
         """Get (x, y) on the reference line at a given cumulative distance (wraps around)."""
         d = dist_m % ref_total
         idx = int(np.searchsorted(ref_cumdist, d))
         idx = min(idx, len(ref_xs_dense) - 1)
         return float(ref_xs_dense[idx]), float(ref_ys_dense[idx])
-    
+
     def _idx_at_dist(dist_m):
         """Get the reference index at a given cumulative distance (wraps around)."""
         d = dist_m % ref_total
         idx = int(np.searchsorted(ref_cumdist, d))
         return min(idx, len(ref_xs_dense) - 1)
-    
+
     def _dist_of_point(x, y):
         """Project a point onto the reference line and return cumulative distance."""
         _, idx = ref_tree.query([x, y])
@@ -297,15 +349,23 @@ def _compute_safety_car_positions(frames, track_statuses, session):
     pit_exit_track_dist = ref_total * 0.05
     pit_exit_idx = _idx_at_dist(pit_exit_track_dist)
     pit_exit_track_x, pit_exit_track_y = _pos_at_dist(pit_exit_track_dist)
-    pit_exit_pit_x = float(ref_xs_dense[pit_exit_idx] + ref_nx[pit_exit_idx] * PIT_OFFSET_INWARD)
-    pit_exit_pit_y = float(ref_ys_dense[pit_exit_idx] + ref_ny[pit_exit_idx] * PIT_OFFSET_INWARD)
-    
+    pit_exit_pit_x = float(
+        ref_xs_dense[pit_exit_idx] + ref_nx[pit_exit_idx] * PIT_OFFSET_INWARD
+    )
+    pit_exit_pit_y = float(
+        ref_ys_dense[pit_exit_idx] + ref_ny[pit_exit_idx] * PIT_OFFSET_INWARD
+    )
+
     # Pit entry position: ~95% of track from start, offset inward
     pit_entry_track_dist = ref_total * 0.95
     pit_entry_idx = _idx_at_dist(pit_entry_track_dist)
     pit_entry_track_x, pit_entry_track_y = _pos_at_dist(pit_entry_track_dist)
-    pit_entry_pit_x = float(ref_xs_dense[pit_entry_idx] + ref_nx[pit_entry_idx] * PIT_OFFSET_INWARD)
-    pit_entry_pit_y = float(ref_ys_dense[pit_entry_idx] + ref_ny[pit_entry_idx] * PIT_OFFSET_INWARD)
+    pit_entry_pit_x = float(
+        ref_xs_dense[pit_entry_idx] + ref_nx[pit_entry_idx] * PIT_OFFSET_INWARD
+    )
+    pit_entry_pit_y = float(
+        ref_ys_dense[pit_entry_idx] + ref_ny[pit_entry_idx] * PIT_OFFSET_INWARD
+    )
 
     def get_first_car_behind_sc(frame, sc_dist_on_track):
         """
@@ -316,18 +376,18 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         drivers = frame.get("drivers", {})
         if not drivers:
             return None, None, None, None
-        
+
         best_code = None
-        best_gap = float('inf')  # smallest positive gap = closest behind
+        best_gap = float("inf")  # smallest positive gap = closest behind
         best_x, best_y, best_dist = None, None, None
-        
+
         for code, pos in drivers.items():
             dx, dy = pos.get("x", 0.0), pos.get("y", 0.0)
             d_track = _dist_of_point(dx, dy)
-            
+
             # Gap = how far behind the SC this car is (on track, wrapping)
             gap = (sc_dist_on_track - d_track) % ref_total
-            
+
             # We want the car with the smallest positive gap (closest behind SC)
             # Ignore cars that are essentially at the same position (< 10m)
             if 10.0 < gap < best_gap:
@@ -336,7 +396,7 @@ def _compute_safety_car_positions(frames, track_statuses, session):
                 best_x = dx
                 best_y = dy
                 best_dist = d_track
-        
+
         return best_code, best_x, best_y, best_dist
 
     def get_leader_info(frame):
@@ -361,13 +421,13 @@ def _compute_safety_car_positions(frames, track_statuses, session):
 
     # ---- Per-SC-period state tracking ----
     # We process frames sequentially so we can accumulate SC position state
-    
+
     # For each SC period, track the SC's cumulative position on the track
     sc_state = {}  # keyed by sc_period index
-    
+
     for fi, frame in enumerate(frames):
         t = frame["t"]
-        
+
         # Check if current time falls in any SC period
         active_sc = None
         active_sc_idx = None
@@ -375,34 +435,34 @@ def _compute_safety_car_positions(frames, track_statuses, session):
             sc_start = sc["start_time"]
             sc_end = sc.get("end_time")
             effective_end = (sc_end + RETURN_TOTAL) if sc_end else None
-            
+
             if t >= sc_start and (effective_end is None or t < effective_end):
                 active_sc = sc
                 active_sc_idx = sci
                 break
-        
+
         if active_sc is None:
             frame["safety_car"] = None
             continue
-        
+
         sc_start = active_sc["start_time"]
         sc_end = active_sc.get("end_time")
         elapsed = t - sc_start
-        
+
         # Initialize state for this SC period if not already done
         if active_sc_idx not in sc_state:
             sc_state[active_sc_idx] = {
                 "track_dist": pit_exit_track_dist,  # SC starts at pit exit on track
-                "caught_up": False,                  # has the leader caught the SC?
+                "caught_up": False,  # has the leader caught the SC?
                 "last_t": t,
-                "return_start_dist": None,           # track dist when return phase begins
-                "prev_leader_dist": None,            # for tracking leader speed
+                "return_start_dist": None,  # track dist when return phase begins
+                "prev_leader_dist": None,  # for tracking leader speed
             }
-        
+
         state = sc_state[active_sc_idx]
         dt_frame = max(0.0, t - state["last_t"])
         state["last_t"] = t
-        
+
         # ========================
         # PHASE 1: DEPLOYING
         # ========================
@@ -411,22 +471,25 @@ def _compute_safety_car_positions(frames, track_statuses, session):
             phase = "deploying"
             progress = elapsed / DEPLOY_PIT_EXIT_DURATION  # 0 -> 1
             alpha = progress
-            
+
             # Smooth interpolation from pit exit (off-track) to pit exit (on-track)
             # Use ease-in-out for smooth animation
             smooth_t = 0.5 - 0.5 * np.cos(progress * np.pi)  # smoothstep
             sc_x = pit_exit_pit_x + smooth_t * (pit_exit_track_x - pit_exit_pit_x)
             sc_y = pit_exit_pit_y + smooth_t * (pit_exit_track_y - pit_exit_pit_y)
-            
-        elif elapsed < DEPLOY_PIT_EXIT_DURATION + DEPLOY_TOTAL_MAX and not state["caught_up"]:
+
+        elif (
+            elapsed < DEPLOY_PIT_EXIT_DURATION + DEPLOY_TOTAL_MAX
+            and not state["caught_up"]
+        ):
             # Sub-phase 1b: SC cruises on track at a realistic pace,
             # slightly slower than the field so the leader catches up naturally.
             phase = "deploying"
             alpha = 1.0
-            
+
             # Estimate the leader's actual speed from telemetry position changes
             leader_code, _, _, leader_dist, _ = get_leader_info(frame)
-            
+
             if leader_code is not None:
                 # Track leader speed by comparing consecutive positions
                 if state["prev_leader_dist"] is not None and dt_frame > 0:
@@ -440,59 +503,59 @@ def _compute_safety_car_positions(frames, track_statuses, session):
                 else:
                     leader_speed = 55.0  # default ~200 km/h on first frame
                 state["prev_leader_dist"] = leader_dist
-                
+
                 # SC cruises at 80% of the leader's speed
                 # This guarantees the leader always catches up, but SC is still moving
                 sc_speed = max(20.0, min(leader_speed * 0.8, 60.0))  # clamp 20-60 m/s
             else:
                 sc_speed = DEPLOY_CRUISE_SPEED  # fallback
-            
+
             # Advance SC along the track
             state["track_dist"] += sc_speed * dt_frame
             state["track_dist"] = state["track_dist"] % ref_total
-            
+
             sc_x, sc_y = _pos_at_dist(state["track_dist"])
-            
+
             # Check if the LEADER has caught up behind the SC
             if leader_code is not None:
                 # How far ahead is the SC of the leader? (forward direction on track)
                 gap_ahead = (state["track_dist"] - leader_dist) % ref_total
-                
+
                 # Leader is close behind the SC -> transition to on_track
                 if gap_ahead <= SC_OFFSET_METERS + 50:
                     state["caught_up"] = True
-                    
+
         elif sc_end is not None and t >= sc_end:
-            # ========================  
+            # ========================
             # PHASE 3: RETURNING
             # ========================
             return_elapsed = t - sc_end
-            
+
             if state["return_start_dist"] is None:
                 state["return_start_dist"] = state["track_dist"]
-            
+
             if return_elapsed < RETURN_ACCEL_DURATION:
                 # Sub-phase 3a: SC accelerates away from the field
                 phase = "returning"
                 alpha = 1.0
-                
+
                 # SC speeds up along the track, pulling away from the pack
                 state["track_dist"] += RETURN_ACCEL_SPEED * dt_frame
                 state["track_dist"] = state["track_dist"] % ref_total
-                
+
                 sc_x, sc_y = _pos_at_dist(state["track_dist"])
-                
+
             else:
                 # Sub-phase 3b: SC transitions from track surface into the pitlane
                 phase = "returning"
                 pit_enter_elapsed = return_elapsed - RETURN_ACCEL_DURATION
                 progress = min(1.0, pit_enter_elapsed / RETURN_PIT_ENTER_DURATION)
                 alpha = max(0.0, 1.0 - progress)
-                
+
                 # Get SC's current track position (frozen at end of accel phase)
                 # and interpolate toward pit entry point
                 track_x, track_y = _pos_at_dist(state["track_dist"])
-                
+
                 smooth_t = 0.5 - 0.5 * np.cos(progress * np.pi)  # smoothstep
                 sc_x = track_x + smooth_t * (pit_entry_pit_x - track_x)
                 sc_y = track_y + smooth_t * (pit_entry_pit_y - track_y)
@@ -506,11 +569,11 @@ def _compute_safety_car_positions(frames, track_statuses, session):
             phase = "on_track"
             alpha = 1.0
             state["caught_up"] = True  # ensure we mark as caught up
-            
+
             # Find the RACE LEADER (by total progress: laps * track_length + distance)
             # This is robust across the start/finish line because it uses lap count.
             leader_code, leader_x, leader_y, leader_dist, _ = get_leader_info(frame)
-            
+
             if leader_code is not None:
                 # Position SC directly at a fixed offset ahead of the leader.
                 # Since the leader moves smoothly frame-by-frame, the SC follows
@@ -521,9 +584,9 @@ def _compute_safety_car_positions(frames, track_statuses, session):
                 # Fallback: no leader found, advance slowly
                 state["track_dist"] += 100.0 * dt_frame
                 state["track_dist"] = state["track_dist"] % ref_total
-            
+
             sc_x, sc_y = _pos_at_dist(state["track_dist"])
-        
+
         frame["safety_car"] = {
             "x": round(sc_x, 2),
             "y": round(sc_y, 2),
@@ -627,9 +690,21 @@ def get_race_telemetry(session, session_type="R"):
         ]
 
         resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
-        x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, tyre_life_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
- 
+        (
+            x_resampled,
+            y_resampled,
+            dist_resampled,
+            rel_dist_resampled,
+            lap_resampled,
+            tyre_resampled,
+            tyre_life_resampled,
+            speed_resampled,
+            gear_resampled,
+            drs_resampled,
+            throttle_resampled,
+            brake_resampled,
+        ) = resampled
+
         resampled_data[code] = {
             "t": timeline,
             "x": x_resampled,
@@ -650,7 +725,9 @@ def get_race_telemetry(session, session_type="R"):
             mask = tyre_resampled == t_int
             c_max = np.nanmax(tyre_life_resampled[mask])
             if not np.isnan(c_max):
-                max_tyre_life_map[int(t_int)] = max(max_tyre_life_map.get(int(t_int), 1), int(c_max))
+                max_tyre_life_map[int(t_int)] = max(
+                    max_tyre_life_map.get(int(t_int), 1), int(c_max)
+                )
 
     # 4. Incorporate track status data into the timeline (for safety car, VSC, etc.)
 
@@ -700,7 +777,7 @@ def get_race_telemetry(session, session_type="R"):
     if rc_messages is not None and not rc_messages.empty:
         for msg in rc_messages.to_dict("records"):
             time_val = msg["Time"]
-            if hasattr(time_val, 'total_seconds'):
+            if hasattr(time_val, "total_seconds"):
                 # Timedelta (session-relative) — same as track_status
                 seconds = time_val.total_seconds()
             else:
@@ -709,15 +786,19 @@ def get_race_telemetry(session, session_type="R"):
             msg_time = seconds - global_t_min
 
             if msg_time > 0.0:
-                formatted_rc_messages.append({
-                    "time": round(msg_time, 3),
-                    "category": _safe_str(msg.get("Category", "")),
-                    "message": _safe_str(msg.get("Message", "")),
-                    "flag": _safe_str(msg.get("Flag", "")),
-                    "scope": _safe_str(msg.get("Scope", "")),
-                    "sector": _safe_str(msg.get("Sector", ""), as_int=True),
-                    "racing_number": _safe_str(msg.get("RacingNumber", ""), as_int=True),
-                })
+                formatted_rc_messages.append(
+                    {
+                        "time": round(msg_time, 3),
+                        "category": _safe_str(msg.get("Category", "")),
+                        "message": _safe_str(msg.get("Message", "")),
+                        "flag": _safe_str(msg.get("Flag", "")),
+                        "scope": _safe_str(msg.get("Scope", "")),
+                        "sector": _safe_str(msg.get("Sector", ""), as_int=True),
+                        "racing_number": _safe_str(
+                            msg.get("RacingNumber", ""), as_int=True
+                        ),
+                    }
+                )
         formatted_rc_messages.sort(key=lambda m: m["time"])
 
     # 4.1. Resample weather data onto the same timeline for playback
@@ -767,37 +848,37 @@ def get_race_telemetry(session, session_type="R"):
         except Exception as e:
             print(f"Weather data could not be processed: {e}")
 
-    #4.2. Aggregating Driver pit-in and pit-out data for Pitstop leaderboard indicator
-    pit_windows={}
-    laps=session.laps
+    # 4.2. Aggregating Driver pit-in and pit-out data for Pitstop leaderboard indicator
+    pit_windows = {}
+    laps = session.laps
 
     for driver_no in drivers:
-        drv=session.get_driver(driver_no)["Abbreviation"]
-        driver_laps=laps.pick_drivers(drv)
-        windows=[]
+        drv = session.get_driver(driver_no)["Abbreviation"]
+        driver_laps = laps.pick_drivers(drv)
+        windows = []
 
         for _, lap in driver_laps.iterrows():
-            pit_in=lap.get("PitInTime")
-            pit_out=lap.get("PitOutTime")
+            pit_in = lap.get("PitInTime")
+            pit_out = lap.get("PitOutTime")
 
             if pd.notna(pit_in):
-                start=pit_in.total_seconds()
+                start = pit_in.total_seconds()
                 if pd.notna(pit_out):
-                    end=pit_out.total_seconds()
+                    end = pit_out.total_seconds()
                 else:
-                    end=start+40 #Error Rare case
-                
-                windows.append((start,end))
-        pit_windows[drv]=windows
-    
-    #Adjusting pit windows to the telemetry timeline
-    pit_windows_shifted={}
+                    end = start + 40  # Error Rare case
+
+                windows.append((start, end))
+        pit_windows[drv] = windows
+
+    # Adjusting pit windows to the telemetry timeline
+    pit_windows_shifted = {}
     for drv, windows in pit_windows.items():
-        shifted=[]
-        for start,end in windows:
-            shifted.append((start-global_t_min,end-global_t_min))
-        pit_windows_shifted[drv]=shifted
-    
+        shifted = []
+        for start, end in windows:
+            shifted.append((start - global_t_min, end - global_t_min))
+        pit_windows_shifted[drv] = shifted
+
     print("PIT WINDOWS: ", pit_windows)
 
     # 5. Build the frames + LIVE LEADERBOARD
@@ -813,21 +894,23 @@ def get_race_telemetry(session, session_type="R"):
         snapshot = []
         for code in driver_codes:
             d = driver_arrays[code]
-            snapshot.append({
-                "code": code,
-                "dist": float(d["dist"][i]),
-                "x": float(d["x"][i]),
-                "y": float(d["y"][i]),
-                "lap": int(round(d["lap"][i])),
-                "rel_dist": float(d["rel_dist"][i]),
-                "tyre": float(d["tyre"][i]),
-                "tyre_life": float(d["tyre_life"][i]),
-                "speed": float(d['speed'][i]),
-                "gear": int(d['gear'][i]),
-                "drs": int(d['drs'][i]),
-                "throttle": float(d['throttle'][i]),
-                "brake": float(d['brake'][i]),
-            })
+            snapshot.append(
+                {
+                    "code": code,
+                    "dist": float(d["dist"][i]),
+                    "x": float(d["x"][i]),
+                    "y": float(d["y"][i]),
+                    "lap": int(round(d["lap"][i])),
+                    "rel_dist": float(d["rel_dist"][i]),
+                    "tyre": float(d["tyre"][i]),
+                    "tyre_life": float(d["tyre_life"][i]),
+                    "speed": float(d["speed"][i]),
+                    "gear": int(d["gear"][i]),
+                    "drs": int(d["drs"][i]),
+                    "throttle": float(d["throttle"][i]),
+                    "brake": float(d["brake"][i]),
+                }
+            )
 
         # If for some reason we have no drivers at this instant
         if not snapshot:
@@ -849,13 +932,13 @@ def get_race_telemetry(session, session_type="R"):
             code = car["code"]
             position = idx + 1
 
-            #Pit stop detection
-            in_pit=False
-            for start,end in pit_windows_shifted.get(code,[]):
-                if start<=t<=end:
-                    in_pit=True
+            # Pit stop detection
+            in_pit = False
+            for start, end in pit_windows_shifted.get(code, []):
+                if start <= t <= end:
+                    in_pit = True
                     break
-            
+
             # include speed, gear, drs_active in frame driver dict
             frame_data[code] = {
                 "x": car["x"],
@@ -871,7 +954,7 @@ def get_race_telemetry(session, session_type="R"):
                 "drs": car["drs"],
                 "throttle": car["throttle"],
                 "brake": car["brake"],
-                "in_pit": in_pit
+                "in_pit": in_pit,
             }
 
         weather_snapshot = {}
@@ -920,14 +1003,18 @@ def get_race_telemetry(session, session_type="R"):
 
     # Save using pickle (10-100x faster than JSON)
     with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "race_control_messages": formatted_rc_messages,
-            "total_laps": int(max_lap_number),
-            "max_tyre_life": max_tyre_life_map,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
+        pickle.dump(
+            {
+                "frames": frames,
+                "driver_colors": get_driver_colors(session),
+                "track_statuses": formatted_track_statuses,
+                "race_control_messages": formatted_rc_messages,
+                "total_laps": int(max_lap_number),
+                "max_tyre_life": max_tyre_life_map,
+            },
+            f,
+            protocol=pickle.HIGHEST_PROTOCOL,
+        )
 
     print("Saved Successfully!")
     print("The replay should begin in a new window shortly")
@@ -1432,16 +1519,19 @@ def get_race_weekends_by_year(year):
         )
     return weekends
 
+
 def get_race_weekends_by_place(place):
     """Returns a list of past n race weekends for a given place."""
     enable_cache()
-    place=place.lower().strip()
-    weekends=[]
-    current_year=date.today().year
+    place = place.lower().strip()
+    weekends = []
+    current_year = date.today().year
 
-    for year in range(2018,current_year): #Edit according to data availability (current data till last year)
+    for year in range(
+        2018, current_year
+    ):  # Edit according to data availability (current data till last year)
         try:
-            schedule=fastf1.get_event_schedule(year)
+            schedule = fastf1.get_event_schedule(year)
         except Exception:
             continue
 
@@ -1449,38 +1539,42 @@ def get_race_weekends_by_place(place):
             if event.is_testing():
                 continue
 
-            event_name=str(event["EventName"]).strip().lower()
-            
-            if place==event_name:
-                weekends.append({
-                    "round_number": event["RoundNumber"],
-                    "event_name": event["EventName"],
-                    "date": str(event["EventDate"].date()),
-                    "country": event["Country"],
-                    "year": int(event["EventDate"].date().year),
-                    "type": event["EventFormat"],
-                })
+            event_name = str(event["EventName"]).strip().lower()
+
+            if place == event_name:
+                weekends.append(
+                    {
+                        "round_number": event["RoundNumber"],
+                        "event_name": event["EventName"],
+                        "date": str(event["EventDate"].date()),
+                        "country": event["Country"],
+                        "year": int(event["EventDate"].date().year),
+                        "type": event["EventFormat"],
+                    }
+                )
     return weekends
 
-def get_all_unique_race_names(start_year=2018, end_year=2025): #update as necessary
+
+def get_all_unique_race_names(start_year=2018, end_year=2025):  # update as necessary
     "Return a list of all unique race locations"
     enable_cache()
-    race_names=set()
-    
-    for year in range(start_year, end_year+1):
+    race_names = set()
+
+    for year in range(start_year, end_year + 1):
         try:
-            schedule=fastf1.get_event_schedule(year)
+            schedule = fastf1.get_event_schedule(year)
         except Exception:
             continue
 
-        for _,event in schedule.iterrows():
+        for _, event in schedule.iterrows():
             if event.is_testing():
                 continue
 
-            name=str(event["EventName"]).strip()
+            name = str(event["EventName"]).strip()
             race_names.add(name)
 
     return sorted(race_names)
+
 
 def list_rounds(year):
     """Lists all rounds for a given year."""

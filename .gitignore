@@ -1,5 +1,10 @@
 
+#Virtual Environments
 venv/
+.venv
+
+#Ruff
+.ruff_cache
 
 output_animation.mp4
 .fastf1-cache
@@ -10,5 +15,10 @@ __pycache__/
 
 computed_data/
 
+# macOS
 .DS_Store
+
+#IDE's
 .idea
+.vscode
+

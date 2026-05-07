@@ -30,7 +30,6 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Toggle Driver Names**: **L** to hide/show driver names on track
 - **Select driver/drivers**: Click to select driver or shift click to select multiple drivers
 
-
 ## Safety Car
 
 The replay includes a **simulated Safety Car** that appears on track whenever the F1 data indicates a Safety Car deployment (track status code `4`). Since the F1 API does not provide GPS telemetry for the actual Safety Car, its position is simulated based on the race leader's position.
@@ -74,15 +73,24 @@ Recently added support for Qualifying session replays with telemetry visualizati
 
 ## Requirements
 
-- Python 3.11+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/)
 - [FastF1](https://github.com/theOehrly/Fast-F1)
 - [Arcade](https://api.arcade.academy/en/latest/)
 - numpy
 
 Install dependencies:
-```bash
-pip install -r requirements.txt
-```
+
+- macOS/Linux:
+
+  ```bash
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
+
+- Windows:
+
+  ```bash
+  powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+  ```
 
 FastF1 cache folder will be created automatically on first run. If it is not created, you can manually create a folder named `.fastf1-cache` in the project root.
 
@@ -91,40 +99,35 @@ FastF1 cache folder will be created automatically on first run. If it is not cre
 To get started with this project locally, you can follow these steps:
 
 1. **Clone the Repository:**
+
    ```bash
    git clone https://github.com/IAmTomShaw/f1-race-replay
     cd f1-race-replay
     ```
-2. **Create a Virtual Environment:**
-    This process differs based on your operating system.
-    - On macOS/Linux:
-      ```bash
-      python3 -m venv venv
-      source venv/bin/activate
-      ```
-    - On Windows:
-      ```bash
-      python -m venv venv
-      .\venv\Scripts\activate
-      ```
-3. **Install Dependencies:**
-    ```bash
-    pip install -r requirements.txt
-    ```
 
-4. **Run the Application:**
+2. **Create a Virtual Environment and install dependencies:**
+
+      ```bash
+      uv sync
+      ```
+
+3. **Run the Application:**
     You can now run the application using the instructions in the Usage section below.
+
 ## Troubleshooting
-If the pull data proccess fails, run:
+
+If the pull data process fails, run:
+
 ```bash
-pip install --upgrade fastf1
+uv add --upgrade fastf1
 ```
 
 ## Usage
 
 **DEFAULT GUI MENU:** To use the new GUI menu system, you can simply run:
+
 ```bash
-python main.py
+uv run main.py
 ```
 
 ![GUI Menu Preview](./resources/gui-menu.png)
@@ -132,8 +135,9 @@ python main.py
 This will open a graphical interface where you can select the year and round of the race weekend you want to replay. This is still a new feature, so please report any issues you encounter.
 
 **OPTIONAL CLI MENU:** To use the CLI menu system, you can simply run:
+
 ```bash
-python main.py --cli
+uv run main.py --cli
 ```
 
 ![CLI Menu Preview](./resources/cli-menu.gif)
@@ -143,35 +147,41 @@ This will prompt you with series of questions and a list of options to make your
 If you would already know the year and round number of the session you would like to watch, you run the commands directly as follows:
 
 Run the main script and specify the year and round:
+
 ```bash
-python main.py --viewer --year 2025 --round 12
+uv run main.py --viewer --year 2025 --round 12
 ```
 
 To run without HUD:
+
 ```bash
-python main.py --viewer --year 2025 --round 12 --no-hud
+uv run main.py --viewer --year 2025 --round 12 --no-hud
 ```
 
 To run a Sprint session (if the event has one), add `--sprint`:
+
 ```bash
-python main.py --viewer --year 2025 --round 12 --sprint
+uv run main.py --viewer --year 2025 --round 12 --sprint
 ```
 
 The application will load a pre-computed telemetry dataset if you have run it before for the same event. To force re-computation of telemetry data, use the `--refresh-data` flag:
+
 ```bash
-python main.py --viewer --year 2025 --round 12 --refresh-data
+uv run main.py --viewer --year 2025 --round 12 --refresh-data
 ```
 
 ### Qualifying Session Replay
 
 To run a Qualifying session replay, use the `--qualifying` flag:
+
 ```bash
-python main.py --viewer --year 2025 --round 12 --qualifying
+uv run main.py --viewer --year 2025 --round 12 --qualifying
 ```
 
 To run a Sprint Qualifying session (if the event has one), add `--sprint`:
+
 ```bash
-python main.py --viewer --year 2025 --round 12 --qualifying --sprint
+uv run main.py --viewer --year 2025 --round 12 --qualifying --sprint
 ```
 
 ## File Structure
@@ -179,7 +189,8 @@ python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 ```
 f1-race-replay/
 ├── main.py                    # Entry point, handles session loading and starts the replay
-├── requirements.txt           # Python dependencies
+├── pyproject.toml             # Project metadata and dependencies
+├── uv.lock                    # Specifies installed package versions
 ├── README.md                  # Project documentation
 ├── roadmap.md                 # Planned features and project vision
 ├── resources/
@@ -218,12 +229,14 @@ class MyInsightWindow(PitWallWindow):
 The `PitWallWindow` base class handles all telemetry stream connection logic automatically, allowing you to focus solely on your window's functionality.
 
 **Key Features:**
+
 - Automatic connection to telemetry stream
 - Built-in status bar with connection state
 - Proper cleanup on window close
 - Simple API - just implement `setup_ui()` and `on_telemetry_data()`
 
 **Documentation & Examples:**
+
 - See [docs/PitWallWindow.md](./docs/PitWallWindow.md) for complete guide
 - See [docs/InsightsMenu.md](./docs/InsightsMenu.md) for adding insights to the menu
 - Run the example: `python -m src.gui.example_pit_wall_window`

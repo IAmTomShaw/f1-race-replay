@@ -13,12 +13,12 @@ class MyCustomWindow(PitWallWindow):
     """
     TODO: Add description of what your window does.
     """
-    
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("F1 Race Replay - My Custom Window")
         # TODO: Initialize any instance variables you need
-    
+
     def setup_ui(self):
         """Create your custom UI components."""
         # TODO: Create your UI layout
@@ -28,11 +28,11 @@ class MyCustomWindow(PitWallWindow):
         # layout = QVBoxLayout(central_widget)
         # layout.addWidget(your_widgets)
         pass
-    
+
     def on_telemetry_data(self, data):
         """
         Process incoming telemetry data.
-        
+
         Args:
             data: Dictionary with telemetry data including:
                 - frame_index: Current frame number
@@ -47,21 +47,21 @@ class MyCustomWindow(PitWallWindow):
         # if 'frame_index' in data:
         #     self.update_display(data['frame_index'])
         pass
-    
+
     def on_connection_status_changed(self, status):
         """
         Handle connection status changes (optional).
-        
+
         Args:
             status: "Connected", "Connecting...", or "Disconnected"
         """
         # TODO: React to connection changes if needed
         pass
-    
+
     def on_stream_error(self, error_msg):
         """
         Handle stream errors (optional).
-        
+
         Args:
             error_msg: Error message string
         """
