@@ -106,7 +106,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       session_info=session_info,
       session=session,
       enable_telemetry=True,
-      race_control_messages=race_telemetry.get('race_control_messages', [])
+      race_control_messages=race_telemetry.get('race_control_messages', []),
+      events_by_frame=race_telemetry.get('events_by_frame', {}),
     )
 
 if __name__ == "__main__":

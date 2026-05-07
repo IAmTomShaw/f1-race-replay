@@ -1,4 +1,5 @@
 import arcade
+import time
 from typing import List, Literal, Tuple, Optional
 from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
@@ -9,6 +10,7 @@ from src.tyre_degradation_integration import (
     format_tyre_health_bar, 
     format_degradation_text
 )
+
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
   if degrees is None:
@@ -2282,7 +2284,343 @@ def plotDRSzones(example_lap):
    
    return drs_zones
 
+
+
+# ---------------------------------------------------------------------------
+# EventFeedComponent
+# ---------------------------------------------------------------------------
+
+class EventFeedComponent(BaseComponent):
+    """
+    Broadcast-style live event feed displayed during race replay.
+
+    Design
+    ------
+    Events are never detected here.  The caller supplies pre-computed
+    RaceEvent objects from events_by_frame at each frame advance and calls
+    push_events().  This component only manages lifecycle (queue → active →
+    expired) and rendering (fade in / hold / fade out).
+
+    Layout
+    ------
+    Cards stack vertically from a configurable anchor point.
+    Each card shows:
+        [TYPE_TAG]  message text
+
+    Colour palette (severity → card accent):
+        info     → white / light blue background
+        warning  → amber / yellow
+        critical → red
+        purple   → purple (fastest lap)
+    """
+
+    # --- Timing ---
+    FADE_IN_DURATION  = 0.30   # seconds
+    HOLD_DURATION     = 4.2    # seconds at full opacity
+    FADE_OUT_DURATION = 0.8    # seconds
+    TOTAL_LIFETIME    = FADE_IN_DURATION + HOLD_DURATION + FADE_OUT_DURATION
+
+    # --- Layout ---
+    MAX_VISIBLE    = 4
+    CARD_HEIGHT    = 28
+    CARD_GAP       = 5
+    CARD_WIDTH     = 300
+    CARD_PADDING_X = 8
+    TAG_WIDTH      = 76   # reserved for the [TYPE] badge
+
+    # --- Colours ---
+    _SEVERITY_ACCENT = {
+        "info":     (130, 200, 255),   # light blue
+        "warning":  (255, 210,  50),   # amber
+        "critical": (255,  70,  70),   # red
+        "purple":   (200, 100, 255),   # purple (fastest lap)
+    }
+    _TAG_LABELS = {
+        "PIT_ENTRY":  "PIT IN",
+        "PIT_EXIT":   "PIT OUT",
+        "DRS_ON":     "DRS",
+        "DRS_OFF":    "DRS OFF",
+        "SAFETY_CAR": "SAFETY CAR",
+        "SC_ENDING":  "SC IN",
+        "YELLOW_FLAG":"YELLOW",
+        "FASTEST_LAP":"FASTEST LAP",
+        "OVERTAKE":   "OVERTAKE",
+        "BATTLE":     "BATTLE",
+        "CRASH":      "INCIDENT",
+        "SPIN":       "SPIN",
+    }
+
+    def __init__(self, left_margin: int = 20, top_anchor_frac: float = 0.55):
+        """
+        Parameters
+        ----------
+        left_margin      : Pixels from the left edge of the window.
+        top_anchor_frac  : Fractional Y position (0=bottom, 1=top) of top card.
+        """
+        self.left_margin      = left_margin
+        self.top_anchor_frac  = top_anchor_frac
+
+        # Each entry: {event, created_at, x_offset}
+        #   x_offset: starts negative (off-screen), lerps to 0 as card slides in
+        self.active_events: list[dict] = []
+
+        # Pending queue — filtered/batched by push_events before queuing
+        self.pending_queue: list = []
+
+        # Tracks most recent event per type to detect spam
+        self._last_pushed_type: dict[str, float] = {}   # type → monotonic time
+        self._type_spam_count:  dict[str, int]   = {}   # type → count since last card
+
+        # Set by the caller (race_replay.py) each frame so rate limiter knows speed
+        self.playback_speed: float = 1.0
+
+        # --- Rate limiting thresholds ---
+        # At playback_speed > threshold, cards of priority >= limit_priority are dropped
+        #   threshold 4x → drop priority 4 (DRS)
+        #   threshold 16x → drop priority 3 (pit, battle)
+        #   threshold 64x → drop priority 2 (overtake, fastest lap, spin)
+        #   nothing ever drops priority 1 (crash, SC)
+        self._RATE_LIMITS = [
+            (4.0,  4),   # >= 4x:  suppress DRS (priority 4)
+            (16.0, 3),   # >= 16x: + suppress pit/battle (priority 3)
+            (64.0, 2),   # >= 64x: + suppress overtake/fastest lap (priority 2)
+        ]
+        # Min real-time gap before showing same event_type again (seconds)
+        self._TYPE_COOLDOWN_SECS = 2.5
+        # How many of same type accumulate before showing "X overtakes" batch card
+        self._BATCH_THRESHOLD = 3
+
+    # ------------------------------------------------------------------
+    # Public API
+    # ------------------------------------------------------------------
+
+    def push_events(self, race_events: list, playback_speed: float = 1.0):
+        """
+        Filter and enqueue RaceEvents from the current frame.
+
+        Rate limiting rules applied here (not in draw/update):
+        - At high playback speeds, low-priority events are dropped.
+        - If the same event_type arrives faster than TYPE_COOLDOWN_SECS,
+          it increments a counter. Once the counter hits BATCH_THRESHOLD,
+          a single summary card replaces all of them.
+        """
+        # Update internal speed so on_update can reference it too
+        self.playback_speed = playback_speed
+
+        # Determine minimum priority that passes the filter
+        min_priority_allowed = 4  # allow everything by default
+        for speed_thresh, min_prio in self._RATE_LIMITS:
+            if playback_speed >= speed_thresh:
+                min_priority_allowed = min_prio - 1  # drop at >= this priority
+        # Flip: min_priority_allowed is the MAX priority integer that is SHOWN
+        # (lower int = higher importance)
+        max_allowed_int = min_priority_allowed  # e.g. at 16x → max_allowed_int = 2
+        # Recalculate: we drop events whose priority > max_allowed_int
+        # At 1x: all pass (max_allowed_int=4)
+        # At 4x: priority <=4 but actually we suppress prio==4 → max=3
+        # Redo logic cleanly:
+        suppress_threshold = 999  # by default suppress nothing
+        for speed_thresh, drop_prio in self._RATE_LIMITS:
+            if playback_speed >= speed_thresh:
+                suppress_threshold = drop_prio
+        # Events with priority >= suppress_threshold are dropped
+
+        now = time.monotonic()
+        for ev in race_events:
+            ev_priority = getattr(ev, 'priority', 3)
+            # Priority filter
+            if ev_priority >= suppress_threshold:
+                continue
+
+            ev_type = ev.event_type
+            last_t  = self._last_pushed_type.get(ev_type, -999.0)
+            elapsed_since_last = now - last_t
+
+            if elapsed_since_last < self._TYPE_COOLDOWN_SECS:
+                # Too soon — count it
+                self._type_spam_count[ev_type] = self._type_spam_count.get(ev_type, 0) + 1
+                spam_count = self._type_spam_count[ev_type]
+
+                if spam_count >= self._BATCH_THRESHOLD:
+                    # Replace the most recent card of this type with a batch summary,
+                    # or emit a fresh batch card if none active.
+                    batch_msg = self._make_batch_message(ev_type, spam_count)
+                    # Pop last card of same type from queue/active and replace
+                    replaced = self._replace_active_type(ev_type, batch_msg, ev.severity)
+                    if not replaced:
+                        import copy
+                        batch_ev = copy.copy(ev)
+                        batch_ev.message = batch_msg
+                        self.pending_queue.append(batch_ev)
+                    self._type_spam_count[ev_type] = 0
+                # else: silently drop this duplicate
+                continue
+
+            # Passed all filters — enqueue
+            self._last_pushed_type[ev_type] = now
+            self._type_spam_count[ev_type]  = 0
+            self.pending_queue.append(ev)
+
+    @staticmethod
+    def _make_batch_message(event_type: str, count: int) -> str:
+        label_map = {
+            "OVERTAKE":   "overtakes",
+            "BATTLE":     "battles",
+            "DRS_ON":     "DRS activations",
+            "DRS_OFF":    "DRS deactivations",
+            "PIT_ENTRY":  "pit entries",
+            "PIT_EXIT":   "pit exits",
+            "CRASH":      "incidents",
+            "SPIN":       "spins",
+        }
+        noun = label_map.get(event_type, event_type.lower().replace('_', ' ') + 's')
+        return f"{count}+ {noun} detected"
+
+    def _replace_active_type(self, event_type: str, new_message: str, severity: str) -> bool:
+        """Update the message of the most recent active card of event_type. Returns True if found."""
+        for entry in reversed(self.active_events):
+            if entry["event"].event_type == event_type:
+                entry["event"] = type(entry["event"])(
+                    frame_index=entry["event"].frame_index,
+                    timestamp=entry["event"].timestamp,
+                    event_type=event_type,
+                    message=new_message,
+                    severity=severity,
+                )
+                return True
+        # Also check pending queue
+        for ev in reversed(self.pending_queue):
+            if ev.event_type == event_type:
+                ev.message = new_message
+                return True
+        return False
+
+    def on_update(self, delta_time: float):
+        """
+        Expire old cards, promote pending events, advance slide animation.
+        Call from window.on_update() before drawing.
+        """
+        now = time.monotonic()
+        SLIDE_SPEED = 12.0   # card widths per second for the slide-in
+
+        surviving = []
+        for entry in self.active_events:
+            age = now - entry["created_at"]
+            if age >= self.TOTAL_LIFETIME:
+                continue
+            # Slide x_offset toward 0 (from a negative starting offset)
+            if entry["x_offset"] < 0:
+                delta = SLIDE_SPEED * self.CARD_WIDTH * delta_time
+                entry["x_offset"] = min(0.0, entry["x_offset"] + delta)
+            surviving.append(entry)
+        self.active_events = surviving
+
+        # Promote pending into visible slots
+        while self.pending_queue and len(self.active_events) < self.MAX_VISIBLE:
+            ev = self.pending_queue.pop(0)
+            self.active_events.append({
+                "event":      ev,
+                "created_at": now,
+                "x_offset":   -self.CARD_WIDTH * 0.6,  # start 60% off-screen left
+            })
+
+    # ------------------------------------------------------------------
+    # Rendering
+    # ------------------------------------------------------------------
+
+    def draw(self, window):
+        """Draw all active event cards — glass style with slide animation."""
+        if not self.active_events:
+            return
+
+        now       = time.monotonic()
+        # Compute base card position (cards may be partially off-screen during slide)
+        anchor_x  = self.left_margin
+        top_y     = window.height * self.top_anchor_frac
+
+        for slot_idx, entry in enumerate(self.active_events):
+            ev         = entry["event"]
+            created_at = entry["created_at"]
+            elapsed    = now - created_at
+            x_off      = entry.get("x_offset", 0.0)
+
+            # --- Lifecycle opacity (smoothstep) ---
+            if elapsed < self.FADE_IN_DURATION:
+                t = elapsed / self.FADE_IN_DURATION
+                opacity = int(175 * t * t * (3 - 2 * t))
+            elif elapsed < self.FADE_IN_DURATION + self.HOLD_DURATION:
+                opacity = 175
+            else:
+                t = min(1.0, (elapsed - self.FADE_IN_DURATION - self.HOLD_DURATION)
+                        / self.FADE_OUT_DURATION)
+                opacity = int(175 * (1.0 - t * t * (3 - 2 * t)))
+
+            if opacity <= 0:
+                continue
+
+            # --- Card geometry: slide offset applied to x, stack downward ---
+            cl = anchor_x + x_off          # card left  (may be negative during slide)
+            cr = cl + self.CARD_WIDTH       # card right
+            ct = top_y - slot_idx * (self.CARD_HEIGHT + self.CARD_GAP)
+            cb = ct - self.CARD_HEIGHT
+            cy = (ct + cb) / 2
+
+            accent = self._SEVERITY_ACCENT.get(ev.severity, (200, 200, 200))
+
+            # — Glass background: dark, translucent —
+            arcade.draw_lrbt_rectangle_filled(
+                cl, cr, cb, ct,
+                (10, 10, 18, opacity)        # very dark navy, max alpha ~175
+            )
+
+            # — Soft top-edge highlight (glassmorphism bevel) —
+            arcade.draw_lrbt_rectangle_filled(
+                cl, cr, ct - 1, ct,
+                (255, 255, 255, int(opacity * 0.12))
+            )
+
+            # — Left accent stripe —
+            arcade.draw_lrbt_rectangle_filled(
+                cl, cl + 3, cb, ct,
+                (*accent, opacity)
+            )
+
+            # — Type badge: lower contrast, translucent —
+            badge_right = cl + 3 + self.TAG_WIDTH
+            arcade.draw_lrbt_rectangle_filled(
+                cl + 3, badge_right, cb, ct,
+                (*accent, int(opacity * 0.32))   # ← softer than 0.50
+            )
+            arcade.draw_text(
+                self._TAG_LABELS.get(ev.event_type, ev.event_type),
+                cl + 3 + self.TAG_WIDTH / 2, cy,
+                (*accent, int(opacity * 0.90)),  # slightly dimmed label text
+                font_size=8, bold=True,
+                anchor_x="center", anchor_y="center",
+            )
+
+            # — Message text: high contrast white —
+            arcade.draw_text(
+                ev.message,
+                badge_right + self.CARD_PADDING_X, cy,
+                (240, 240, 240, int(opacity * 0.95)),
+                font_size=11, bold=False,
+                anchor_x="left", anchor_y="center",
+            )
+
+            # — Soft outline: very low opacity, accent-tinted —
+            arcade.draw_lrbt_rectangle_outline(
+                cl, cr, cb, ct,
+                (*accent, int(opacity * 0.20)), 1   # softer than 0.30
+            )
+
+    def on_resize(self, window):
+        pass   # All geometry computed from window size in draw()
+
+
+
 def draw_finish_line(self, session_type = 'R'):
+
     if(session_type not in ['R', 'Q']):
         print("Invalid session type for finish line drawing...")
         return

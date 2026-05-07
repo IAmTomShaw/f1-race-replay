@@ -1,3 +1,4 @@
+import math
 import os
 import time
 import arcade
@@ -13,6 +14,7 @@ from src.ui_components import (
     RaceControlsComponent,
     ControlsPopupComponent,
     SessionInfoComponent,
+    EventFeedComponent,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
@@ -31,7 +33,7 @@ class F1RaceReplayWindow(arcade.Window):
                  playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
                  session_info=None, session=None, enable_telemetry=False,
-                 race_control_messages=None):
+                 race_control_messages=None, events_by_frame=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
         self.maximize()
@@ -136,6 +138,28 @@ class F1RaceReplayWindow(arcade.Window):
                 total_laps=total_laps
             )
 
+        # Event feed component (left side, mid-screen broadcast notifications)
+        self.event_feed_comp = EventFeedComponent(left_margin=20, top_anchor_frac=0.55)
+        # Store the pre-computed events lookup table (O(1) per frame)
+        self._events_by_frame: dict = events_by_frame or {}
+        # Track last frame index that had events pushed so we don't double-push
+        self._last_event_frame_pushed: int = -1
+
+        # Incident glow markers — populated from CRASH/SPIN events in on_update
+        # Each entry: {world_x, world_y, created_time, driver, event_type}
+        self.active_incident_markers: list = []
+        INCIDENT_MARKER_LIFETIME = 10.0   # seconds each marker is visible
+        self._incident_marker_lifetime = INCIDENT_MARKER_LIFETIME
+
+        # Hover / tooltip state
+        self.mouse_x: float = 0.0
+        self.mouse_y: float = 0.0
+        self.hovered_driver: str | None = None
+        self._hover_radius_px: int = 16   # pixels
+        # Tooltip ease-in: alpha lerps between 0 and 1 for smooth appearance
+        self._tooltip_alpha: float = 0.0
+        self._tooltip_target_alpha: float = 0.0
+
         self.is_rewinding = False
         self.is_forwarding = False
         self.was_paused_before_hold = False
@@ -216,6 +240,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
+        self.selected_drivers = []
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
         # store previous leaderboard order for up/down arrows
         self.last_leaderboard_order = None
@@ -419,7 +444,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.update_scaling(width, height)
         # notify components
         self.leaderboard_comp.x = max(20, self.width - self.right_ui_margin + 12)
-        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp):
+        for c in (self.leaderboard_comp, self.weather_comp, self.legend_comp, self.driver_info_comp, self.progress_bar_comp, self.race_controls_comp, self.event_feed_comp):
             c.on_resize(self)
         
         # update persistent text positions
@@ -429,6 +454,164 @@ class F1RaceReplayWindow(arcade.Window):
         self.time_text.y = self.height - 80
         self.status_text.x = 20
         self.status_text.y = self.height - 120
+
+    def _find_hovered_driver(self, frame) -> str | None:
+        """
+        Return the driver abbreviation whose car screen-position is closest to
+        the current mouse cursor, within _hover_radius_px pixels.
+        Returns None if no car is within that radius.
+        """
+        best_code = None
+        best_dist = float("inf")
+        for code, pos in frame.get("drivers", {}).items():
+            sx, sy = self.world_to_screen(pos.get("x", 0.0), pos.get("y", 0.0))
+            dist = ((sx - self.mouse_x) ** 2 + (sy - self.mouse_y) ** 2) ** 0.5
+            if dist < self._hover_radius_px and dist < best_dist:
+                best_dist = dist
+                best_code = code
+        return best_code
+
+    def _draw_incident_markers(self):
+        """
+        Draw pulsing layered glow circles for each active incident marker.
+        Must be called AFTER track, BEFORE car rendering.
+        """
+        now = time.time()
+        remaining = []
+        for marker in self.active_incident_markers:
+            age = now - marker["created_time"]
+            if age >= self._incident_marker_lifetime:
+                continue   # expired
+            remaining.append(marker)
+
+            sx, sy = self.world_to_screen(marker["world_x"], marker["world_y"])
+
+            # Fade out over the last 3 seconds of lifetime
+            fade_start = self._incident_marker_lifetime - 3.0
+            if age > fade_start:
+                fade = 1.0 - (age - fade_start) / 3.0
+            else:
+                fade = 1.0
+
+            # Pulse: sin wave in [0, 1]
+            pulse = 0.5 + 0.5 * math.sin(now * 5.0)
+
+            is_crash = marker["event_type"] == "CRASH"
+            base_color = (255, 50, 50) if is_crash else (255, 165, 0)
+
+            # Draw 3 concentric translucent rings (outer → inner)
+            for ring_r, ring_alpha_base in [(32, 40), (20, 70), (11, 120)]:
+                r = ring_r + pulse * 3
+                a = int((ring_alpha_base + pulse * 20) * fade)
+                a = max(0, min(255, a))
+                arcade.draw_circle_filled(sx, sy, r, (*base_color, a))
+
+            # Solid core
+            arcade.draw_circle_filled(sx, sy, 5, (*base_color, int(220 * fade)))
+
+        self.active_incident_markers = remaining
+
+    def _draw_hover_tooltip(self, frame):
+        """
+        Draw a telemetry tooltip near the cursor when a driver is hovered.
+        Uses _tooltip_alpha (0.0-1.0) for smooth ease-in/out appearance.
+        Tooltip is clamped to screen bounds so it never clips outside the window.
+        """
+        a_frac = self._tooltip_alpha
+        if a_frac < 0.02:
+            return   # fully invisible, skip all draw calls
+
+        # Use the driver that was hovered when the alpha started (not current,
+        # to avoid jitter when alpha is fading out and hovered_driver becomes None)
+        code = self.hovered_driver or getattr(self, '_last_tooltip_driver', None)
+        if not code:
+            return
+        if self.hovered_driver:
+            self._last_tooltip_driver = self.hovered_driver
+
+        pos = frame.get("drivers", {}).get(code)
+        if not pos:
+            return
+
+        # --- Build content lines ---
+        speed  = pos.get("speed", 0.0)
+        drs    = int(pos.get("drs", 0)) >= 10
+        gear   = int(pos.get("gear", 0))
+        lap    = int(pos.get("lap", 1))
+        in_pit = bool(pos.get("in_pit", False))
+
+        from src.lib.tyres import get_tyre_compound_str
+        tyre_int  = int(pos.get("tyre", 0))
+        tyre_name = get_tyre_compound_str(tyre_int).capitalize()
+        position  = int(pos.get("position", 0)) or "?"
+
+        lines = [
+            (f"{code}",                    True,  18),
+            (f"P{position}",               False, 14),
+            (f"{speed:.0f} km/h",          False, 13),
+            (f"Gear {gear}",               False, 13),
+            (f"{'DRS ON' if drs else 'DRS OFF'}", False, 13),
+            (f"{tyre_name} tyre",          False, 13),
+            (f"Lap {lap}",                 False, 13),
+        ]
+        if in_pit:
+            lines.append(("IN PIT", False, 13))
+
+        # --- Geometry ---
+        LINE_H  = 18
+        PADDING = 10
+        TT_W    = 155
+        TT_H    = PADDING * 2 + len(lines) * LINE_H
+
+        # Anchor near cursor, clamp to window
+        tx = self.mouse_x + 18
+        ty = self.mouse_y + 18
+        if tx + TT_W > self.width - 5:
+            tx = self.mouse_x - TT_W - 8
+        if ty + TT_H > self.height - 5:
+            ty = self.mouse_y - TT_H - 8
+
+        # Team accent colour
+        raw_accent = self.driver_colors.get(code, (200, 200, 200))
+        # Ensure it's a 3-tuple for alpha composition
+        accent = raw_accent[:3] if len(raw_accent) >= 3 else raw_accent
+
+        def _a(base_alpha: int) -> int:
+            return max(0, min(255, int(base_alpha * a_frac)))
+
+        # Glass background
+        arcade.draw_lrbt_rectangle_filled(
+            tx, tx + TT_W, ty, ty + TT_H,
+            (10, 10, 18, _a(215))
+        )
+        # Top-edge bevel
+        arcade.draw_lrbt_rectangle_filled(
+            tx, tx + TT_W, ty + TT_H - 1, ty + TT_H,
+            (255, 255, 255, _a(25))
+        )
+        # Left accent stripe
+        arcade.draw_lrbt_rectangle_filled(
+            tx, tx + 3, ty, ty + TT_H,
+            (*accent, _a(255))
+        )
+        # Border
+        arcade.draw_lrbt_rectangle_outline(
+            tx, tx + TT_W, ty, ty + TT_H,
+            (*accent, _a(60)), 1
+        )
+
+        # Text lines (top to bottom inside the box)
+        text_y = ty + TT_H - PADDING
+        for text, bold, size in lines:
+            color = (*accent, _a(255)) if bold else (230, 230, 230, _a(230))
+            arcade.draw_text(
+                text,
+                tx + PADDING, text_y,
+                color, size,
+                bold=bold,
+                anchor_x="left", anchor_y="top",
+            )
+            text_y -= LINE_H
 
     def world_to_screen(self, x, y):
         # Rotate around the track centre (if rotation is set), then scale+translate
@@ -445,6 +628,7 @@ class F1RaceReplayWindow(arcade.Window):
         sx = self.world_scale * x + self.tx
         sy = self.world_scale * y + self.ty
         return sx, sy
+
 
     def _format_wind_direction(self, degrees):
         if degrees is None:
@@ -523,7 +707,10 @@ class F1RaceReplayWindow(arcade.Window):
                     arcade.draw_line_strip(drs_outer_points, drs_color, 6)
 
         draw_finish_line(self)
-        # 3. Draw Cars
+        # 3. Draw Incident glow markers (between track and cars for correct layering)
+        self._draw_incident_markers()
+
+        # 4. Draw Cars
         frame = self.frames[idx]
         
         # Get selected drivers list safely
@@ -564,6 +751,10 @@ class F1RaceReplayWindow(arcade.Window):
                 anchor_x = "left" if snx >= 0 else "right"
                 text_padding = 3 if snx >= 0 else -3
                 arcade.draw_text(code, lx + text_padding, ly, color, 10, anchor_x=anchor_x, anchor_y="center", bold=True)
+
+            # Hover highlight: draw white ring around hovered car
+            if code == self.hovered_driver:
+                arcade.draw_circle_outline(sx, sy, 11, (255, 255, 255, 200), 2)
 
             arcade.draw_circle_filled(sx, sy, 6, color)
         
@@ -740,9 +931,18 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Draw tooltips and overlays on top of everything
         self.progress_bar_comp.draw_overlays(self)
+
+        # Draw live event feed (left-middle broadcast cards)
+        self.event_feed_comp.draw(self)
+
+        # Draw hover tooltip (topmost so it sits above all other elements)
+        idx2 = min(int(self.frame_index), self.n_frames - 1)
+        self._draw_hover_tooltip(self.frames[idx2])
                     
     def on_update(self, delta_time: float):
         self.race_controls_comp.on_update(delta_time)
+        # Advance event feed timers (expire old cards, promote pending)
+        self.event_feed_comp.on_update(delta_time)
         
         seek_speed = 3.0 * max(1.0, self.playback_speed) # Multiplier for seeking speed, scales with current playback speed
         if self.is_rewinding:
@@ -759,6 +959,40 @@ class F1RaceReplayWindow(arcade.Window):
         
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
+
+        # Push events for this frame into the feed (only once per unique frame index)
+        current_fi = int(self.frame_index)
+        if current_fi != self._last_event_frame_pushed:
+            frame_events = self._events_by_frame.get(current_fi, [])
+            if frame_events:
+                # Pass playback_speed so the rate limiter can filter appropriately
+                self.event_feed_comp.push_events(frame_events, self.playback_speed)
+                # Spawn incident glow markers for crash/spin events
+                for ev in frame_events:
+                    if ev.event_type in ("CRASH", "SPIN") and ev.world_x is not None:
+                        self.active_incident_markers.append({
+                            "world_x":      ev.world_x,
+                            "world_y":      ev.world_y,
+                            "created_time": time.time(),
+                            "driver":       ev.driver,
+                            "event_type":   ev.event_type,
+                        })
+            self._last_event_frame_pushed = current_fi
+
+        # Update hovered driver from current mouse position
+        frame_for_hover = self.frames[min(current_fi, self.n_frames - 1)]
+        self.hovered_driver = self._find_hovered_driver(frame_for_hover)
+
+        # Lerp tooltip alpha toward target (ease-in 8 units/s, ease-out 12 units/s)
+        target = 1.0 if self.hovered_driver else 0.0
+        self._tooltip_target_alpha = target
+        lerp_speed = 8.0 if target > self._tooltip_alpha else 12.0
+        diff = target - self._tooltip_alpha
+        step = lerp_speed * delta_time
+        if abs(diff) < step:
+            self._tooltip_alpha = target
+        else:
+            self._tooltip_alpha += math.copysign(step, diff)
             
         # Broadcast telemetry state during playback
         self._broadcast_telemetry_state()
@@ -871,7 +1105,9 @@ class F1RaceReplayWindow(arcade.Window):
         self.selected_driver = None
         
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
-        """Handle mouse motion for hover effects on progress bar and controls."""
+        """Handle mouse motion for hover effects on progress bar, controls, and cars."""
+        self.mouse_x = x
+        self.mouse_y = y
         self.progress_bar_comp.on_mouse_motion(self, x, y, dx, dy)
         self.race_controls_comp.on_mouse_motion(self, x, y, dx, dy)
         

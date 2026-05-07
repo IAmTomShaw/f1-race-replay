@@ -13,6 +13,7 @@ import pandas as pd
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
+from src.services.event_detection import generate_race_events
 
 def enable_cache():
     # Get cache location from settings
@@ -912,6 +913,15 @@ def get_race_telemetry(session, session_type="R"):
 
     # 5d. Compute Safety Car positions for each frame
     _compute_safety_car_positions(frames, formatted_track_statuses, session)
+
+    # 5e. Generate all race events in a single pre-processing pass.
+    # This builds the events_by_frame lookup table (O(1) access during replay).
+    # Must run AFTER telemetry interpolation and SC positions are computed,
+    # and BEFORE the data is cached so the lookup table is stored.
+    events_by_frame = generate_race_events(
+        frames, formatted_track_statuses, fps=FPS
+    )
+
     print("completed telemetry extraction...")
     print("Saving to cache file...")
     # If computed_data/ directory doesn't exist, create it
@@ -927,6 +937,7 @@ def get_race_telemetry(session, session_type="R"):
             "race_control_messages": formatted_rc_messages,
             "total_laps": int(max_lap_number),
             "max_tyre_life": max_tyre_life_map,
+            "events_by_frame": events_by_frame,
         }, f, protocol=pickle.HIGHEST_PROTOCOL)
 
     print("Saved Successfully!")
@@ -938,6 +949,7 @@ def get_race_telemetry(session, session_type="R"):
         "race_control_messages": formatted_rc_messages,
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
+        "events_by_frame": events_by_frame,
     }
 
 
