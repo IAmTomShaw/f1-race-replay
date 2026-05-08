@@ -76,7 +76,8 @@ class InsightsMenu(QMainWindow):
         content_layout.addWidget(self.create_category_section(
             "Strategy",
             [
-                ("Tyre Strategy", "Live compounds, tyre life, pit status and gaps", self.launch_tyre_strategy),
+                ("Tyre Strategy", "Visual stint history and compound timeline", self.launch_tyre_strategy),
+                ("Live Tyre Info", "Detailed table with tyre life, gaps, and speed", self.launch_tyre_live_info),
             ]
         ))
 
@@ -275,9 +276,16 @@ class InsightsMenu(QMainWindow):
         self.opened_windows.append(window)
 
     def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
+        print("🚀 Launching: Tyre Strategy (Stint Tracker)")
         from src.insights.tyre_strategy_window import TyreStrategyWindow
         window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_tyre_live_info(self):
+        print("🚀 Launching: Live Tyre Info (Table)")
+        from src.insights.tyre_strategy_window import TyreLiveInfoWindow
+        window = TyreLiveInfoWindow()
         window.show()
         self.opened_windows.append(window)
 
