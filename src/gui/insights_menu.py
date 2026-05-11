@@ -73,6 +73,13 @@ class InsightsMenu(QMainWindow):
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
             ]
         ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Tyre & Strategy",
+            [
+                ("Tyre Strategy", "Stint bars and compound timeline for all drivers", self.launch_tyre_strategy),
+            ]
+        ))
         
         content_layout.addStretch()
         
@@ -220,7 +227,10 @@ class InsightsMenu(QMainWindow):
     
     def launch_tyre_strategy(self):
         print("🚀 Launching: Tyre Strategy")
-        self.show_placeholder_message("Tyre Strategy")
+        from src.insights.tyre_strategy_window import TyreStrategyWindow
+        window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
     
     def launch_pit_analysis(self):
         print("🚀 Launching: Pit Stop Analysis")
