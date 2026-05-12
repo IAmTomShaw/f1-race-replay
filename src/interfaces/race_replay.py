@@ -60,6 +60,22 @@ class F1RaceReplayWindow(arcade.Window):
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
         self.total_laps = total_laps
+        
+        # Pre-calculate exact finish times to prevent end-of-race shuffling
+        self.driver_finish_times = {}
+        if self.total_laps is not None and frames:
+            for frame in frames:
+                frame_time = frame.get("t", 0.0)
+                for code, pos in frame.get("drivers", {}).items():
+                    if code not in self.driver_finish_times:
+                        lap_raw = pos.get("lap", 1)
+                        try:
+                            lap = int(lap_raw)
+                        except (ValueError, TypeError):
+                            lap = 1
+                        if lap > self.total_laps:
+                            self.driver_finish_times[code] = frame_time
+
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
 
