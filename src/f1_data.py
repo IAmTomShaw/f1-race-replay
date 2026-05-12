@@ -1,6 +1,5 @@
 import math
 import os
-import pickle
 import sys
 from datetime import timedelta, date
 from multiprocessing import Pool, cpu_count
@@ -13,6 +12,11 @@ import pandas as pd
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
+from src.lib.cache import (
+    get_computed_data_file,
+    load_cached_payload,
+    save_cached_payload,
+)
 
 def enable_cache():
     # Get cache location from settings
@@ -97,6 +101,9 @@ def _process_single_driver(args):
         drs_all.append(drs_lap)
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
+        lap_distance = np.nanmax(d_lap) if len(d_lap) else 0.0
+        if np.isfinite(lap_distance) and lap_distance > 0:
+            total_dist_so_far += float(lap_distance)
 
     if not t_all:
         return None
@@ -539,20 +546,19 @@ def _compute_safety_car_positions(frames, track_statuses, session):
 def get_race_telemetry(session, session_type="R"):
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprint" if session_type == "S" else "race"
+    cache_path = get_computed_data_file(
+        f"{event_name}_{cache_suffix}_telemetry.pkl",
+        create_dir=False,
+    )
 
     # Check if this data has already been computed
 
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return frames
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    if "--refresh-data" not in sys.argv:
+        cached = load_cached_payload(cache_path)
+        if cached is not None:
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return cached
 
     drivers = session.drivers
 
@@ -914,24 +920,8 @@ def get_race_telemetry(session, session_type="R"):
     _compute_safety_car_positions(frames, formatted_track_statuses, session)
     print("completed telemetry extraction...")
     print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
-
-    # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "race_control_messages": formatted_rc_messages,
-            "total_laps": int(max_lap_number),
-            "max_tyre_life": max_tyre_life_map,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
-
-    print("Saved Successfully!")
-    print("The replay should begin in a new window shortly")
-    return {
+    cache_path = get_computed_data_file(f"{event_name}_{cache_suffix}_telemetry.pkl")
+    payload = {
         "frames": frames,
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
@@ -939,6 +929,11 @@ def get_race_telemetry(session, session_type="R"):
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
     }
+    save_cached_payload(cache_path, payload)
+
+    print("Saved Successfully!")
+    print("The replay should begin in a new window shortly")
+    return payload
 
 
 def get_qualifying_results(session):
@@ -1332,19 +1327,18 @@ def get_quali_telemetry(session, session_type="Q"):
 
     event_name = str(session).replace(" ", "_")
     cache_suffix = "sprintquali" if session_type == "SQ" else "quali"
+    cache_path = get_computed_data_file(
+        f"{event_name}_{cache_suffix}_telemetry.pkl",
+        create_dir=False,
+    )
 
     # Check if this data has already been computed
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                data = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return data
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    if "--refresh-data" not in sys.argv:
+        cached = load_cached_payload(cache_path)
+        if cached is not None:
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return cached
 
     qualifying_results = get_qualifying_results(session)
 
@@ -1379,29 +1373,18 @@ def get_quali_telemetry(session, session_type="Q"):
         if result["min_speed"] < min_speed or min_speed == 0.0:
             min_speed = result["min_speed"]
 
-    # Save to the compute_data directory
-
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
-
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump(
-            {
-                "results": qualifying_results,
-                "telemetry": telemetry_data,
-                "max_speed": max_speed,
-                "min_speed": min_speed,
-            },
-            f,
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
-
-    return {
+    payload = {
         "results": qualifying_results,
         "telemetry": telemetry_data,
         "max_speed": max_speed,
         "min_speed": min_speed,
     }
+    save_cached_payload(
+        get_computed_data_file(f"{event_name}_{cache_suffix}_telemetry.pkl"),
+        payload,
+    )
+
+    return payload
 
 
 def get_race_weekends_by_year(year):

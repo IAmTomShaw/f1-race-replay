@@ -8,12 +8,12 @@ This document provides instructions on how to use the telemetry stream feature w
 
 Ensure you have the latest version of the application with telemetry support and have already setup an environment with the required dependencies (see `README.md` for setup instructions).
 
-1. **Start the F1 Race Replay and pass the --telemetry flag:**
+1. **Start a race replay.** The telemetry stream starts automatically for race sessions:
    ```bash
-   python main.py --telemetry
+   python main.py --viewer --year 2025 --round 12
    ```
 
-2. **Select a race session from the GUI.** The telemetry stream will start automatically when the replay begins.
+2. **Or start from the GUI and select a race session.** The telemetry stream will start when the replay window opens.
 
 3. **The demo window will show:**
    - **Raw telemetry stream**: JSON data as it comes from the race replay
@@ -93,7 +93,7 @@ The `safety_car` field in each frame contains the simulated Safety Car position 
 | `x` | float | World X coordinate of the Safety Car |
 | `y` | float | World Y coordinate of the Safety Car |
 | `phase` | string | Current animation phase: `"deploying"`, `"on_track"`, or `"returning"` |
-| `alpha` | float | Opacity value `0.0`–`1.0` for fade animation |
+| `alpha` | float | Opacity value `0.0`-`1.0` for fade animation |
 
 > **Note:** The Safety Car position is simulated (placed ~500m ahead of the race leader) since the F1 API does not provide real SC GPS data. The `phase` field is useful for triggering visual effects in custom tools.
 
