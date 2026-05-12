@@ -267,8 +267,14 @@ class F1RaceReplayWindow(arcade.Window):
                     lap = int(lap_raw)
                 except (ValueError, TypeError):
                     lap = 1
-                projected_m = self._project_to_reference(x, y)
-                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                    
+                if self.total_laps is not None and lap > self.total_laps and code in self.driver_finish_times:
+                    finish_time = self.driver_finish_times[code]
+                    base_finish_m = self.total_laps * self._ref_total_length
+                    progress_m = float(base_finish_m + (100000.0 - finish_time))
+                else:
+                    projected_m = self._project_to_reference(x, y)
+                    progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
                 driver_progress[code] = progress_m
                 if self._ref_total_length > 0:
                     pos["fraction"] = progress_m / self._ref_total_length
@@ -662,11 +668,16 @@ class F1RaceReplayWindow(arcade.Window):
             except Exception:
                 lap = 1
 
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            if self.total_laps is not None and lap > self.total_laps and code in self.driver_finish_times:
+                finish_time = self.driver_finish_times[code]
+                base_finish_m = self.total_laps * self._ref_total_length
+                progress_m = float(base_finish_m + (100000.0 - finish_time))
+            else:
+                # Project (x,y) to reference and combine with lap count
+                projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
 
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                # progress in metres since race start: (lap-1) * lap_length + projected_m
+                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
 
             driver_progress[code] = progress_m
 
