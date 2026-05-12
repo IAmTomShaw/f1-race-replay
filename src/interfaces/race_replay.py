@@ -273,7 +273,10 @@ class F1RaceReplayWindow(arcade.Window):
                     base_finish_m = self.total_laps * self._ref_total_length
                     progress_m = float(base_finish_m + (100000.0 - finish_time))
                 else:
-                    projected_m = self._project_to_reference(x, y)
+                    if pos.get("in_pit", False):
+                        projected_m = float(pos.get("dist", 0.0))
+                    else:
+                        projected_m = self._project_to_reference(x, y)
                     progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
                 driver_progress[code] = progress_m
                 if self._ref_total_length > 0:
@@ -673,8 +676,11 @@ class F1RaceReplayWindow(arcade.Window):
                 base_finish_m = self.total_laps * self._ref_total_length
                 progress_m = float(base_finish_m + (100000.0 - finish_time))
             else:
-                # Project (x,y) to reference and combine with lap count
-                projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+                if pos.get("in_pit", False):
+                    projected_m = float(pos.get("dist", 0.0))
+                else:
+                    # Project (x,y) to reference and combine with lap count
+                    projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
 
                 # progress in metres since race start: (lap-1) * lap_length + projected_m
                 progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
