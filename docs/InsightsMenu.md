@@ -217,4 +217,4 @@ def create_insight_button(self, name, description, callback):
 
 - [PitWallWindow.md](./PitWallWindow.md) - Base class for creating insights
 - [../src/gui/insights_menu.py](../src/gui/insights_menu.py) - Menu implementation
-- [../src/gui/example_pit_wall_window.py](../src/gui/example_pit_wall_window.py) - Example insight
+- [../src/insights/example_pit_wall_window.py](../src/insights/example_pit_wall_window.py) - Example insight

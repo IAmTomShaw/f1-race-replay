@@ -1,4 +1,4 @@
-# F1 Race Replay 🏎️ 🏁
+# F1 Race Replay
 
 A Python application for visualizing Formula 1 race telemetry and replaying race events with interactive controls and a graphical interface.
 
@@ -9,7 +9,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 ## Features
 
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
-- **Safety Car Visualization:** See the Safety Car deploy from pit lane, lead the field, and return to pits — with animated transitions and pulsing glow effects.
+- **Safety Car Visualization:** See the Safety Car deploy from pit lane, lead the field, and return to pits - with animated transitions and pulsing glow effects.
 - **Insights Menu:** Floating menu for quick access to telemetry analysis tools (launches automatically with replay).
 - **Leaderboard:** See live driver positions and current tyre compounds.
 - **Lap & Time Display:** Track the current lap and total race time.
@@ -21,9 +21,9 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 ## Controls
 
 - **Pause/Resume:** SPACE or Pause button
-- **Rewind/Fast Forward:** ← / → or Rewind/Fast Forward buttons
-- **Playback Speed:** ↑ / ↓ or Speed button (cycles through 0.5x, 1x, 2x, 4x)
-- **Set Speed Directly:** Keys 1–4
+- **Rewind/Fast Forward:** Left / Right arrows or Rewind/Fast Forward buttons
+- **Playback Speed:** Up / Down arrows or Speed button (cycles through 0.5x, 1x, 2x, 4x)
+- **Set Speed Directly:** Keys 1-4
 - **Restart**: **R** to restart replay
 - **Toggle DRS Zone**: **D** to hide/show DRS Zone
 - **Toggle Progress Bar**: **B** to hide/show progress bar
@@ -40,9 +40,9 @@ The replay includes a **simulated Safety Car** that appears on track whenever th
 - **Data source:** The Safety Car deployment timing comes from the real F1 track status data via FastF1 (`session.track_status`).
 - **Position simulation:** The SC is placed ~500 meters ahead of the race leader on the track reference polyline. This approximates where the real SC would be relative to the field.
 - **Three animation phases:**
-  - **Deploying** — The SC animates from the pit lane onto the track over ~3 seconds, with a pulsing glow and "SC DEPLOYING" label.
-  - **On Track** — The SC drives ahead of the leader with a steady amber glow and "SC" label.
-  - **Returning** — The SC animates back to the pit lane over ~3 seconds, with a fading pulsing glow and "SC IN" label.
+  - **Deploying** - The SC animates from the pit lane onto the track over ~3 seconds, with a pulsing glow and "SC DEPLOYING" label.
+  - **On Track** - The SC drives ahead of the leader with a steady amber glow and "SC" label.
+  - **Returning** - The SC animates back to the pit lane over ~3 seconds, with a fading pulsing glow and "SC IN" label.
 - **Visual appearance:** The SC is drawn as a larger orange/amber circle (8px radius vs 6px for regular cars) with an orange outline ring and always-visible "SC" label.
 
 ### Technical details
@@ -66,7 +66,7 @@ The SC position computation happens in `_compute_safety_car_positions()` in `src
 | `phase` | `"deploying"`, `"on_track"`, or `"returning"` |
 | `alpha` | Opacity value from `0.0` (invisible) to `1.0` (fully visible), used for fade in/out animation |
 
-> **Note:** If you have existing cached `.pkl` files from previous runs, you must re-run with `--refresh-data` to generate SC position data. Older cached files will simply show no Safety Car.
+> **Note:** Computed telemetry caches include a schema version. Older cached files are ignored automatically and regenerated when the cache format changes.
 
 ## Qualifying Session Support (in development)
 
@@ -178,24 +178,24 @@ python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 
 ```
 f1-race-replay/
-├── main.py                    # Entry point, handles session loading and starts the replay
-├── requirements.txt           # Python dependencies
-├── README.md                  # Project documentation
-├── roadmap.md                 # Planned features and project vision
-├── resources/
-│   └── preview.png           # Race replay preview image
-├── src/
-│   ├── f1_data.py            # Telemetry loading, processing, frame generation & SC position simulation
-│   ├── arcade_replay.py      # Visualization and UI logic
-│   └── ui_components.py      # UI components like buttons and leaderboard
-│   ├── interfaces/
-│   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
-│   │   └── race_replay.py    # Race replay interface, SC rendering & telemetry visualization
-│   └── lib/
-│       └── tyres.py          # Type definitions for telemetry data structures
-│       └── time.py           # Time formatting utilities
-└── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
-└── computed_data/            # Computed telemetry data (created automatically upon first run)
+|-- main.py                    # Entry point, handles session loading and starts the replay
+|-- requirements.txt           # Python dependencies
+|-- README.md                  # Project documentation
+|-- roadmap.md                 # Planned features and project vision
+|-- resources/
+|   `-- preview.png            # Race replay preview image
+|-- src/
+|   |-- f1_data.py             # Telemetry loading, processing, frame generation & SC position simulation
+|   |-- ui_components.py       # UI components like buttons and leaderboard
+|   |-- interfaces/
+|   |   |-- qualifying.py      # Qualifying session interface and telemetry visualization
+|   |   `-- race_replay.py     # Race replay interface, SC rendering & telemetry visualization
+|   `-- lib/
+|       |-- tyres.py           # Tyre compound helpers
+|       |-- time.py            # Time formatting utilities
+|       `-- cache.py           # Computed-data cache helpers
+|-- .fastf1-cache/             # FastF1 cache folder (created automatically upon first run)
+`-- computed_data/             # Computed telemetry data (created automatically upon first run)
 ```
 
 ## Building Custom Telemetry Windows
@@ -226,12 +226,12 @@ The `PitWallWindow` base class handles all telemetry stream connection logic aut
 **Documentation & Examples:**
 - See [docs/PitWallWindow.md](./docs/PitWallWindow.md) for complete guide
 - See [docs/InsightsMenu.md](./docs/InsightsMenu.md) for adding insights to the menu
-- Run the example: `python -m src.gui.example_pit_wall_window`
+- Run the example: `python -m src.insights.example_pit_wall_window`
 - Test the menu: `python -m src.gui.insights_menu`
 
 ## Customization
 
-- Change track width, colors, and UI layout in `src/arcade_replay.py`.
+- Change track width, colors, and UI layout in `src/interfaces/race_replay.py` and `src/ui_components.py`.
 - Adjust telemetry processing in `src/f1_data.py`.
 - Create custom telemetry windows using `PitWallWindow` base class (see above).
 
