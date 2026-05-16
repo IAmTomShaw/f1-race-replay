@@ -69,6 +69,7 @@ class F1RaceReplayWindow(arcade.Window):
         self._cos_rot = float(np.cos(self._rot_rad))
         self._sin_rot = float(np.sin(self._rot_rad))
         self.finished_drivers = []
+        self.finish_positions = {}  # {driver_code: locked_progress_m} - populated at startup
         self.left_ui_margin = left_ui_margin
         self.right_ui_margin = right_ui_margin
         self.toggle_drs_zones = True 
@@ -637,8 +638,30 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Determine Leader info using projected along-track distance (more robust than dist)
         # Use the progress metric in metres for each driver and use that to order the leaderboard.
+        # driver_progress = {}
+        # for code, pos in frame["drivers"].items():
+        #     # parse lap defensively
+        #     lap_raw = pos.get("lap", 1)
+        #     try:
+        #         lap = int(lap_raw)
+        #     except Exception:
+        #         lap = 1
+
+        #     # Project (x,y) to reference and combine with lap count
+        #     projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+
+        #     # progress in metres since race start: (lap-1) * lap_length + projected_m
+        #     progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+
+        #     driver_progress[code] = progress_m
+
         driver_progress = {}
         for code, pos in frame["drivers"].items():
+            # If driver has finished, use their locked position (fixes end-of-race shuffling)
+            if code in self.finish_positions:
+                driver_progress[code] = self.finish_positions[code]
+                continue
+
             # parse lap defensively
             lap_raw = pos.get("lap", 1)
             try:
@@ -646,13 +669,18 @@ class F1RaceReplayWindow(arcade.Window):
             except Exception:
                 lap = 1
 
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            # Use FastF1 native dist for pit lane cars (fixes pit lane jitter)
+            if pos.get("in_pit", False):
+                projected_m = float(pos.get("dist", 0.0))
+            else:
+                projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
 
             # progress in metres since race start: (lap-1) * lap_length + projected_m
             progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
 
             driver_progress[code] = progress_m
+
+        # ---------------------
 
         # Leader is the one with greatest progress_m
         if driver_progress:
