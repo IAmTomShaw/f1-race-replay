@@ -57,13 +57,21 @@ class InsightsMenu(QMainWindow):
             [
                 ("Telemetry Stream Viewer", "View raw telemetry data", self.launch_telemetry_viewer),
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
+                ("Live Tyre Strategy", "Live tyre stints and pit stop timeline per driver", self.launch_tyre_strategy),
             ]
         ))
 
         content_layout.addWidget(self.create_category_section(
             "Track",
             [
-                ("Track Position Map", "Live driver positions plotted on a circular track map", self.launch_track_position),
+                ("Track Position Map", "Live driver positions on real or circular track map", self.launch_track_position),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Race Events",
+            [
+                ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
             ]
         ))
         
@@ -186,6 +194,13 @@ class InsightsMenu(QMainWindow):
         window.show()
         self.opened_windows.append(window)
 
+    def launch_race_control_feed(self):
+        print("🚀 Launching: Race Control Feed")
+        from src.insights.race_control_feed_window import RaceControlFeedWindow
+        window = RaceControlFeedWindow()
+        window.show()
+        self.opened_windows.append(window)
+
     def launch_telemetry_viewer(self):
         print("🚀 Launching: Telemetry Stream Viewer")
         try:
@@ -205,8 +220,11 @@ class InsightsMenu(QMainWindow):
         self.show_placeholder_message("Position Tracker")
     
     def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
-        self.show_placeholder_message("Tyre Strategy")
+        print("🚀 Launching: Live Tyre Strategy")
+        from src.insights.tyre_strategy_window import TyreStrategyWindow
+        window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
     
     def launch_pit_analysis(self):
         print("🚀 Launching: Pit Stop Analysis")

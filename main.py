@@ -120,7 +120,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       current_constructors_standings=current_constructors_standings,
       live_driver_standings=live_driver_standings,
       live_constructors_standings=live_constructors_standings,
-      enable_telemetry=True # This is now permanently enabled to support the telemetry insights menu if the user decides to use it
+      enable_telemetry=True,
+      race_control_messages=race_telemetry.get('race_control_messages', [])
     )
 
 if __name__ == "__main__":
