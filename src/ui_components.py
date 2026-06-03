@@ -492,7 +492,14 @@ class LeaderboardComponent(BaseComponent):
                         except (TypeError, ValueError):
                             laps_down = 0
 
-                        if laps_down >= 1:
+                        # Check if driver is genuinely lapped by the car ahead using progress difference
+                        ref_length = getattr(window, "_ref_total_length", 0.0)
+                        is_lapped = False
+                        if ref_length > 0.0:
+                            progress_ahead = new_entries[i - 1][3]
+                            is_lapped = (progress_ahead - progress_m) >= (0.99 * ref_length)
+
+                        if laps_down >= 1 and is_lapped:
                             gap_text = f"+{laps_down} Lap" if laps_down == 1 else f"+{laps_down} Laps"
                         else:
                             gap_text = LeaderboardComponent._fmt_gap(time_s)
@@ -531,7 +538,14 @@ class LeaderboardComponent(BaseComponent):
                             except (TypeError, ValueError):
                                 laps_down = 0
 
-                            if laps_down >= 1:
+                            # Check if driver is genuinely lapped by the leader using progress difference
+                            ref_length = getattr(window, "_ref_total_length", 0.0)
+                            is_lapped = False
+                            if ref_length > 0.0:
+                                leader_progress = new_entries[0][3]
+                                is_lapped = (leader_progress - progress_m) >= (0.99 * ref_length)
+
+                            if laps_down >= 1 and is_lapped:
                                 gap_text = f"+{laps_down} Lap" if laps_down == 1 else f"+{laps_down} Laps"
                             else:
                                 gap_text = LeaderboardComponent._fmt_gap(s)

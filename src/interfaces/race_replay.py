@@ -500,15 +500,8 @@ class F1RaceReplayWindow(arcade.Window):
         #            progress_m.
         # ----------------------------------------------------------------
         progress_m = {}   # code -> float64 [N]
-        # S/F wrap-around detection threshold.  Any lap-1 car whose projected
-        # cumdist exceeds this fraction of the track length is treated as
-        # physically behind the start line (cumdist wrapping through
-        # ref_total → 0).  0.75 covers the entire final quarter — enough to
-        # encompass any F1 start grid (~300 m) while leaving the back-straight
-        # region (≈ 50 % of the track) unaffected.  Using 0.5 was too coarse:
-        # KD-tree discretisation can place the 180 ° node slightly above
-        # 0.5 × ref_total, which would spuriously shift any lap-1 car on the
-        # back straight.
+        recon_laps_dict = {}
+        projected_dict = {}
         half_track = 0.75 * self._ref_total_length
 
         for code in driver_codes:
@@ -517,28 +510,30 @@ class F1RaceReplayWindow(arcade.Window):
 
             # Cumulative track distance at the nearest reference node.
             projected = self._ref_cumdist[nn_idxs]                # [N] metres
+            projected_dict[code] = projected
+
+            # Reconstruct clean, timing-lag-free lap count from track wraps
+            start_lap = lap_arrs[code][0]
+            crossed_mask = projected <= half_track
+            first_crossing_idx = np.argmax(crossed_mask) if np.any(crossed_mask) else len(projected)
+            
+            wraps = (projected[:-1] > 0.75 * self._ref_total_length) & (projected[1:] < 0.25 * self._ref_total_length)
+            if first_crossing_idx < len(projected):
+                wraps[:first_crossing_idx] = False
+                
+            recon_laps = np.full(len(projected), start_lap, dtype=np.float64)
+            recon_laps[1:] += np.cumsum(wraps)
+            recon_laps_dict[code] = recon_laps
 
             # Total race progress from the start of the formation lap.
-            pm = (lap_arrs[code] - 1.0) * self._ref_total_length + projected
+            pm = (recon_laps - 1.0) * self._ref_total_length + projected
 
             # C1 — Start/finish wrap-around correction.
-            #
-            # During lap 1 the KD-tree projects cars physically located
-            # just *before* the start line to cumdist ≈ ref_total (the
-            # track end).  With lap=1 this produces pm ≈ ref_total, making
-            # the car appear to be a full lap ahead.  np.maximum.accumulate
-            # would then lock that inflated value for the entire first lap
-            # (~80 s), producing false leaders and wrong gap_to_leader
-            # values for every other driver during that period.
-            #
-            # Fix: any lap-1 sample whose projected cumdist exceeds half
-            # the track length is behind the start line (its cumdist has
-            # wrapped through ref_total → 0).  Subtract ref_total to
-            # restore it to a small negative progress value, which
-            # accumulate then propagates correctly until the car genuinely
-            # crosses the line and pm rises through 0.
-            sf_wrap = (lap_arrs[code] == 1.0) & (projected > half_track)
-            pm[sf_wrap] -= self._ref_total_length
+            # Subtract ref_total_length for starting grid positions to keep grid progress near 0
+            if start_lap <= 2.0:
+                sf_wrap = np.zeros(len(projected), dtype=bool)
+                sf_wrap[:first_crossing_idx] = (recon_laps[:first_crossing_idx] == start_lap) & (projected[:first_crossing_idx] > half_track)
+                pm[sf_wrap] -= self._ref_total_length
 
             # Enforce monotonicity: a car cannot move backwards.
             # np.maximum.accumulate produces a non-decreasing sequence
@@ -568,6 +563,7 @@ class F1RaceReplayWindow(arcade.Window):
         # ----------------------------------------------------------------
         gap_leader  = np.zeros((n_drivers, n_frames), dtype=np.float64)
         frame_range = np.arange(n_frames)
+        interp_time_matrix = np.zeros((n_drivers, n_frames), dtype=np.float64)
 
         for ldr_row_id in np.unique(leader_row):
             ldr_code = driver_codes[int(ldr_row_id)]
@@ -580,6 +576,7 @@ class F1RaceReplayWindow(arcade.Window):
             for d_idx, code in enumerate(driver_codes):
                 if code == ldr_code:
                     # The leader's gap to itself is 0.0 by definition.
+                    interp_time_matrix[d_idx, fidxs] = t_sub
                     continue
 
                 # Driver d's progress at frames where ldr_code leads.
@@ -590,6 +587,7 @@ class F1RaceReplayWindow(arcade.Window):
                 # drivers ahead of the leader's earliest recorded position
                 # map to t[0], giving a ~0 gap — correct at race start.
                 t_ldr_at_d = np.interp(d_pm_sub, ldr_pm, t_array)
+                interp_time_matrix[d_idx, fidxs] = t_ldr_at_d
 
                 gap = t_sub - t_ldr_at_d
 
@@ -644,6 +642,9 @@ class F1RaceReplayWindow(arcade.Window):
                     continue
                 pos["gap_to_leader"]    = float(gap_leader  [d, i])
                 pos["gap_to_car_ahead"] = float(gap_interval[d, i])
+                pos["lap"]              = int(recon_laps_dict[code][i])
+                pos["dist"]             = float(projected_dict[code][i])
+                pos["interp_time"]      = float(interp_time_matrix[d, i])
 
         elapsed = time.perf_counter() - t_wall_start
         print(
@@ -1016,6 +1017,7 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_comp.draw(self)
         # expose rects for existing hit test compatibility if needed
         self.leaderboard_rects = self.leaderboard_comp.rects
+
 
         # Controls Legend - Bottom Left (keeps small offset from left UI edge)
         self.legend_comp.draw(self)
