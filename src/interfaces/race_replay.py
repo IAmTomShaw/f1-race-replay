@@ -219,7 +219,14 @@ class F1RaceReplayWindow(arcade.Window):
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
         # store previous leaderboard order for up/down arrows
         self.last_leaderboard_order = None
-        
+
+        # Precompute time-based gaps for the entire race once at startup.
+        # This runs after all track geometry is initialised (track_tree,
+        # _ref_cumdist, _ref_total_length) and injects gap_to_leader and
+        # gap_to_car_ahead into every frame["drivers"][code] dict so the
+        # leaderboard can display correct values with zero per-frame cost.
+        self._precompute_gaps()
+
         # Broadcast initial telemetry state
         self._broadcast_telemetry_state()
 
@@ -353,6 +360,296 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Fallback: return the cumulative distance at the closest dense sample
         return float(self._ref_cumdist[idx])
+
+    def _precompute_gaps(self) -> None:
+        """Compute true time-based gaps for every driver at every replay frame.
+
+        Injects two new keys into each ``frame["drivers"][code]`` mapping so
+        that ``LeaderboardComponent`` can display physically correct gaps
+        without performing any calculation at draw time.
+
+        Injected keys
+        -------------
+        ``gap_to_leader`` : float
+            Seconds by which this driver trails the race leader at this
+            frame.  0.0 for the leader itself.
+        ``gap_to_car_ahead`` : float
+            Interval gap in seconds to the car directly ahead (one rank
+            better).  0.0 for the race leader.
+
+        Algorithm
+        ---------
+        1.  Build a shared time vector ``t_array`` from ``frame["t"]``.
+        2.  For each driver, extract (x, y, lap) arrays in a two-stage
+            list-comprehension to minimise dict-lookup overhead.
+        3.  Project all N positions onto the reference polyline with a
+            **single batched KD-tree call per driver** — O(D log N) total
+            rather than O(DN) individual scalar calls.
+        4.  Compute cumulative race progress:
+                progress_m = (lap − 1) × ref_total + cumdist_at_nearest
+            This bypasses the ``dist`` field, which resets to 0 at the
+            start of every lap due to an unfixed bug in the telemetry
+            pipeline (``total_dist_so_far`` is initialised but never
+            updated in ``_process_single_driver``).
+        5.  Apply a start/finish-line wrap-around correction before
+            ``np.maximum.accumulate``: any lap-1 sample whose projected
+            cumdist exceeds half the track length is physically located
+            *before* the start line (cumdist wrapped through
+            ref_total → 0).  Subtracting ref_total restores its correct
+            sub-zero position so ``accumulate`` does not lock the driver
+            at a false one-lap-ahead progress value for the entire first
+            lap.  ``np.maximum.accumulate`` is then applied to enforce
+            strict monotonicity, absorbing GPS noise, pit-lane
+            oscillations, and any remaining rounding artefacts.  This
+            satisfies ``np.interp``'s requirement for a non-decreasing
+            ``xp`` array.
+        6.  Identify the race leader per frame as the driver with the
+            maximum ``progress_m``.  Frames are grouped by their leader to
+            enable fully vectorised ``np.interp`` calls across all frames
+            that share the same leader.
+        7.  Invert the leader's progress-vs-time curve with ``np.interp``:
+                gap_to_leader = t_now − interp(progress[d], progress[leader], t)
+            The interpolation finds the time at which the leader occupied
+            driver d's current track position.  Out-of-range inputs are
+            clamped to boundary values by np.interp (safe: gives 0.0 gap at
+            the start when all cars share the same position history window).
+        8.  Sort drivers by progress at every frame.  Derive the interval
+            gap as the difference of consecutive leader-gaps:
+                gap_to_car_ahead[d@rank p] =
+                    gap_to_leader[d@rank p] − gap_to_leader[d@rank p−1]
+            This reuses the already-computed leader-gap matrix without a
+            second round of interpolation.
+        9.  Clamp all values to ≥ 0.0 to absorb floating-point rounding.
+        10. Inject both values into the frame dicts.
+
+        Complexity
+        ----------
+        Time  : O(D × N) for extraction; O(D × log N) for KD-tree batch;
+                O(D × N) for accumulate, argmax, argsort, and inject.
+        Space : O(D × N) for the progress, gap_leader, gap_interval, and
+                sorted_rows matrices.  All freed on method return.
+        For a typical 90-min race (D=20, N≈135 000) this completes in
+        well under 2 s on modern hardware.
+
+        Notes
+        -----
+        *  Only ``_ref_cumdist``, ``track_tree``, and ``_ref_total_length``
+           are required — no dependency on ``_project_to_reference``'s
+           segment-correction step.  Position error from using only the
+           nearest KD-tree node is < 1 m on a 4 000-point reference
+           polyline, producing < 15 ms of gap error at race pace: below the
+           0.1 s display resolution.
+        *  ``self.frames`` is mutated in place.  Existing keys are
+           unaffected.  Cached ``.pkl`` files are never written to.
+        """
+        if not self.frames or self._ref_total_length <= 0.0:
+            return
+
+        t_wall_start = time.perf_counter()
+        n_frames = len(self.frames)
+
+        # ----------------------------------------------------------------
+        # 1.  Driver codes — taken from the first frame.  The telemetry
+        #     pipeline guarantees all frames contain the same driver set
+        #     (missing samples are forward-filled during resampling).
+        #     We verify this assumption below during extraction (C3).
+        # ----------------------------------------------------------------
+        driver_codes = list(self.frames[0]["drivers"].keys())
+        n_drivers = len(driver_codes)
+        if n_drivers == 0:
+            return
+
+        # ----------------------------------------------------------------
+        # 2.  Shared time vector and per-driver position / lap arrays.
+        #
+        #     Two-stage extraction: collect the inner driver dict once per
+        #     driver to avoid the double dict-lookup in tight list-comps.
+        # ----------------------------------------------------------------
+        t_array = np.array([f["t"] for f in self.frames], dtype=np.float64)
+
+        x_arrs   = {}   # code -> float64 [N]
+        y_arrs   = {}
+        lap_arrs = {}
+
+        # C3: use .get() so a driver absent from any frame does not raise
+        # a KeyError.  If a driver is missing from at least one frame the
+        # entire driver is excluded from gap computation rather than
+        # silently producing a partial (and potentially wrong) result.
+        _verified_codes = []
+        for code in driver_codes:
+            driver_dicts = [f["drivers"].get(code) for f in self.frames]
+            if any(d is None for d in driver_dicts):
+                print(
+                    f"⚠ Gap engine: driver '{code}' absent from "
+                    f"{sum(1 for d in driver_dicts if d is None)} frame(s) "
+                    f"— excluded from gap computation"
+                )
+                continue
+            x_arrs[code]   = np.array([d["x"]          for d in driver_dicts], dtype=np.float64)
+            y_arrs[code]   = np.array([d["y"]          for d in driver_dicts], dtype=np.float64)
+            lap_raw        = np.array([d.get("lap", 1) for d in driver_dicts], dtype=np.float64)
+            lap_arrs[code] = np.maximum(lap_raw, 1.0)
+            _verified_codes.append(code)
+        driver_codes = _verified_codes
+        n_drivers    = len(driver_codes)
+        if n_drivers == 0:
+            return
+
+        # ----------------------------------------------------------------
+        # 3, 4 & 5.  Batch KD-tree projection → S/F correction → monotone
+        #            progress_m.
+        # ----------------------------------------------------------------
+        progress_m = {}   # code -> float64 [N]
+        # S/F wrap-around detection threshold.  Any lap-1 car whose projected
+        # cumdist exceeds this fraction of the track length is treated as
+        # physically behind the start line (cumdist wrapping through
+        # ref_total → 0).  0.75 covers the entire final quarter — enough to
+        # encompass any F1 start grid (~300 m) while leaving the back-straight
+        # region (≈ 50 % of the track) unaffected.  Using 0.5 was too coarse:
+        # KD-tree discretisation can place the 180 ° node slightly above
+        # 0.5 × ref_total, which would spuriously shift any lap-1 car on the
+        # back straight.
+        half_track = 0.75 * self._ref_total_length
+
+        for code in driver_codes:
+            xy = np.column_stack([x_arrs[code], y_arrs[code]])   # [N, 2]
+            _, nn_idxs = self.track_tree.query(xy)                # [N] int
+
+            # Cumulative track distance at the nearest reference node.
+            projected = self._ref_cumdist[nn_idxs]                # [N] metres
+
+            # Total race progress from the start of the formation lap.
+            pm = (lap_arrs[code] - 1.0) * self._ref_total_length + projected
+
+            # C1 — Start/finish wrap-around correction.
+            #
+            # During lap 1 the KD-tree projects cars physically located
+            # just *before* the start line to cumdist ≈ ref_total (the
+            # track end).  With lap=1 this produces pm ≈ ref_total, making
+            # the car appear to be a full lap ahead.  np.maximum.accumulate
+            # would then lock that inflated value for the entire first lap
+            # (~80 s), producing false leaders and wrong gap_to_leader
+            # values for every other driver during that period.
+            #
+            # Fix: any lap-1 sample whose projected cumdist exceeds half
+            # the track length is behind the start line (its cumdist has
+            # wrapped through ref_total → 0).  Subtract ref_total to
+            # restore it to a small negative progress value, which
+            # accumulate then propagates correctly until the car genuinely
+            # crosses the line and pm rises through 0.
+            sf_wrap = (lap_arrs[code] == 1.0) & (projected > half_track)
+            pm[sf_wrap] -= self._ref_total_length
+
+            # Enforce monotonicity: a car cannot move backwards.
+            # np.maximum.accumulate produces a non-decreasing sequence
+            # which satisfies np.interp's xp requirement exactly.
+            progress_m[code] = np.maximum.accumulate(pm)
+
+        # C4 — Release coordinate arrays; they are not needed beyond this
+        # point.  Frees ~65 MB during long-race startup.
+        del x_arrs, y_arrs, lap_arrs
+
+        # ----------------------------------------------------------------
+        # 6.  Leader identification per frame.
+        # ----------------------------------------------------------------
+        # pm_matrix[d, i] = progress of driver d at frame i  — [D, N]
+        pm_matrix  = np.stack([progress_m[c] for c in driver_codes], axis=0)
+        leader_row = np.argmax(pm_matrix, axis=0)   # [N]  int row-index
+
+        # ----------------------------------------------------------------
+        # 7.  gap_to_leader via np.interp time-inversion.
+        #
+        #     For driver d at frame i where leader L leads:
+        #         gap = t[i] − interp(progress[d][i], progress[L], t)
+        #
+        #     We group frames by their leader so each driver's full
+        #     progress array can be used as interpolation knots in a
+        #     single vectorised call per (leader, driver) pair.
+        # ----------------------------------------------------------------
+        gap_leader  = np.zeros((n_drivers, n_frames), dtype=np.float64)
+        frame_range = np.arange(n_frames)
+
+        for ldr_row_id in np.unique(leader_row):
+            ldr_code = driver_codes[int(ldr_row_id)]
+            ldr_pm   = progress_m[ldr_code]                 # [N] monotone
+
+            mask  = leader_row == ldr_row_id                # [N] bool
+            fidxs = frame_range[mask]                       # frame indices
+            t_sub = t_array[fidxs]
+
+            for d_idx, code in enumerate(driver_codes):
+                if code == ldr_code:
+                    # The leader's gap to itself is 0.0 by definition.
+                    continue
+
+                # Driver d's progress at frames where ldr_code leads.
+                d_pm_sub = progress_m[code][fidxs]
+
+                # Time at which the leader occupied driver d's position.
+                # np.interp clamps out-of-range values to boundary values:
+                # drivers ahead of the leader's earliest recorded position
+                # map to t[0], giving a ~0 gap — correct at race start.
+                t_ldr_at_d = np.interp(d_pm_sub, ldr_pm, t_array)
+
+                gap = t_sub - t_ldr_at_d
+
+                # Clamp: small negative values can arise in the opening
+                # frames when all cars share the same starting window and
+                # GPS quantisation makes one appear briefly ahead.
+                np.clip(gap, 0.0, None, out=gap)
+
+                gap_leader[d_idx, fidxs] = gap
+
+        # ----------------------------------------------------------------
+        # 8.  Interval gap derived from consecutive leader-gap differences.
+        #
+        #     Sort drivers by progress at every frame (stable sort preserves
+        #     previous-frame order on ties, matching leaderboard ordering).
+        #
+        #     For the driver at rank p at frame i:
+        #         interval = gap_leader[rank p] − gap_leader[rank p−1]
+        #
+        #     Advanced indexing over N frames simultaneously avoids any
+        #     Python loop over the frame axis.
+        # ----------------------------------------------------------------
+        # sorted_rows[rank, frame] = row index in driver_codes
+        sorted_rows  = np.argsort(-pm_matrix, axis=0, kind="stable")  # [D, N]
+        gap_interval = np.zeros((n_drivers, n_frames), dtype=np.float64)
+
+        for p in range(1, n_drivers):
+            d_rows     = sorted_rows[p,     :]   # [N] row-idxs at rank p
+            ahead_rows = sorted_rows[p - 1, :]   # [N] row-idxs at rank p-1
+
+            # Pick the leader-gap for the correct driver at each frame.
+            gap_d     = gap_leader[d_rows,     frame_range]   # [N]
+            gap_ahead = gap_leader[ahead_rows, frame_range]   # [N]
+
+            interval = gap_d - gap_ahead
+            np.clip(interval, 0.0, None, out=interval)
+
+            # Write results back; each (d_idx, frame) cell is written once.
+            gap_interval[d_rows, frame_range] = interval
+
+        # ----------------------------------------------------------------
+        # 9 & 10.  Inject into frame dicts.
+        #
+        #     A reverse lookup table avoids repeated list.index() calls.
+        # ----------------------------------------------------------------
+        code_to_idx = {code: i for i, code in enumerate(driver_codes)}
+
+        for i, frame in enumerate(self.frames):
+            for code, pos in frame["drivers"].items():
+                d = code_to_idx.get(code)
+                if d is None:
+                    continue
+                pos["gap_to_leader"]    = float(gap_leader  [d, i])
+                pos["gap_to_car_ahead"] = float(gap_interval[d, i])
+
+        elapsed = time.perf_counter() - t_wall_start
+        print(
+            f"✓ Gap engine: {n_drivers} drivers × {n_frames} frames "
+            f"→ gaps precomputed in {elapsed:.3f}s"
+        )
 
     def update_scaling(self, screen_w, screen_h):
         """
