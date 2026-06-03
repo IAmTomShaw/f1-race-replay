@@ -297,36 +297,55 @@ class LeaderboardComponent(BaseComponent):
         self._calculate_gaps()
 
     def _calculate_gaps(self):
+        """Populate ``computed_gaps`` and ``computed_neighbor_gaps`` from the
+        precomputed gap values injected by ``_precompute_gaps()``.
+
+        Both dicts are keyed by driver code and consumed in ``draw()``.
+
+        ``computed_gaps[code]``
+            ``float`` seconds behind the race leader, or ``None`` if the
+            precomputed value is absent (e.g. old cached ``.pkl`` file or
+            a test fixture that pre-dates Commit 1).
+
+        ``computed_neighbor_gaps[code]``
+            ``{"ahead": (code_ahead, None, time_s)}`` where *time_s* is the
+            interval gap in seconds to the car immediately ahead, or
+            ``{"ahead": None}`` when the value is absent.  The second tuple
+            element was formerly *dist_m* (now unused by the renderer).
+        """
         self.computed_gaps = {}
         self.computed_neighbor_gaps = {}
         if not self.entries:
             return
 
-        leader_progress_val = self.entries[0][3]
-
-        for idx, (code, _, pos, progress_m) in enumerate(self.entries):
-            # Leader gap
+        for idx, (code, _, pos, _progress_m) in enumerate(self.entries):
+            # ── Leader gap ────────────────────────────────────────────────
+            # Read the float injected by _precompute_gaps; fall back to None
+            # so the renderer shows a blank rather than a stale number.
+            raw_leader = pos.get("gap_to_leader")
             try:
-                raw_to_leader = abs(leader_progress_val - (progress_m or 0.0))
-                dist_to_leader = raw_to_leader / 10.0
-                time_to_leader = dist_to_leader / 55.56
-                self.computed_gaps[code] = 0.0 if idx == 0 else time_to_leader
-            except Exception:
+                self.computed_gaps[code] = float(raw_leader) if raw_leader is not None else None
+            except (TypeError, ValueError):
                 self.computed_gaps[code] = None
 
-            # Neighbor gap
-            ahead_info = None
-            try:
-                if idx > 0:
-                    code_ahead, _, _, progress_ahead = self.entries[idx - 1]
-                    raw = abs((progress_m or 0.0) - (progress_ahead or 0.0))
-                    dist_m = raw / 10.0
-                    time_s = dist_m / 55.56
-                    ahead_info = (code_ahead, dist_m, time_s)
-            except Exception:
-                ahead_info = None
-            
-            self.computed_neighbor_gaps[code] = {"ahead": ahead_info}
+            # ── Interval gap ──────────────────────────────────────────────
+            if idx == 0:
+                # Leader has no car ahead by definition.
+                self.computed_neighbor_gaps[code] = {"ahead": None}
+            else:
+                code_ahead = self.entries[idx - 1][0]
+                raw_interval = pos.get("gap_to_car_ahead")
+                try:
+                    time_s = float(raw_interval) if raw_interval is not None else None
+                except (TypeError, ValueError):
+                    time_s = None
+
+                if time_s is not None:
+                    # Tuple format preserved: (code_ahead, dist_m, time_s)
+                    # dist_m is None — only time_s is used by the renderer.
+                    self.computed_neighbor_gaps[code] = {"ahead": (code_ahead, None, time_s)}
+                else:
+                    self.computed_neighbor_gaps[code] = {"ahead": None}
 
     def draw(self, window):
         # Skip rendering entirely if hidden
@@ -436,26 +455,31 @@ class LeaderboardComponent(BaseComponent):
 
             elif getattr(self, "show_gaps", False):
                 gap_text = ""
-                gap_val = None
                 gap_val = self.computed_gaps.get(code)
                 if gap_val is None:
-                    gap_val = pos.get("gap") or pos.get("gap_to_leader")
+                    # Secondary fallback: direct frame field.  Wrap in float()
+                    # so a corrupted raw value (e.g. string, list) silently
+                    # becomes None rather than being rendered verbatim.
+                    try:
+                        raw_fb = pos.get("gap_to_leader")
+                        gap_val = float(raw_fb) if raw_fb is not None else None
+                    except (TypeError, ValueError):
+                        gap_val = None
                 if gap_val is None:
                     gap_text = ""
                 else:
                     try:
-                        # expect seconds (float)
+                        # gap_val is a float at this point; cast is a no-op
+                        # but kept as a safety net for any future code path.
                         s = float(gap_val)
-                        # leader (zero) gets dash
                         if abs(s) < 1e-6:
                             gap_text = "-"
                         else:
                             sign = "+" if s > 0 else "-"
                             gap_text = f"{sign}{abs(s):.1f}s"
                     except Exception:
-                        gap_text = str(gap_val)
-
-                pass
+                        # Non-renderable value: show blank, not raw garbage.
+                        gap_text = ""
 
             # if either leader or neighbor gaps are enabled, draw the gap text
             if getattr(self, "show_neighbor_gaps", False) or getattr(self, "show_gaps", False):
