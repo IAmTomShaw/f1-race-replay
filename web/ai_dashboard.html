@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>NEURO-SYMBOLIC MISSION CONTROL</title>
+    <style>
+      :root {
+        --bg-color: #050505;
+        --panel-bg: #0a0a0a;
+        --border: #333;
+        --text-main: #e0e0e0;
+        --neon-green: #00ff41;
+        --neon-cyan: #00f3ff;
+        --neon-red: #ff003c;
+        --neon-amber: #ffb300;
+      }
+
+      body {
+        background-color: var(--bg-color);
+        color: var(--text-main);
+        font-family: "Consolas", "Monaco", monospace;
+        margin: 0;
+        height: 100vh;
+        overflow: hidden;
+        display: grid;
+        grid-template-rows: 60px 1fr;
+        grid-template-columns: 300px 1fr 350px;
+        gap: 2px;
+      }
+
+      /* --- HEADER --- */
+      .header {
+        grid-column: 1 / -1;
+        background: var(--panel-bg);
+        border-bottom: 2px solid var(--border);
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        justify-content: space-between;
+      }
+      .header-title {
+        font-size: 24px;
+        letter-spacing: 4px;
+        font-weight: bold;
+        text-transform: uppercase;
+        background: linear-gradient(90deg, #fff, #888);
+        background-clip: text;
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+      }
+      .header-status {
+        font-size: 12px;
+        color: var(--neon-green);
+        border: 1px solid var(--neon-green);
+        padding: 4px 8px;
+      }
+
+      /* --- PANELS --- */
+      .panel {
+        background: var(--panel-bg);
+        border: 1px solid var(--border);
+        display: flex;
+        flex-direction: column;
+        padding: 10px;
+        position: relative;
+      }
+      .panel-header {
+        font-size: 11px;
+        color: #666;
+        text-transform: uppercase;
+        border-bottom: 1px solid #333;
+        padding-bottom: 5px;
+        margin-bottom: 10px;
+        letter-spacing: 1px;
+      }
+
+      /* --- LEFT COLUMN: SENSORS & PHYSICS --- */
+      .sensor-box {
+        margin-bottom: 15px;
+        border-left: 2px solid #333;
+        padding-left: 10px;
+        transition: all 0.2s;
+      }
+      .sensor-box.active {
+        border-left-color: var(--neon-cyan);
+        background: rgba(0, 243, 255, 0.05);
+      }
+      .sensor-label {
+        font-size: 10px;
+        color: #888;
+      }
+      .sensor-value {
+        font-size: 20px;
+        font-weight: bold;
+        color: #fff;
+      }
+
+      /* TIRE DIAGNOSTIC VISUAL */
+      .tire-status-container {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 5px;
+        margin-top: 10px;
+      }
+      .tire-node {
+        background: #111;
+        border: 1px solid #333;
+        padding: 8px;
+        text-align: center;
+        font-size: 10px;
+        color: #444;
+      }
+      .tire-node.critical {
+        background: #300;
+        border-color: var(--neon-red);
+        color: var(--neon-red);
+        box-shadow: 0 0 10px rgba(255, 0, 60, 0.2);
+      }
+      .tire-node.warning {
+        background: #320;
+        border-color: var(--neon-amber);
+        color: var(--neon-amber);
+      }
+
+      /* --- CENTER COLUMN: PROLOG WATERFALL --- */
+      #logic-stream {
+        flex-grow: 1;
+        font-family: "Courier New", monospace;
+        font-size: 13px;
+        overflow-y: hidden; /* Auto-scroll handled by JS */
+        display: flex;
+        flex-direction: column;
+        justify-content: flex-end;
+      }
+      .log-line {
+        margin-bottom: 2px;
+        line-height: 1.4;
+        opacity: 0.7;
+      }
+      .log-line.assert {
+        color: #555;
+        font-size: 11px;
+      }
+      .log-line.query {
+        color: #aaa;
+        font-style: italic;
+      }
+      .log-line.success {
+        color: var(--neon-green);
+        font-weight: bold;
+        opacity: 1;
+        text-shadow: 0 0 5px rgba(0, 255, 65, 0.3);
+        padding-left: 10px;
+        border-left: 2px solid var(--neon-green);
+      }
+      .log-line.fail {
+        color: var(--neon-red);
+        opacity: 0.5;
+      }
+
+      /* --- RIGHT COLUMN: STRATEGY & ALERTS --- */
+      .strategy-display {
+        border: 2px solid #444;
+        padding: 20px;
+        text-align: center;
+        margin-bottom: 20px;
+        min-height: 80px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-direction: column;
+      }
+      .strategy-display.box {
+        border-color: var(--neon-red);
+        background: rgba(255, 0, 60, 0.1);
+        animation: pulse-red 1s infinite;
+      }
+      .strategy-display.push {
+        border-color: var(--neon-green);
+        background: rgba(0, 255, 65, 0.1);
+      }
+
+      .strategy-main {
+        font-size: 24px;
+        font-weight: bold;
+        color: #fff;
+        text-transform: uppercase;
+      }
+      .strategy-sub {
+        font-size: 12px;
+        color: #aaa;
+        margin-top: 5px;
+      }
+
+      /* CONFIDENCE METER */
+      .confidence-bar {
+        height: 4px;
+        background: #222;
+        width: 100%;
+        margin-top: 5px;
+      }
+      .confidence-fill {
+        height: 100%;
+        background: var(--neon-cyan);
+        width: 0%;
+        transition: width 0.3s;
+      }
+
+      @keyframes pulse-red {
+        0% {
+          box-shadow: 0 0 0 0 rgba(255, 0, 60, 0.4);
+        }
+        70% {
+          box-shadow: 0 0 0 10px rgba(255, 0, 60, 0);
+        }
+        100% {
+          box-shadow: 0 0 0 0 rgba(255, 0, 60, 0);
+        }
+      }
+    </style>
+    <script type="text/javascript" src="/eel.js"></script>
+  </head>
+  <body>
+    <div class="header">
+      <div class="header-title">NEURO-SYMBOLIC CORE</div>
+      <div style="display: flex; gap: 20px">
+        <div class="header-status">PROLOG ENGINE: ONLINE</div>
+        <div class="header-status">KB: 50 RULES</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">PYTHON TELEMETRY BRIDGE</div>
+
+      <div class="sensor-box" id="box-driver">
+        <div class="sensor-label">TARGET DRIVER</div>
+        <div class="sensor-value" id="val-driver">--</div>
+      </div>
+
+      <div class="sensor-box" id="box-physics">
+        <div class="sensor-label">TIRE SURFACE TEMP</div>
+        <div class="sensor-value" id="val-temp">--°C</div>
+      </div>
+
+      <div class="sensor-box" id="box-gap">
+        <div class="sensor-label">GAP TO LEADER</div>
+        <div class="sensor-value" id="val-gap">-- s</div>
+      </div>
+
+      <div class="panel-header" style="margin-top: 30px">
+        PROLOG DIAGNOSTIC NODES
+      </div>
+      <div class="tire-status-container">
+        <div class="tire-node" id="node-overheat">THERMAL<br />OVERLOAD</div>
+        <div class="tire-node" id="node-wear">CRITICAL<br />WEAR</div>
+        <div class="tire-node" id="node-grain">GRAINING<br />PHASE</div>
+        <div class="tire-node" id="node-cliff">CLIFF<br />DROP-OFF</div>
+      </div>
+    </div>
+
+    <div class="panel" style="background: #000">
+      <div class="panel-header" style="color: var(--neon-green)">
+        LIVE INFERENCE TRACE
+      </div>
+      <div id="logic-stream">
+        <div class="log-line">Initializing Knowledge Base...</div>
+        <div class="log-line success">>> RULES.PL LOADED SUCCESSFULLY</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">RACE ENGINEER OUTPUT</div>
+
+      <div id="strategy-box" class="strategy-display">
+        <div class="strategy-main" id="strat-main">MONITORING</div>
+        <div class="strategy-sub" id="strat-sub">No Active Alerts</div>
+      </div>
+
+      <div class="panel-header">LOGIC CONFIDENCE</div>
+      <div style="margin-bottom: 20px">
+        <div
+          style="
+            display: flex;
+            justify-content: space-between;
+            font-size: 10px;
+            color: #888;
+          "
+        >
+          <span>RULE MATCH COUNT</span>
+          <span id="rule-count">0</span>
+        </div>
+        <div class="confidence-bar">
+          <div class="confidence-fill" id="conf-fill"></div>
+        </div>
+      </div>
+
+      <div class="panel-header">SYSTEM LOG</div>
+      <div style="font-size: 10px; color: #555; line-height: 1.5">
+        > System Latency: <span style="color: #fff">12ms</span><br />
+        > Data Stream: <span style="color: var(--neon-green)">ACTIVE</span
+        ><br />
+        > Prolog Threads: <span style="color: #fff">1</span>
+      </div>
+    </div>
+
+    <script>
+      const stream = document.getElementById("logic-stream");
+      const stratBox = document.getElementById("strategy-box");
+
+      eel.expose(update_ai_dashboard);
+      function update_ai_dashboard(data) {
+        // 1. UPDATE SENSORS
+        document.getElementById("val-driver").innerText = data.driver;
+        document.getElementById("val-temp").innerText = data.temp + "°C";
+        document.getElementById("val-gap").innerText = data.gap + " s";
+
+        // 2. UPDATE NODES (Reset then set)
+        ["node-overheat", "node-wear", "node-grain", "node-cliff"].forEach(
+          (id) => {
+            document.getElementById(id).className = "tire-node";
+          }
+        );
+
+        // Parse Reason to light up nodes
+        const reason = data.reason || "";
+        if (reason.includes("OVERHEATING"))
+          document.getElementById("node-overheat").classList.add("warning");
+        if (reason.includes("WEAR") || reason.includes("PUNCTURE"))
+          document.getElementById("node-wear").classList.add("critical");
+        if (reason.includes("GRAINING"))
+          document.getElementById("node-grain").classList.add("warning");
+        if (reason.includes("CLIFF"))
+          document.getElementById("node-cliff").classList.add("critical");
+
+        // 3. UPDATE STRATEGY BOX
+        document.getElementById("strat-main").innerText = data.strategy;
+        document.getElementById("strat-sub").innerText = reason;
+
+        if (data.strategy.includes("BOX")) {
+          stratBox.className = "strategy-display box";
+        } else if (
+          data.strategy.includes("ATTACK") ||
+          data.strategy.includes("PUSH")
+        ) {
+          stratBox.className = "strategy-display push";
+        } else {
+          stratBox.className = "strategy-display";
+        }
+
+        // 4. UPDATE LOGIC STREAM (The Waterfall)
+        data.logs.forEach((msg) => {
+          const div = document.createElement("div");
+          div.className = "log-line";
+
+          // Format mimic Prolog Syntax
+          if (msg.startsWith("assert")) {
+            div.className += " assert";
+            div.innerText = "?- " + msg; // Prolog prompt style
+          } else if (msg.startsWith(">>")) {
+            div.className += " success";
+            div.innerText = msg;
+          } else {
+            div.innerText = "% " + msg; // Prolog comment style
+          }
+
+          stream.appendChild(div);
+
+          // Keep max 50 lines to prevent DOM lag
+          if (stream.children.length > 50)
+            stream.removeChild(stream.firstChild);
+        });
+        // Auto scroll removed for "Waterfall" effect (items push down or stay fixed)
+        // Ideally we just append. If we use flex-end, they appear at bottom.
+      }
+    </script>
+  </body>
+</html>

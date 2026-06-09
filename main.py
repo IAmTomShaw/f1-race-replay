@@ -1,165 +1,134 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
-from src.run_session import run_arcade_replay, launch_insights_menu
-from src.interfaces.qualifying import run_qualifying_replay
 import sys
-from src.cli.race_selection import cli_load
-from src.gui.race_selection import RaceSelectionWindow
-from PySide6.QtWidgets import QApplication
-from src.lib.season import get_season
-import logging
+import os
+import eel
+import time
+import threading
+import json
+import numpy as np
+import pandas as pd
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
-  print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
-  session = load_session(year, round_number, session_type)
+# Setup Paths
+PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, PROJECT_ROOT)
+sys.path.insert(0, os.path.join(PROJECT_ROOT, 'src'))
 
-  print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
+# Import Replay
+from src.arcade_replay import run_arcade_replay
+from src.backend.ai_engine import AIEngine
+# Import Data Loader
+from src.f1_data import get_session_data 
 
-  # Enable cache for fastf1
-  enable_cache()
+# --- FIX START: Point to the 'dist' folder containing the compiled JS ---
+web_dir = os.path.join(PROJECT_ROOT, 'web', 'dist')
+eel.init(web_dir)
+# --- FIX END ---
 
-  if session_type == 'Q' or session_type == 'SQ':
+DATA_CACHE = None
+AI_RUNNING = False
 
-    # Get the drivers who participated and their lap times
-
-    qualifying_session_data = get_quali_telemetry(session, session_type=session_type)
-
-    # Run the arcade screen showing qualifying results
-
-    title = f"{session.event['EventName']} - {'Sprint Qualifying' if session_type == 'SQ' else 'Qualifying Results'}"
+def load_data_auto():
+    """
+    Automatically handles data loading:
+    1. Checks if f1_data.py has cached the data.
+    2. If not, it runs the download/processing logic.
+    3. Returns the formatted data for the UI.
+    """
+    print("[LOADER] Initializing Data Pipeline...")
     
-    run_qualifying_replay(
-      session=session,
-      data=qualifying_session_data,
-      title=title,
-      ready_file=ready_file,
-    )
-
-  else:
-
-    # Get the drivers who participated in the race
-
-    race_telemetry = get_race_telemetry(session, session_type=session_type)
-
-    # Get example lap for track layout
-    # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
-    example_lap = None
-    
+    # This calls the function in f1_data.py which handles the JSON check and Download
+    # It returns a tuple: (frames, track_statuses, example_lap, drivers, title, driver_colors)
     try:
-        print("Attempting to load qualifying session for track layout...")
-        quali_session = load_session(year, round_number, 'Q')
-        if quali_session is not None and len(quali_session.laps) > 0:
-            fastest_quali = quali_session.laps.pick_fastest()
-            if fastest_quali is not None:
-                quali_telemetry = fastest_quali.get_telemetry()
-                if 'DRS' in quali_telemetry.columns:
-                    example_lap = quali_telemetry
-                    print(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
+        data_tuple = get_session_data()
+        
+        if not data_tuple:
+            print("[ERROR] Failed to retrieve session data.")
+            return None
+            
+        frames, track_statuses, example_lap, drivers, title, driver_colors = data_tuple
+        
+        # Calculate total laps from frames if possible
+        total_laps = 57
+        if frames:
+            # Find max lap in the last frame
+            last_frame = frames[-1]
+            max_lap = 0
+            for d in last_frame['drivers'].values():
+                if d['lap'] > max_lap: max_lap = d['lap']
+            if max_lap > 0: total_laps = int(max_lap)
+
+        return {
+            "frames": frames,
+            "track_statuses": track_statuses,
+            "example_lap": example_lap,
+            "drivers": drivers,
+            "title": title,
+            "driver_colors": driver_colors,
+            "total_laps": total_laps
+        }
     except Exception as e:
-        print(f"Could not load qualifying session: {e}")
+        print(f"[CRITICAL ERROR] Data Pipeline Failed: {e}")
+        import traceback
+        traceback.print_exc()
+        return None
 
-    # fallback: Use fastest race lap
-    if example_lap is None:
-        fastest_lap = session.laps.pick_fastest()
-        if fastest_lap is not None:
-            example_lap = fastest_lap.get_telemetry()
-            print("Using fastest race lap (DRS detection may use speed-based fallback)")
-        else:
-            print("Error: No valid laps found in session")
-            return
+# --- AI MODULE ---
+def ai_loop():
+    global AI_RUNNING
+    try:
+        ai_engine = AIEngine()
+    except: return
 
-    drivers = session.drivers
+    frame_idx = 0
+    driver = "VER"
+    while AI_RUNNING:
+        cycle = np.sin(frame_idx * 0.1)
+        temp = int(100 + (cycle * 15))
+        gap = abs(cycle * 2.0)
+        
+        snapshot = {
+            'tyre_compound': 'soft', 'tyre_age': 10, 'tyre_temp': temp,
+            'rain': 0, 'track_status': 1, 'gap_to_leader': gap
+        }
+        result = ai_engine.update_telemetry(driver, snapshot)
+        try:
+            eel.update_ai_dashboard({
+                'driver': driver, 'temp': temp, 'gap': round(gap, 2),
+                'strategy': result['strategy'], 'reason': result['tire_reason'],
+                'logs': result['logs']
+            })()
+        except: pass
+        frame_idx += 1
+        time.sleep(0.2)
 
-    # Get circuit rotation
-
-    circuit_rotation = get_circuit_rotation(session)
+@eel.expose
+def launch_dsa_module():
+    global DATA_CACHE
+    if not DATA_CACHE:
+        DATA_CACHE = load_data_auto()
     
-    # Prepare session info for display banner
-    session_info = {
-        'event_name': session.event.get('EventName', ''),
-        'circuit_name': session.event.get('Location', ''),  # Circuit location/name
-        'country': session.event.get('Country', ''),
-        'year': year,
-        'round': round_number,
-        'date': session.event.get('EventDate', '').strftime('%B %d, %Y') if session.event.get('EventDate') else '',
-        'total_laps': race_telemetry['total_laps'],
-        'circuit_length_m': float(example_lap["Distance"].max()) if example_lap is not None and "Distance" in example_lap else None,
-    }
+    if DATA_CACHE:
+        print("[LAUNCH] Starting Arcade Replay...")
+        run_arcade_replay(
+            frames=DATA_CACHE["frames"],
+            track_statuses=DATA_CACHE["track_statuses"],
+            example_lap=DATA_CACHE["example_lap"],
+            drivers=DATA_CACHE["drivers"],
+            title=DATA_CACHE["title"],
+            driver_colors=DATA_CACHE["driver_colors"],
+            total_laps=DATA_CACHE["total_laps"]
+        )
+        return "SUCCESS"
+    else:
+        print("Failed to launch: Data missing.")
+        return "FAIL"
 
-    # Launch insights menu (always shown with replay)
-    launch_insights_menu()
-    print("Launching insights menu...")
+@eel.expose
+def launch_ai_module():
+    global AI_RUNNING
+    if not AI_RUNNING:
+        AI_RUNNING = True
+        threading.Thread(target=ai_loop, daemon=True).start()
+    return "OK"
 
-    # Run the arcade replay
-
-    run_arcade_replay(
-      frames=race_telemetry['frames'],
-      track_statuses=race_telemetry['track_statuses'],
-      example_lap=example_lap,
-      drivers=drivers,
-      playback_speed=playback_speed,
-      driver_colors=race_telemetry['driver_colors'],
-      title=f"{session.event['EventName']} - {'Sprint' if session_type == 'S' else 'Race'}",
-      total_laps=race_telemetry['total_laps'],
-      circuit_rotation=circuit_rotation,
-      visible_hud=visible_hud,
-      ready_file=ready_file,
-      session_info=session_info,
-      session=session,
-      enable_telemetry=True,
-      race_control_messages=race_telemetry.get('race_control_messages', [])
-    )
-
-if __name__ == "__main__":
-
-  if "--verbose" not in sys.argv:# fastf1 logging is disabled by default
-    logging.getLogger("fastf1").setLevel(logging.CRITICAL)
-
-  if "--cli" in sys.argv:
-    # Run the CLI
-    cli_load()
-    sys.exit(0)
-
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = get_season()  # Default year
-
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
-
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
-  else:
-    playback_speed = 1
-
-  if "--viewer" in sys.argv:
-  
-    visible_hud = True
-    if "--no-hud" in sys.argv:
-      visible_hud = False
-
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-
-    # Optional ready-file path used when spawned from the GUI to signal ready state
-    ready_file = None
-    if "--ready-file" in sys.argv:
-      idx = sys.argv.index("--ready-file") + 1
-      if idx < len(sys.argv):
-        ready_file = sys.argv[idx]
-
-    main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
-    sys.exit(0)
-
-  # Run the GUI
-
-  app = QApplication(sys.argv)
-  win = RaceSelectionWindow()
-  win.show()
-  sys.exit(app.exec())
+if __name__ == '__main__':
+    eel.start('index.html', size=(1300, 800))

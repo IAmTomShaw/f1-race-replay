@@ -1,14 +1,23 @@
-
-venv/
-
-output_animation.mp4
-.fastf1-cache
-still_frame.png
-
-.mypy_cache/
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+env/
+.env
 
+# fastf1 Cache
+.fastf1-cache/
 computed_data/
 
+# Node.js / Web
+web/node_modules/
+node_modules/
+npm-debug.log
+yarn-error.log
+web/dist/
+
+# OS Files
 .DS_Store
-.idea
+Thumbs.db

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>F1 SENTINEL NEXUS</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Chakra+Petch:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Orbitron:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+
+    <script type="text/javascript" src="/eel.js"></script>
+
+    <style>
+      /* Global F1 Theme Overrides */
+      :root {
+        --f1-red: #e10600;
+        --f1-dark: #15151e;
+        --f1-black: #000000;
+      }
+
+      body {
+        background-color: var(--f1-black);
+        font-family: "Chakra Petch", sans-serif;
+        color: white;
+        overflow: hidden;
+      }
+
+      /* Custom Scrollbar */
+      ::-webkit-scrollbar {
+        width: 6px;
+      }
+      ::-webkit-scrollbar-track {
+        background: #000;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: var(--f1-red);
+      }
+
+      /* Utility classes for text skewing common in F1 graphics */
+      .font-race {
+        font-family: "Orbitron", sans-serif;
+      }
+      .skew-race {
+        transform: skewX(-12deg);
+      }
+    </style>
+    <script type="importmap">
+      {
+        "imports": {
+          "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
+          "react/": "https://esm.sh/react@^19.2.3/",
+          "react": "https://esm.sh/react@^19.2.3"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="module" src="/index.jsx"></script>
+  </body>
+</html>

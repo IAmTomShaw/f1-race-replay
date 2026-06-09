@@ -1,9 +1,5 @@
 fastf1
 pandas
-matplotlib
 numpy
 arcade
-pyglet
-pyside6
-questionary
-rich
+scipy
