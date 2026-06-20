@@ -9,6 +9,15 @@ The Insights Menu is a PySide6 window that launches automatically when the race 
 ### Active Insights
 - **Example Insight Window** - A working example demonstrating the PitWallWindow pattern
 - **Telemetry Stream Viewer** - View raw telemetry data in real-time
+- **Driver Live Telemetry** - Live speed, gear, throttle and brake charts for a selected driver
+- **Track Position Map** - Real/circular track map with live driver positions
+- **Race Control Feed** - FIA race control messages synchronized to replay time
+- **Tyre Strategy** - Live tyre compounds, tyre life, pit status, and interval data
+
+### Experimental Insights (Gated)
+Additional planned windows are intentionally hidden by default to avoid dead menu entries.
+To preview disabled placeholders for planned windows, set `SHOW_EXPERIMENTAL_INSIGHTS = True`
+in `src/gui/insights_menu.py`.
 
 ## Usage
 
@@ -23,7 +32,7 @@ To add a new insight button to the menu, follow these steps:
 First, create your insight window using the `PitWallWindow` base class:
 
 ```python
-# src/gui/my_custom_insight.py
+# src/insights/my_custom_insight.py
 from src.gui.pit_wall_window import PitWallWindow
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
@@ -57,7 +66,7 @@ In `src/gui/insights_menu.py`, add a launch method for your insight:
 def launch_my_custom_insight(self):
     """Launch my custom insight window."""
     print("🚀 Launching: My Custom Insight")
-    from src.gui.my_custom_insight import MyCustomInsight
+    from src.insights.my_custom_insight import MyCustomInsight
     window = MyCustomInsight()
     window.show()
     self.opened_windows.append(window)
@@ -217,4 +226,4 @@ def create_insight_button(self, name, description, callback):
 
 - [PitWallWindow.md](./PitWallWindow.md) - Base class for creating insights
 - [../src/gui/insights_menu.py](../src/gui/insights_menu.py) - Menu implementation
-- [../src/gui/example_pit_wall_window.py](../src/gui/example_pit_wall_window.py) - Example insight
+- [../src/insights/example_pit_wall_window.py](../src/insights/example_pit_wall_window.py) - Example insight

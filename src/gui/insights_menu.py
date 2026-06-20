@@ -6,6 +6,18 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
+SHOW_EXPERIMENTAL_INSIGHTS = False
+EXPERIMENTAL_INSIGHTS = [
+    "Pit Stop Analysis",
+    "Gap Analysis",
+    "Sector Times",
+    "Lap Time Evolution",
+    "Top Speed Tracker",
+    "Flag Tracker",
+    "Overtake Counter",
+    "DRS Usage",
+]
+
 
 class InsightsMenu(QMainWindow):
     
@@ -62,6 +74,14 @@ class InsightsMenu(QMainWindow):
         ))
 
         content_layout.addWidget(self.create_category_section(
+            "Strategy",
+            [
+                ("Tyre Strategy", "Visual stint history and compound timeline", self.launch_tyre_strategy),
+                ("Live Tyre Info", "Detailed table with tyre life, gaps, and speed", self.launch_tyre_live_info),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
             "Track",
             [
                 ("Track Position Map", "Live driver positions on real or circular track map", self.launch_track_position),
@@ -74,6 +94,9 @@ class InsightsMenu(QMainWindow):
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
             ]
         ))
+
+        if SHOW_EXPERIMENTAL_INSIGHTS:
+            content_layout.addWidget(self.create_experimental_section())
         
         content_layout.addStretch()
         
@@ -168,8 +191,59 @@ class InsightsMenu(QMainWindow):
         button.clicked.connect(callback)
         
         return button
-    
-    # Insight launch methods (placeholders for now)
+
+    def create_disabled_insight_button(self, name, description):
+        button = QPushButton()
+        button.setEnabled(False)
+
+        btn_layout = QVBoxLayout()
+        btn_layout.setSpacing(2)
+        btn_layout.setContentsMargins(4, 4, 4, 4)
+
+        name_label = QLabel(name)
+        name_label.setFont(QFont("Arial", 12, QFont.Bold))
+        name_label.setStyleSheet("color: #666666;")
+
+        desc_label = QLabel(description)
+        desc_label.setFont(QFont("Arial", 10))
+        desc_label.setStyleSheet("color: #666666;")
+
+        btn_layout.addWidget(name_label)
+        btn_layout.addWidget(desc_label)
+        button.setLayout(btn_layout)
+        button.setMinimumHeight(50)
+        return button
+
+    def create_experimental_section(self):
+        section = QFrame()
+        section.setFrameShape(QFrame.NoFrame)
+
+        layout = QVBoxLayout(section)
+        layout.setSpacing(4)
+
+        category_label = QLabel("EXPERIMENTAL")
+        category_label.setFont(QFont("Arial", 12, QFont.Bold))
+        layout.addWidget(category_label)
+
+        separator = QFrame()
+        separator.setFrameShape(QFrame.HLine)
+        layout.addWidget(separator)
+
+        info_label = QLabel(
+            "These windows are planned but disabled by default.\n"
+            "Set SHOW_EXPERIMENTAL_INSIGHTS=True to preview menu entries."
+        )
+        info_label.setFont(QFont("Arial", 9))
+        layout.addWidget(info_label)
+
+        for name in EXPERIMENTAL_INSIGHTS:
+            btn = self.create_disabled_insight_button(
+                name,
+                "Planned insight (not yet implemented)",
+            )
+            layout.addWidget(btn)
+
+        return section
     
     def launch_example_window(self):
         print("🚀 Launching: Example Insight Window")
@@ -198,6 +272,20 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Race Control Feed")
         from src.insights.race_control_feed_window import RaceControlFeedWindow
         window = RaceControlFeedWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_tyre_strategy(self):
+        print("🚀 Launching: Tyre Strategy (Stint Tracker)")
+        from src.insights.tyre_strategy_window import TyreStrategyWindow
+        window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_tyre_live_info(self):
+        print("🚀 Launching: Live Tyre Info (Table)")
+        from src.insights.tyre_strategy_window import TyreLiveInfoWindow
+        window = TyreLiveInfoWindow()
         window.show()
         self.opened_windows.append(window)
 
@@ -262,11 +350,11 @@ class InsightsMenu(QMainWindow):
         from PySide6.QtWidgets import QMessageBox
         
         msg = QMessageBox(self)
-        msg.setWindowTitle("Coming Soon")
+        msg.setWindowTitle("Unavailable")
         msg.setIcon(QMessageBox.Information)
-        msg.setText(f"{insight_name} will be available soon!")
+        msg.setText(f"{insight_name} could not be launched.")
         msg.setInformativeText(
-            "This insight is planned for a future release.\n\n"
+            "Make sure a replay session is running and telemetry streaming is enabled.\n\n"
             "Developers can use PitWallWindow to create custom insights.\n"
             "See docs/PitWallWindow.md for more information."
         )

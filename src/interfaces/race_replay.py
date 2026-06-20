@@ -245,14 +245,7 @@ class F1RaceReplayWindow(arcade.Window):
         if current_frame and "drivers" in current_frame:
             driver_progress = {}
             for code, pos in current_frame["drivers"].items():
-                x, y = pos.get("x", 0.0), pos.get("y", 0.0)
-                lap_raw = pos.get("lap", 1)
-                try:
-                    lap = int(lap_raw)
-                except (ValueError, TypeError):
-                    lap = 1
-                projected_m = self._project_to_reference(x, y)
-                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                progress_m = self._driver_progress_m(pos)
                 driver_progress[code] = progress_m
                 if self._ref_total_length > 0:
                     pos["fraction"] = progress_m / self._ref_total_length
@@ -353,6 +346,32 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Fallback: return the cumulative distance at the closest dense sample
         return float(self._ref_cumdist[idx])
+
+    def _driver_progress_m(self, pos):
+        """Return stable race progress in metres for ordering and leader logic."""
+        lap_raw = pos.get("lap", 1)
+        try:
+            lap = max(int(lap_raw), 1)
+        except (TypeError, ValueError):
+            lap = 1
+
+        dist_raw = pos.get("dist")
+        try:
+            dist_m = float(dist_raw)
+        except (TypeError, ValueError):
+            dist_m = None
+
+        if dist_m is not None and np.isfinite(dist_m):
+            # Backward compatibility for old cache files where dist may be lap-local.
+            if self._ref_total_length > 0:
+                min_expected = (lap - 1) * self._ref_total_length
+                if dist_m >= (min_expected * 0.8):
+                    return dist_m
+            elif dist_m >= 0:
+                return dist_m
+
+        projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+        return float((lap - 1) * self._ref_total_length + projected_m)
 
     def update_scaling(self, screen_w, screen_h):
         """
@@ -635,24 +654,10 @@ class F1RaceReplayWindow(arcade.Window):
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
-        # Determine Leader info using projected along-track distance (more robust than dist)
-        # Use the progress metric in metres for each driver and use that to order the leaderboard.
+        # Determine leader order using stable race progress in metres.
         driver_progress = {}
         for code, pos in frame["drivers"].items():
-            # parse lap defensively
-            lap_raw = pos.get("lap", 1)
-            try:
-                lap = int(lap_raw)
-            except Exception:
-                lap = 1
-
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
-
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
-
-            driver_progress[code] = progress_m
+            driver_progress[code] = self._driver_progress_m(pos)
 
         # Leader is the one with greatest progress_m
         if driver_progress:
