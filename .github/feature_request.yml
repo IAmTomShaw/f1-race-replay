@@ -1,0 +1,77 @@
+name: 🚀 Feature Request
+description: Got an idea to make F1 Race Replay better? Let's hear it.
+title: "[Feature]: "
+labels: ["enhancement", "needs-triage"]
+assignees: []
+
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Before suggesting a feature, take a quick look at [roadmap.md](https://github.com/thealxlabs/f1-race-replay/blob/main/roadmap.md) to see if it's already planned. If it is and you want to build it, just comment there!
+
+  - type: textarea
+    id: summary
+    attributes:
+      label: Feature summary
+      description: What do you want to see added or changed?
+      placeholder: "e.g. A speed/throttle chart that appears when you click on a driver in the leaderboard"
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: Is there something currently frustrating or missing? Why would this be useful?
+      placeholder: "e.g. Right now there's no way to compare driver telemetry visually during a replay — you can only see raw numbers."
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Proposed solution
+      description: How do you imagine this working? Sketches, mockups, or detailed descriptions all welcome.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any other approaches you thought about? Why did you prefer this one?
+
+  - type: dropdown
+    id: category
+    attributes:
+      label: Feature category
+      options:
+        - Visualisation / UI
+        - Telemetry / Data
+        - New session type (e.g. Sprint, Practice)
+        - Performance / Loading speed
+        - CLI / Controls
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: willing_to_build
+    attributes:
+      label: Would you like to build this?
+      options:
+        - label: Yes, I'd like to take a shot at implementing this myself
+        - label: I'd be happy to help if someone else leads it
+        - label: I'm just suggesting — happy for anyone to pick it up
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Before submitting
+      options:
+        - label: I have checked the roadmap and this isn't already planned
+          required: true
+        - label: I have searched existing issues and this isn't a duplicate
+          required: true
