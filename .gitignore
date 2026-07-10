@@ -1,4 +1,3 @@
-
 venv/
 
 output_animation.mp4
@@ -12,3 +11,9 @@ computed_data/
 
 .DS_Store
 .idea
+ui-v2/node_modules/
+ui-v2/.env
+ui-v2/dist/
+ui-v2/build/
+ui-v2/src-tauri/target/
+ui-v2/src-tauri/*.log
