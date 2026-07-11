@@ -1,0 +1,75 @@
+name: Bug report
+description: Report a crash or incorrect behaviour in the replay
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Most replay issues depend on the exact session and the versions in use, so please fill in as much as you can.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+      placeholder: The replay crashed / showed the wrong thing when...
+    validations:
+      required: true
+  - type: input
+    id: session
+    attributes:
+      label: Session being replayed
+      description: Year, Grand Prix, and session type. Many bugs are specific to one session's data.
+      placeholder: "2026 Monaco Grand Prix, Race"
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Run `python main.py`
+        2. Select ...
+        3. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: traceback
+    attributes:
+      label: Error output / traceback
+      description: If there was a crash, paste the full traceback. This will be automatically formatted, no backticks needed.
+      render: shell
+  - type: input
+    id: fastf1-version
+    attributes:
+      label: FastF1 version
+      description: "Output of `pip show fastf1`. Several reported bugs were fixed by upgrading FastF1."
+      placeholder: "3.8.1"
+    validations:
+      required: true
+  - type: input
+    id: python-version
+    attributes:
+      label: Python version
+      placeholder: "3.11.9"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - macOS
+        - Linux
+    validations:
+      required: true
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this has not already been reported.
+          required: true
+        - label: I am on the latest version of FastF1 (`pip install --upgrade fastf1`).
+          required: true
