@@ -19,6 +19,7 @@ from src.ui_components import (
 )
 from src.tyre_degradation_integration import TyreDegradationIntegrator
 from src.services.stream import TelemetryStreamServer
+from src.lib.leaderboard import official_finishing_order, order_leaderboard_codes
 
 
 SCREEN_WIDTH = 1280
@@ -68,6 +69,18 @@ class F1RaceReplayWindow(arcade.Window):
         self._precomputed_lap_times = self._compute_lap_times(frames, session)
         self._precomputed_status_laps = self._compute_status_laps(frames, track_statuses)
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+
+        # Official classified finishing order, used to correct the leaderboard
+        # once the race is over (see issue #309). Falls back to an empty list,
+        # which leaves the live on-track ordering untouched.
+        self.official_finish_order = []
+        if session is not None:
+            try:
+                self.official_finish_order = official_finishing_order(
+                    getattr(session, "results", None)
+                )
+            except Exception as e:
+                print(f"Could not derive official finishing order: {e}")
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -1528,6 +1541,18 @@ class F1RaceReplayWindow(arcade.Window):
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
+
+        # Once the race has finished, the live on-track progress is only a proxy
+        # for position and no longer matches the classified result (post-race
+        # penalties, lapped cars, retirements). Show the official finishing
+        # order instead for the frozen end-of-race leaderboard. See issue #309.
+        race_finished = self.n_frames > 0 and int(round(self.frame_index)) >= self.n_frames - 1
+        if race_finished and self.official_finish_order:
+            by_code = {entry[0]: entry for entry in driver_list}
+            final_codes = order_leaderboard_codes(
+                [entry[0] for entry in driver_list], self.official_finish_order, True
+            )
+            driver_list = [by_code[code] for code in final_codes if code in by_code]
 
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
