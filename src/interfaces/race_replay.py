@@ -60,6 +60,22 @@ class F1RaceReplayWindow(arcade.Window):
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
         self.total_laps = total_laps
+        
+        # Pre-calculate exact finish times to prevent end-of-race shuffling
+        self.driver_finish_times = {}
+        if self.total_laps is not None and frames:
+            for frame in frames:
+                frame_time = frame.get("t", 0.0)
+                for code, pos in frame.get("drivers", {}).items():
+                    if code not in self.driver_finish_times:
+                        lap_raw = pos.get("lap", 1)
+                        try:
+                            lap = int(lap_raw)
+                        except (ValueError, TypeError):
+                            lap = 1
+                        if lap > self.total_laps:
+                            self.driver_finish_times[code] = frame_time
+
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
 
         # Pre-compute per-driver lap times from the full frame data.
@@ -257,8 +273,17 @@ class F1RaceReplayWindow(arcade.Window):
                     lap = int(lap_raw)
                 except (ValueError, TypeError):
                     lap = 1
-                projected_m = self._project_to_reference(x, y)
-                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                    
+                if self.total_laps is not None and lap > self.total_laps and code in self.driver_finish_times:
+                    finish_time = self.driver_finish_times[code]
+                    base_finish_m = self.total_laps * self._ref_total_length
+                    progress_m = float(base_finish_m + (100000.0 - finish_time))
+                else:
+                    if pos.get("in_pit", False):
+                        projected_m = float(pos.get("dist", 0.0))
+                    else:
+                        projected_m = self._project_to_reference(x, y)
+                    progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
                 driver_progress[code] = progress_m
                 if self._ref_total_length > 0:
                     pos["fraction"] = progress_m / self._ref_total_length
@@ -1461,11 +1486,19 @@ class F1RaceReplayWindow(arcade.Window):
             except Exception:
                 lap = 1
 
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
+            if self.total_laps is not None and lap > self.total_laps and code in self.driver_finish_times:
+                finish_time = self.driver_finish_times[code]
+                base_finish_m = self.total_laps * self._ref_total_length
+                progress_m = float(base_finish_m + (100000.0 - finish_time))
+            else:
+                if pos.get("in_pit", False):
+                    projected_m = float(pos.get("dist", 0.0))
+                else:
+                    # Project (x,y) to reference and combine with lap count
+                    projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
 
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                # progress in metres since race start: (lap-1) * lap_length + projected_m
+                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
 
             driver_progress[code] = progress_m
 
