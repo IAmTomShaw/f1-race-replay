@@ -49,7 +49,7 @@ class _TrackMapWidget(QWidget):
         self.circuit_length_m: float | None = None
         self.setMinimumSize(420, 420)
 
-        self.force_circle: bool = False
+        self.force_circle: bool = True  # default to schematic view
 
         # Real-track geometry
         self.has_real_track: bool = False
