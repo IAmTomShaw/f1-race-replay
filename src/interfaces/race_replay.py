@@ -1528,7 +1528,44 @@ class F1RaceReplayWindow(arcade.Window):
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
+        if self.leaderboard_comp.rects:
+          left = min(r[1] for r in self.leaderboard_comp.rects)
+          bottom = min(r[2] for r in self.leaderboard_comp.rects)
+          right = max(r[3] for r in self.leaderboard_comp.rects)
+          top = max(r[4] for r in self.leaderboard_comp.rects)
 
+          padding = 10
+
+          arcade.draw_lrbt_rectangle_outline(
+        left - padding,
+        right + padding,
+        bottom - padding,   # ✅ bottom FIRST
+        top + padding + 20 ,      # ✅ then top
+        arcade.color.WHITE,
+        3
+         )
+        driver_count = len(self.last_leaderboard_order or [])
+
+        if self.leaderboard_comp.rects and driver_count > 1:
+          left = min(r[1] for r in self.leaderboard_comp.rects)
+          bottom = min(r[2] for r in self.leaderboard_comp.rects)
+          right = max(r[3] for r in self.leaderboard_comp.rects)
+          top = max(r[4] for r in self.leaderboard_comp.rects)
+
+          total_height = top - bottom
+          row_height = total_height / driver_count
+
+        for i in range(0, driver_count):
+            y = top - i * row_height  # evenly spaced rows
+
+            arcade.draw_line(
+            left + 0.1 ,
+            y,
+            right - 0.1 ,
+            y,
+            arcade.color.LIGHT_GRAY,
+            3
+            )
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
         self.leaderboard_comp.draw(self)
