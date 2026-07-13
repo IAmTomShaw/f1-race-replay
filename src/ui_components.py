@@ -297,36 +297,78 @@ class LeaderboardComponent(BaseComponent):
         self._calculate_gaps()
 
     def _calculate_gaps(self):
+        """Populate ``computed_gaps`` and ``computed_neighbor_gaps`` from the
+        precomputed gap values injected by ``_precompute_gaps()``.
+
+        Both dicts are keyed by driver code and consumed in ``draw()``.
+
+        ``computed_gaps[code]``
+            ``float`` seconds behind the race leader, or ``None`` if the
+            precomputed value is absent (e.g. old cached ``.pkl`` file or
+            a test fixture that pre-dates Commit 1).
+
+        ``computed_neighbor_gaps[code]``
+            ``{"ahead": (code_ahead, None, time_s)}`` where *time_s* is the
+            interval gap in seconds to the car immediately ahead, or
+            ``{"ahead": None}`` when the value is absent.  The second tuple
+            element was formerly *dist_m* (now unused by the renderer).
+        """
         self.computed_gaps = {}
         self.computed_neighbor_gaps = {}
         if not self.entries:
             return
 
-        leader_progress_val = self.entries[0][3]
-
-        for idx, (code, _, pos, progress_m) in enumerate(self.entries):
-            # Leader gap
+        for idx, (code, _, pos, _progress_m) in enumerate(self.entries):
+            # ── Leader gap ────────────────────────────────────────────────
+            # Read the float injected by _precompute_gaps; fall back to None
+            # so the renderer shows a blank rather than a stale number.
+            raw_leader = pos.get("gap_to_leader")
             try:
-                raw_to_leader = abs(leader_progress_val - (progress_m or 0.0))
-                dist_to_leader = raw_to_leader / 10.0
-                time_to_leader = dist_to_leader / 55.56
-                self.computed_gaps[code] = 0.0 if idx == 0 else time_to_leader
-            except Exception:
+                self.computed_gaps[code] = float(raw_leader) if raw_leader is not None else None
+            except (TypeError, ValueError):
                 self.computed_gaps[code] = None
 
-            # Neighbor gap
-            ahead_info = None
-            try:
-                if idx > 0:
-                    code_ahead, _, _, progress_ahead = self.entries[idx - 1]
-                    raw = abs((progress_m or 0.0) - (progress_ahead or 0.0))
-                    dist_m = raw / 10.0
-                    time_s = dist_m / 55.56
-                    ahead_info = (code_ahead, dist_m, time_s)
-            except Exception:
-                ahead_info = None
-            
-            self.computed_neighbor_gaps[code] = {"ahead": ahead_info}
+            # ── Interval gap ──────────────────────────────────────────────
+            if idx == 0:
+                # Leader has no car ahead by definition.
+                self.computed_neighbor_gaps[code] = {"ahead": None}
+            else:
+                code_ahead = self.entries[idx - 1][0]
+                raw_interval = pos.get("gap_to_car_ahead")
+                try:
+                    time_s = float(raw_interval) if raw_interval is not None else None
+                except (TypeError, ValueError):
+                    time_s = None
+
+                if time_s is not None:
+                    # Tuple format preserved: (code_ahead, dist_m, time_s)
+                    # dist_m is None — only time_s is used by the renderer.
+                    self.computed_neighbor_gaps[code] = {"ahead": (code_ahead, None, time_s)}
+                else:
+                    self.computed_neighbor_gaps[code] = {"ahead": None}
+
+    @staticmethod
+    def _fmt_gap(seconds: float) -> str:
+        """Format a gap value in seconds for leaderboard display.
+
+        Returns
+        -------
+        ``"-"``
+            For the race leader (gap == 0.0).
+        ``"+0.543s"``
+            For sub-second gaps (< 1 s).  Three decimal places match
+            broadcast-standard precision for close racing.
+        ``"+3.2s"``
+            For gaps of one second or more.  One decimal place is enough
+            resolution and avoids column-width fluctuation.
+        """
+        if abs(seconds) < 1e-6:
+            return "-"
+        prefix = "+" if seconds > 0 else "-"
+        s = abs(seconds)
+        if s < 1.0:
+            return f"{prefix}{s:.3f}s"
+        return f"{prefix}{s:.1f}s"
 
     def draw(self, window):
         # Skip rendering entirely if hidden
@@ -382,6 +424,13 @@ class LeaderboardComponent(BaseComponent):
         else:
             new_entries = self.entries
 
+        # Leader's lap number — used to detect lapped cars in gap display.
+        # Captured once here so the per-driver loop body stays simple.
+        try:
+            leader_lap = int(new_entries[0][2].get("lap", 1))
+        except (TypeError, ValueError, IndexError):
+            leader_lap = 1
+
         for i, (code, color, pos, progress_m) in enumerate(new_entries):
             current_pos = i + 1
             top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
@@ -425,37 +474,84 @@ class LeaderboardComponent(BaseComponent):
                 if i == 0:
                     gap_text = "-"
                 else:
-                    if neighbor_info:
-                        if neighbor_info.get("ahead"):
-                            _, dist_m, time_s = neighbor_info.get("ahead")
-                            gap_text = f"+{time_s:.1f}s"
+                    if neighbor_info and neighbor_info.get("ahead"):
+                        _, dist_m, time_s = neighbor_info.get("ahead")
+
+                        # Detect lapping: compare displayed car-ahead's lap
+                        # number with this driver's lap.  new_entries[i-1] is
+                        # the car one rank higher in the current display order,
+                        # which matches the "car ahead" semantics exactly.
+                        try:
+                            ahead_lap  = int(new_entries[i - 1][2].get("lap", leader_lap))
+                            driver_lap = int(pos.get("lap", leader_lap))
+                            # Guard: lapping is impossible while the leader has
+                            # not completed Lap 1.  FastF1 reports lap=0 for
+                            # drivers who have not yet crossed the S/F line,
+                            # which would produce a false "+1 Lap" at race start.
+                            laps_down  = (ahead_lap - driver_lap) if leader_lap >= 2 else 0
+                        except (TypeError, ValueError):
+                            laps_down = 0
+
+                        # Check if driver is genuinely lapped by the car ahead using progress difference
+                        ref_length = getattr(window, "_ref_total_length", 0.0)
+                        is_lapped = False
+                        if ref_length > 0.0:
+                            progress_ahead = new_entries[i - 1][3]
+                            is_lapped = (progress_ahead - progress_m) >= (0.99 * ref_length)
+
+                        if laps_down >= 1 and is_lapped:
+                            gap_text = f"+{laps_down} Lap" if laps_down == 1 else f"+{laps_down} Laps"
                         else:
-                            gap_text = ""
+                            gap_text = LeaderboardComponent._fmt_gap(time_s)
                     else:
                         gap_text = ""
 
             elif getattr(self, "show_gaps", False):
                 gap_text = ""
-                gap_val = None
                 gap_val = self.computed_gaps.get(code)
                 if gap_val is None:
-                    gap_val = pos.get("gap") or pos.get("gap_to_leader")
+                    # Secondary fallback: direct frame field.  Wrap in float()
+                    # so a corrupted raw value (e.g. string, list) silently
+                    # becomes None rather than being rendered verbatim.
+                    try:
+                        raw_fb = pos.get("gap_to_leader")
+                        gap_val = float(raw_fb) if raw_fb is not None else None
+                    except (TypeError, ValueError):
+                        gap_val = None
                 if gap_val is None:
                     gap_text = ""
                 else:
                     try:
-                        # expect seconds (float)
                         s = float(gap_val)
-                        # leader (zero) gets dash
                         if abs(s) < 1e-6:
                             gap_text = "-"
                         else:
-                            sign = "+" if s > 0 else "-"
-                            gap_text = f"{sign}{abs(s):.1f}s"
-                    except Exception:
-                        gap_text = str(gap_val)
+                            # Detect lapping: if the race leader is further
+                            # ahead in lap count, show "+N Lap(s)" rather
+                            # than a raw second value that would be > ~90 s
+                            # and meaningless in broadcast context.
+                            try:
+                                driver_lap = int(pos.get("lap", leader_lap))
+                                # Guard: same as interval block — lapping cannot
+                                # occur while leader_lap < 2.
+                                laps_down  = (leader_lap - driver_lap) if leader_lap >= 2 else 0
+                            except (TypeError, ValueError):
+                                laps_down = 0
 
-                pass
+                            # Check if driver is genuinely lapped by the leader using progress difference
+                            ref_length = getattr(window, "_ref_total_length", 0.0)
+                            is_lapped = False
+                            if ref_length > 0.0:
+                                leader_progress = new_entries[0][3]
+                                is_lapped = (leader_progress - progress_m) >= (0.99 * ref_length)
+
+                            if laps_down >= 1 and is_lapped:
+                                gap_text = f"+{laps_down} Lap" if laps_down == 1 else f"+{laps_down} Laps"
+                            else:
+                                gap_text = LeaderboardComponent._fmt_gap(s)
+                    except Exception:
+                        # Non-renderable value: show blank, not raw garbage.
+                        gap_text = ""
 
             # if either leader or neighbor gaps are enabled, draw the gap text
             if getattr(self, "show_neighbor_gaps", False) or getattr(self, "show_gaps", False):
