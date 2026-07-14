@@ -41,6 +41,39 @@ TEXT_DIM    = "#888888"
 BORDER      = "#2a2a2a"
 
 
+def is_new_session(has_existing_stints, current_lap, max_seen_lap, tolerance=1):
+    """True if ``current_lap`` looks like the start of a different session
+    than whatever produced ``max_seen_lap``, rather than normal live jitter.
+
+    computed_data/tyre_state.json carries no session identity (see
+    TyreStrategyWindow._load_state), and qualifying/race are separate
+    `main.py` runs rather than a live transition, so a window opened for
+    a new session can otherwise load in stints left over from whichever
+    session last saved that file. A real new session drops the lap count
+    by a lot (race lap 1 after qualifying ended at lap 15+); ``tolerance``
+    only exists to absorb the +/-1 lap a live feed can jitter by near a
+    lap boundary, not to paper over a real session change.
+    """
+    return has_existing_stints and current_lap < max_seen_lap - tolerance
+
+
+def next_session_tracking_state(has_existing_stints, current_lap, max_seen_lap, tolerance=1):
+    """Decide whether this frame starts a new session, and what the
+    running high-water mark should be afterwards. Returns
+    ``(should_reset, new_max_seen_lap)``.
+
+    Rebasing ``max_seen_lap`` to ``current_lap`` on a detected reset is
+    not optional bookkeeping: leaving it at the old session's (higher)
+    value means every following frame keeps comparing against that
+    stale baseline and re-fires the reset every single frame, wiping the
+    new session's own stints as fast as they build up. Both branches are
+    decided together here so a caller can't apply one without the other.
+    """
+    if is_new_session(has_existing_stints, current_lap, max_seen_lap, tolerance):
+        return True, current_lap
+    return False, max(max_seen_lap, current_lap)
+
+
 class StintBar(QWidget):
     """Single driver row: name + horizontal coloured stint bars."""
 
@@ -187,6 +220,15 @@ class TyreStrategyWindow(PitWallWindow):
 
         # Load persisted state if exists
         self._load_state()
+
+        # computed_data/tyre_state.json carries no session identity, so it
+        # can be loaded back for a *different* session than the one that
+        # saved it (qualifying and race are separate `main.py` runs, not a
+        # live transition - see on_telemetry_data). _max_seen_lap tracks
+        # the highest lap this window has seen across loading and live
+        # telemetry, so a fresh session's early laps can be told apart
+        # from stale stints left over from a previous run.
+        self._max_seen_lap = self.current_lap
 
         super().__init__()
         self.setWindowTitle("F1 Tyre Strategy")
@@ -366,6 +408,20 @@ class TyreStrategyWindow(PitWallWindow):
             self.total_laps = new_total
 
         self.current_lap = int(frame.get("lap", self.current_lap))
+
+        # See next_session_tracking_state's docstring: catches stints
+        # carried over from a previously-loaded session (e.g. qualifying)
+        # that the total_laps check above can miss - the scenario in
+        # #293, where a driver's still-open qualifying stint kept
+        # accumulating and overlapped the race stint that starts at lap 1.
+        should_reset, self._max_seen_lap = next_session_tracking_state(
+            bool(self.stints), self.current_lap, self._max_seen_lap
+        )
+        if should_reset:
+            print("Lap count went backwards - new session detected. Wiping old tyre state.")
+            self.stints     = {}
+            self.prev_tyres = {}
+            self.positions  = {}
 
         for code, driver in drivers.items():
             tyre = driver.get("tyre")
