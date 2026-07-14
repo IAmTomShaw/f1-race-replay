@@ -262,7 +262,7 @@ Thanks to @el-mandaloriano for showing how to resolve this issue: #12
 
 ## 📝 License
 
-This project is licensed under the MIT License.
+This project is licensed under the [MIT License](LICENSE).
 
 ## ⚠️ Disclaimer
 
