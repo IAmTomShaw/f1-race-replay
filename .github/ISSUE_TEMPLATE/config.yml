@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Questions and discussions
+    url: https://github.com/IAmTomShaw/f1-race-replay/discussions
+    about: Please use discussions for open-ended questions, ideas, or general help if enabled for the repository.

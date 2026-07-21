@@ -146,6 +146,13 @@ class InsightsMenu(QMainWindow):
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
             ]
         ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Race Analysis",
+            [
+                ("Lap Time & Gap Evolution", "Lap time and gap trends per driver", self.launch_lap_time_chart),
+            ]
+        ))
         
         content_layout.addStretch()
         
@@ -319,6 +326,13 @@ class InsightsMenu(QMainWindow):
         window.show()
         self.opened_windows.append(window)
 
+    def launch_lap_time_chart(self):
+        print("🚀 Launching: Lap Time & Gap Evolution")
+        from src.insights.lap_time_chart_window import LapTimeChartWindow
+        window = LapTimeChartWindow()
+        window.show()
+        self.opened_windows.append(window)
+
     def launch_telemetry_viewer(self):
         print("🚀 Launching: Telemetry Stream Viewer")
         try:
@@ -357,8 +371,8 @@ class InsightsMenu(QMainWindow):
         self.show_placeholder_message("Sector Times")
     
     def launch_lap_evolution(self):
-        print("🚀 Launching: Lap Time Evolution")
-        self.show_placeholder_message("Lap Time Evolution")
+        print("🚀 Launching: Lap Time & Gap Evolution")
+        self.show_placeholder_message("Lap Time & Gap Evolution")
     
     def launch_top_speed(self):
         print("🚀 Launching: Top Speed Tracker")

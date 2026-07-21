@@ -1,14 +1,24 @@
-
+# Virtual environments
 venv/
+.venv/
+env/
 
-output_animation.mp4
-.fastf1-cache
-still_frame.png
-
-.mypy_cache/
+# Python caches
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
 
+# Local FastF1/cache/generated data
+.fastf1-cache
 computed_data/
 
+# Generated media/output
+output_animation.mp4
+still_frame.png
+
+# OS / IDE files
 .DS_Store
-.idea
+.idea/
+.vscode/

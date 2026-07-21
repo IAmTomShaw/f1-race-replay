@@ -1,0 +1,98 @@
+name: Bug report
+description: Report a reproducible problem in f1-race-replay
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+        Please include enough detail to help reproduce the issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: Project version / commit
+      description: Which branch, commit, or release are you using?
+      placeholder: "main @ commit SHA, or release version"
+    validations:
+      required: false
+
+  - type: input
+    id: command
+    attributes:
+      label: Command used
+      description: Paste the command that triggered the issue.
+      placeholder: "python main.py --year 2025 --round 1"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: interface
+    attributes:
+      label: Interface
+      options:
+        - CLI
+        - GUI
+        - Race replay window
+        - Insights / telemetry window
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem clearly.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What did you expect to happen instead?
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: List the exact steps needed to reproduce the issue.
+      placeholder: |
+        1. Run ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs / traceback
+      description: Paste any relevant logs, terminal output, or Python traceback.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include OS, Python version, package manager, and whether you use Conda/venv.
+      placeholder: |
+        OS:
+        Python:
+        Environment: venv / Conda / system Python
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots or recordings
+      description: Add screenshots or short recordings if they help explain the issue.
+    validations:
+      required: false
