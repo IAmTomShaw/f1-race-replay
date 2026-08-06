@@ -1,6 +1,5 @@
 import arcade
-from typing import List, Literal, Tuple, Optional
-from typing import Sequence, Optional, Tuple
+from typing import List, Optional, Tuple
 from src.lib.time import format_time
 import numpy as np
 import pandas as pd
