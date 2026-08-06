@@ -13,6 +13,8 @@ from src.ui_components import (
     RaceControlsComponent,
     ControlsPopupComponent,
     SessionInfoComponent,
+    DriversChampionshipOverlay,
+    ConstructorsChampionshipOverlay,
     extract_race_events,
     build_track_from_example_lap,
     draw_finish_line
@@ -28,8 +30,9 @@ PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 2
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
-                 playback_speed=1.0, driver_colors=None, circuit_rotation=0.0,
+                 playback_speed=1.0, driver_colors=None, team_colors=None, circuit_rotation=0.0,
                  left_ui_margin=340, right_ui_margin=260, total_laps=None, visible_hud=True,
+                 session_info=None, session=None, enable_telemetry=False, live_driver_standings=None, current_driver_standings=None, current_constructors_standings=None, live_constructors_standings=None):
                  session_info=None, session=None, enable_telemetry=False,
                  race_control_messages=None):
         # Set resizable to True so the user can adjust mid-sim
@@ -51,12 +54,17 @@ class F1RaceReplayWindow(arcade.Window):
                 self.telemetry_stream = None
 
         self.frames = frames
+        self.current_driver_standings = current_driver_standings or {} # current championship standings at time of replay (for overlay)
+        self.live_driver_standings = live_driver_standings or {} # live driver standings (for overlay)
+        self.current_constructors_standings = current_constructors_standings or {} # current championship standings at time of replay (for overlay)
+        self.live_constructors_standings = live_constructors_standings or {} # live constructor standings (for overlay)
         self.track_statuses = track_statuses
         self.race_control_messages = race_control_messages or []
         self.n_frames = len(frames)
         self.drivers = list(drivers)
         self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
         self.driver_colors = driver_colors or {}
+        self.team_colors = team_colors or {}
         self.frame_index = 0.0  # use float for fractional-frame accumulation
         self.paused = False
         self.total_laps = total_laps
@@ -68,6 +76,7 @@ class F1RaceReplayWindow(arcade.Window):
         self._precomputed_lap_times = self._compute_lap_times(frames, session)
         self._precomputed_status_laps = self._compute_status_laps(frames, track_statuses)
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
+        self.session = session
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -83,11 +92,11 @@ class F1RaceReplayWindow(arcade.Window):
         leaderboard_x = max(20, self.width - self.right_ui_margin + 12)
         self.leaderboard_comp = LeaderboardComponent(x=leaderboard_x, width=240, visible=visible_hud)
         self.weather_comp = WeatherComponent(left=20, top_offset=170, visible=visible_hud)
-        self.legend_comp = LegendComponent(x=max(12, self.left_ui_margin - 320), visible=visible_hud)
+        self.legend_comp = LegendComponent(x=max(200, self.left_ui_margin - 320), visible=visible_hud)
         self.driver_info_comp = DriverInfoComponent(left=20, width=300)
         self.controls_popup_comp = ControlsPopupComponent()
 
-        self.controls_popup_comp.set_size(340, 250) # width/height of the popup box
+        self.controls_popup_comp.set_size(380, 300) # width/height of the popup box
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13) # adjust font sizes
         self.degradation_integrator = None
         if session is not None:
@@ -141,6 +150,24 @@ class F1RaceReplayWindow(arcade.Window):
                 date=session_info.get('date', ''),
                 total_laps=total_laps
             )
+
+        self.drivers_champ_comp = DriversChampionshipOverlay(
+            live_standings=self.live_driver_standings,
+            current_driver_standings=self.current_driver_standings,
+            driver_colors=self.driver_colors,
+            x=40,
+            y=450,
+            visible=visible_hud
+        )
+
+        self.constructors_champ_comp = ConstructorsChampionshipOverlay(
+            live_constructors_standings=self.live_constructors_standings,
+            current_constructors_standings=self.current_constructors_standings,
+            session=self.session,
+            x=40,
+            y=450,
+            visible=visible_hud
+        )
 
         self.is_rewinding = False
         self.is_forwarding = False
@@ -228,6 +255,10 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Broadcast initial telemetry state
         self._broadcast_telemetry_state()
+
+        # Championship overlays visibility state
+        self.show_drivers_championship = False
+        self.show_constructors_championship = False
 
     def _broadcast_telemetry_state(self):
         """Broadcast current telemetry state to connected clients."""
@@ -1543,7 +1574,15 @@ class F1RaceReplayWindow(arcade.Window):
         
         # Race Progress Bar with event markers (DNF, flags, leader changes)
         self.progress_bar_comp.draw(self)
-        
+
+        # Drivers Championship standings overlay (bottom-left, under weather)
+        if self.show_drivers_championship:
+            self.drivers_champ_comp.draw()
+
+        # Constructors Championship standings overlay (bottom-left, under weather)
+        if self.show_constructors_championship:
+            self.constructors_champ_comp.draw()
+
         # Race playback control buttons
         self.race_controls_comp.draw(self)
         
@@ -1574,6 +1613,13 @@ class F1RaceReplayWindow(arcade.Window):
         
         if self.frame_index >= self.n_frames:
             self.frame_index = float(self.n_frames - 1)
+
+        frame = self.frames[int(self.frame_index)]
+
+        current_lap = frame.get("lap", 1)
+
+        self.drivers_champ_comp.update(current_lap)
+        self.constructors_champ_comp.update(current_lap)
             
         # Broadcast telemetry state during playback
         self._broadcast_telemetry_state()
@@ -1583,6 +1629,15 @@ class F1RaceReplayWindow(arcade.Window):
         if symbol == arcade.key.ESCAPE:
             arcade.close_window()
             return
+        # Show Drivers Championship
+        if symbol == arcade.key.C:
+            self.show_drivers_championship = not self.show_drivers_championship
+            self.show_constructors_championship = False
+
+        # Show Constructors Championship
+        if symbol == arcade.key.A:
+            self.show_constructors_championship = not self.show_constructors_championship
+            self.show_drivers_championship = False
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
             self._broadcast_telemetry_state()
