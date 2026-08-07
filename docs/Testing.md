@@ -40,5 +40,26 @@ The current suite includes:
 - unit tests for season detection
 - unit tests for settings persistence with temporary files
 - smoke import tests for project modules
+- unit tests for practice session telemetry extraction and stint analysis
 
 Some import smoke tests may be skipped locally when optional runtime dependencies are not installed.
+
+### Feature tests
+
+| File | What it covers |
+|------|---------------|
+| `test_practice.py` | Practice session telemetry extraction (`get_practice_telemetry`), best lap leaderboard structure, stint analysis output format |
+
+## Running all tests
+
+Run the full suite:
+
+    python -m pytest
+
+Run only lightweight unit tests:
+
+    python -m pytest tests/lib
+
+Run feature tests individually:
+
+    python -m pytest tests/test_practice.py -v
