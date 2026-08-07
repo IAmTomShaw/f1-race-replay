@@ -304,7 +304,13 @@ class RaceSelectionWindow(QMainWindow):
 
         # map button labels to CLI flags
         flag = None
-        if session_label == "Qualifying":
+        if session_label == "FP1":
+            flag = "--fp1"
+        elif session_label == "FP2":
+            flag = "--fp2"
+        elif session_label == "FP3":
+            flag = "--fp3"
+        elif session_label == "Qualifying":
             flag = "--qualifying"
         elif session_label == "Sprint Qualifying":
             flag = "--sprint-qualifying"
