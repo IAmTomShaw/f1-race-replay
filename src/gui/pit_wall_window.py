@@ -4,29 +4,35 @@ from src.services.stream import TelemetryStreamClient
 
 
 class PitWallWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, master_client=None, auto_start=True):
         super().__init__()
         
         # Default window properties
-        self.setGeometry(100, 100, 1000, 700)
-        
-        # Data tracking
+        self.setWindowTitle("Pit Wall Insight")
+        self.resize(800, 600)
         self.message_count = 0
         
         # Initialize telemetry client
-        self.client = TelemetryStreamClient()
+        if master_client is not None:
+            self.client = master_client
+            self._own_client = False
+        else:
+            self.client = TelemetryStreamClient()
+            self._own_client = True
+
         self.client.data_received.connect(self._handle_data_received)
         self.client.connection_status.connect(self._handle_connection_status)
         self.client.error_occurred.connect(self._handle_error)
         
-        # Setup status bar
+        # Setup UI (to be implemented by subclasses)
         self._setup_status_bar()
         
         # Call subclass UI setup
         self.setup_ui()
         
-        # Start client
-        self.client.start()
+        # Start client if owned
+        if auto_start and self._own_client:
+            self.client.start()
     
     def _setup_status_bar(self):
         """Initialize the status bar with connection indicator."""
