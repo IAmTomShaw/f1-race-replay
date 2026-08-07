@@ -32,6 +32,14 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 | **Gap to Leader Evolution** | ![Gap to Leader](./images/screenshot_gap_to_leader.jpeg) |
 | **Race Selection GUI** | ![Race Selection](./images/screenshot_race_selection_gui.jpeg) |
 
+### 🎬 Demo Video
+
+https://github.com/user-attachments/assets/demo_f1_race_replay.mp4
+
+<video src="./images/demo_f1_race_replay.mp4" controls width="100%"></video>
+
+> *Full walkthrough: session selection → race replay with live telemetry → practice stint analysis → pit wall dashboard.*
+
 > 📌 **Detailed Documentation**:
 > - [Pit Wall Dashboard Architecture & Guide](./docs/PitWallDashboard.md)
 > - [Testing Strategy & Test Coverage Guide](./docs/Testing.md)

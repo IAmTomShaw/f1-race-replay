@@ -22,6 +22,8 @@ still_frame.png
 images/*.mp4
 images/*.avi
 images/*.mov
+# Allow the compressed demo video (~1MB)
+!images/demo_f1_race_replay.mp4
 
 # OS / IDE files
 .DS_Store
