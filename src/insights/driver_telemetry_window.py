@@ -32,7 +32,7 @@ class DriverTelemetryWindow(PitWallWindow):
     and Throttle / Brake (bottom 25%).
     """
 
-    def __init__(self):
+    def __init__(self, master_client=None, auto_start=True):
         self._known_drivers = []
         # time mode: deque of {"t", "speed", "gear", "throttle", "brake"}
         self._time_buffers: dict[str, deque] = {}
@@ -43,7 +43,8 @@ class DriverTelemetryWindow(PitWallWindow):
         # circuit length from the session (metres), received via stream
         self._circuit_length_m: float | None = None
         self._x_mode = "time"   # "time" | "lap"
-        super().__init__()
+
+        super().__init__(master_client=master_client, auto_start=auto_start)
         self.setWindowTitle("F1 Race Replay - Driver Live Telemetry")
 
     # ── UI setup ─────────────────────────────────────────────────────────
