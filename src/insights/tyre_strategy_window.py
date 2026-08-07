@@ -71,7 +71,7 @@ class StintBar(QWidget):
         POS_W    = 34
         BAR_PAD  = 6
         bar_x    = NAME_W + POS_W + BAR_PAD
-        bar_w    = W - bar_x - BAR_PAD
+        bar_w    = max(W - bar_x - BAR_PAD, 10)
 
         # Row background
         painter.fillRect(0, 0, W, H, QColor(ROW_BG))
@@ -101,17 +101,19 @@ class StintBar(QWidget):
         painter.fillRect(bar_x, 10, bar_w, H - 20, QColor("#111111"))
 
         # Stint blocks
+        total = max(self.total_laps, 1)
         for stint in self.stints:
             s_lap = stint["start_lap"]
-            e_lap = stint["end_lap"] if stint["end_lap"] else self.current_lap
+            e_lap = stint["end_lap"] if stint["end_lap"] is not None else self.current_lap
             tyre  = stint["tyre"]
 
             colour_hex, abbr = TYRE_COLOURS.get(tyre, ("#888888", "?"))
             colour = QColor(colour_hex)
 
-            x1 = bar_x + int((s_lap - 1) / self.total_laps * bar_w)
-            x2 = bar_x + int((e_lap - 1) / self.total_laps * bar_w)
-            bw = max(x2 - x1, 2)
+            # Map lap ranges to pixel coordinates
+            x1 = bar_x + int(max(0, s_lap - 1) / total * bar_w)
+            x2 = bar_x + int(max(s_lap, e_lap) / total * bar_w)
+            bw = max(x2 - x1, 8)
 
             # Gradient fill
             grad = QLinearGradient(x1, 10, x1, H - 10)
@@ -130,8 +132,8 @@ class StintBar(QWidget):
                                  Qt.AlignVCenter | Qt.AlignLeft, abbr)
 
         # Current lap marker
-        if self.current_lap and self.current_lap > 1:
-            lx = bar_x + int((self.current_lap - 1) / self.total_laps * bar_w)
+        if self.current_lap and self.current_lap >= 1:
+            lx = bar_x + int(self.current_lap / total * bar_w)
             painter.setPen(QPen(QColor("#ffffff"), 1, Qt.DotLine))
             painter.drawLine(lx, 4, lx, H - 4)
 
@@ -147,20 +149,20 @@ class LapAxisWidget(QWidget):
 
     def __init__(self, total_laps=60, parent=None):
         super().__init__(parent)
-        self.total_laps = total_laps
+        self.total_laps = total_laps or 60
         self.setFixedHeight(24)
 
     def set_total_laps(self, n):
-        self.total_laps = n
+        self.total_laps = n or self.total_laps
         self.update()
 
     def paintEvent(self, event):
         painter = QPainter(self)
         W = self.width()
-        NAME_W = 80
+        NAME_W = 86
         BAR_PAD = 6
         bar_x = NAME_W + BAR_PAD
-        bar_w = W - bar_x - BAR_PAD
+        bar_w = max(W - bar_x - BAR_PAD, 10)
 
         painter.fillRect(0, 0, W, self.height(), QColor(HEADER_BG))
         painter.setPen(QColor(TEXT_DIM))
@@ -176,13 +178,16 @@ class LapAxisWidget(QWidget):
 class TyreStrategyWindow(PitWallWindow):
 
     def __init__(self, master_client=None, auto_start=True):
-        # attrs FIRST — super().__init__() calls setup_ui() immediately
-        self.stints      = {}
-        self.prev_tyres  = {}
-        self.stint_count = {}
-        self.driver_names = {}
-        self.total_laps  = 0
-        self.current_lap = 0
+        # Initialize ALL attributes FIRST — super().__init__() calls setup_ui() immediately
+        self.stints          = {}
+        self.prev_tyres      = {}
+        self.stint_count     = {}
+        self.driver_names    = {}
+        self.positions       = {}
+        self.total_laps      = 60
+        self.current_lap     = 1
+        self._row_widgets    = {}
+        self._redraw_pending = False
 
         # Load persisted state if exists
         self._load_state()
@@ -291,7 +296,7 @@ class TyreStrategyWindow(PitWallWindow):
         legend_row.setFixedHeight(30)
         legend_row.setStyleSheet(f"background:#111111; border-bottom:1px solid {BORDER};")
         leg_layout = QHBoxLayout(legend_row)
-        leg_layout.setContentsMargins(80, 0, 12, 0)
+        leg_layout.setContentsMargins(86, 0, 12, 0)
         leg_layout.setSpacing(18)
 
         for tval, (col, abbr) in TYRE_COLOURS.items():
@@ -393,7 +398,7 @@ class TyreStrategyWindow(PitWallWindow):
     # ----------------------------------------------------------- Render ----
 
     def _flush_redraw(self):
-        if not self._redraw_pending:
+        if not getattr(self, "_redraw_pending", False):
             return
         self._redraw_pending = False
 
@@ -414,8 +419,8 @@ class TyreStrategyWindow(PitWallWindow):
             if code not in self._row_widgets:
                 bar = StintBar(code, self.stints[code], self.total_laps, pos, self.current_lap)
                 self._row_widgets[code] = bar
+                self.rows_layout.insertWidget(i, bar)
             else:
                 self._row_widgets[code].update_data(
                     self.stints[code], self.total_laps, pos, self.current_lap
                 )
-            self.rows_layout.insertWidget(i, self._row_widgets[code])
