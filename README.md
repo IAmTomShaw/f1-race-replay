@@ -34,9 +34,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 
 ### 🎬 Demo Video
 
-https://github.com/user-attachments/assets/demo_f1_race_replay.mp4
-
-<video src="./images/demo_f1_race_replay.mp4" controls width="100%"></video>
+https://github.com/SwastikPandey1024/f1-race-replay/raw/main/images/demo_f1_race_replay.mp4
 
 > *Full walkthrough: session selection → race replay with live telemetry → practice stint analysis → pit wall dashboard.*
 
