@@ -41,12 +41,18 @@ def cli_load():
     if not round_number:
         sys.exit(0)
 
-    sessions = ["Qualifying", "Race"]
+    is_sprint = False
     for row in data:
         if row['round_number'] == round_number:
-            if row['type'].find('sprint') != -1:
-                sessions.insert(0, "Sprint Qualifying")
-                sessions.insert(1, "Sprint")
+            if 'sprint' in str(row.get('type', '')).lower():
+                is_sprint = True
+                break
+
+    if is_sprint:
+        sessions = ["FP1", "Sprint Qualifying", "Sprint", "Qualifying", "Race"]
+    else:
+        sessions = ["FP1", "FP2", "FP3", "Qualifying", "Race"]
+
     session = select("Choose a session", choices=sessions, qmark="🏁", style=style).ask()
     if not session:
         sys.exit(0)
@@ -61,6 +67,12 @@ def cli_load():
 
     flag = None
     match session:
+        case "FP1":
+            flag = "--fp1"
+        case "FP2":
+            flag = "--fp2"
+        case "FP3":
+            flag = "--fp3"
         case "Qualifying":
             flag = "--qualifying" 
         case "Sprint Qualifying":

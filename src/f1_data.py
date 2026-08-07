@@ -68,7 +68,6 @@ def _process_single_driver(args):
             # Handle case where FastF1 fails to merge car and position data
             # due to empty position telemetry (missing 'Date' column)
             if "'Date'" in str(e):
-                print(f"Warning: Skipping lap {lap.LapNumber} for driver {driver_code} due to missing position telemetry")
                 continue
             else:
                 # Re-raise if it's a different KeyError
@@ -1515,3 +1514,69 @@ def list_sprints(year):
     else:
         for _, event in sprints.iterrows():
             print(f"{event['RoundNumber']}: {event['EventName']}")
+
+
+def get_practice_telemetry(session, session_type="FP1"):
+    """
+    Extract practice session telemetry, stint pace breakdowns, tyre stint usage,
+    and long run vs qualifying simulation classifications.
+    """
+    driver_stints = {}
+    best_laps = {}
+
+    for driver in session.drivers:
+        try:
+            driver_laps = session.laps.pick_drivers(driver)
+            if driver_laps.empty:
+                continue
+
+            driver_code = str(driver_laps.iloc[0]['Driver']) if 'Driver' in driver_laps.columns else str(driver)
+
+            # Best lap details
+            fastest_lap = driver_laps.pick_fastest()
+            fastest_time_sec = float(fastest_lap['LapTime'].total_seconds()) if (fastest_lap is not None and pd.notna(fastest_lap['LapTime'])) else None
+
+            best_laps[driver_code] = {
+                'driver': driver_code,
+                'fastest_lap_time': fastest_time_sec,
+                'compound': str(fastest_lap['Compound']) if (fastest_lap is not None and 'Compound' in fastest_lap) else 'UNKNOWN',
+                's1': float(fastest_lap['Sector1Time'].total_seconds()) if (fastest_lap is not None and pd.notna(fastest_lap.get('Sector1Time'))) else None,
+                's2': float(fastest_lap['Sector2Time'].total_seconds()) if (fastest_lap is not None and pd.notna(fastest_lap.get('Sector2Time'))) else None,
+                's3': float(fastest_lap['Sector3Time'].total_seconds()) if (fastest_lap is not None and pd.notna(fastest_lap.get('Sector3Time'))) else None,
+            }
+
+            # Stint breakdown
+            stints = []
+            if 'Stint' in driver_laps.columns:
+                for stint_num, stint_laps in driver_laps.groupby('Stint'):
+                    valid_laps = stint_laps.pick_quicklaps()
+                    lap_count = len(stint_laps)
+                    compound = str(stint_laps.iloc[0]['Compound']) if 'Compound' in stint_laps.columns else 'UNKNOWN'
+
+                    avg_pace = None
+                    if not valid_laps.empty and 'LapTime' in valid_laps.columns:
+                        times = valid_laps['LapTime'].dt.total_seconds().dropna()
+                        if not times.empty:
+                            avg_pace = float(times.mean())
+
+                    run_type = "Long Run" if lap_count >= 6 else ("Quali Sim" if lap_count <= 3 else "Medium Run")
+
+                    stints.append({
+                        'stint_number': int(stint_num),
+                        'compound': compound,
+                        'total_laps': lap_count,
+                        'avg_pace_sec': avg_pace,
+                        'run_type': run_type,
+                    })
+
+            driver_stints[driver_code] = stints
+
+        except Exception as e:
+            print(f"Error processing practice telemetry for driver {driver}: {e}")
+
+    return {
+        'session_type': session_type,
+        'best_laps': best_laps,
+        'driver_stints': driver_stints,
+    }
+

@@ -18,6 +18,13 @@ computed_data/
 output_animation.mp4
 still_frame.png
 
+# Large video files (use external hosting for demos)
+images/*.mp4
+images/*.avi
+images/*.mov
+# Allow the compressed demo video (~1MB)
+!images/demo_f1_race_replay.mp4
+
 # OS / IDE files
 .DS_Store
 .idea/

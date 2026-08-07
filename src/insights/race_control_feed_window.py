@@ -92,11 +92,11 @@ _NO_DATA_TEXT = (
 class RaceControlFeedWindow(PitWallWindow):
     """Scrolling feed of FIA race control messages synced to the replay."""
 
-    def __init__(self):
+    def __init__(self, master_client=None, auto_start=True):
         self._seen_hashes = set()
         self._state = "init"  # "init" | "waiting" | "no_data" | "active"
         self._last_frame_index = -1
-        super().__init__()
+        super().__init__(master_client=master_client, auto_start=auto_start)
         self.setWindowTitle("Race Control Feed")
         self.setGeometry(120, 120, 420, 620)
 

@@ -517,8 +517,8 @@ class TrackPositionWindow(PitWallWindow):
     Renders real circuit shape when geometry is available, else a circle.
     """
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, master_client=None, auto_start=True):
+        super().__init__(master_client=master_client, auto_start=auto_start)
         self.setWindowTitle("F1 Race Replay - Track Position Map")
         self.setMinimumSize(520, 560)
         self._circuit_length_m: float | None = None

@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names, load_session
+from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names
 from src.gui.settings_dialog import SettingsDialog
 from src.lib.season import get_season
 
@@ -242,11 +242,10 @@ class RaceSelectionWindow(QMainWindow):
             pass
         # determine sessions to show
         ev_type = (ev.get("type") or "").lower()
-        sessions = ["Qualifying", "Race"]
         if "sprint" in ev_type:
-            sessions.insert(0, "Sprint Qualifying")
-            # show sprint-related session
-            sessions.insert(2, "Sprint")
+            sessions = ["FP1", "Sprint Qualifying", "Sprint", "Qualifying", "Race"]
+        else:
+            sessions = ["FP1", "FP2", "FP3", "Qualifying", "Race"]
 
         # clear existing session widgets
         for i in reversed(range(self.session_list_layout.count())):
@@ -260,7 +259,21 @@ class RaceSelectionWindow(QMainWindow):
 
         available_sessions = []
         for s in sessions:
-            session_date_str = session_dates.get(s)
+            candidates = [s]
+            if s == "FP1": candidates = ["Practice 1", "FP1"]
+            elif s == "FP2": candidates = ["Practice 2", "FP2"]
+            elif s == "FP3": candidates = ["Practice 3", "FP3"]
+            elif s == "Sprint Qualifying": candidates = ["Sprint Qualifying", "Sprint Shootout", "SQ"]
+            elif s == "Sprint": candidates = ["Sprint", "S"]
+            elif s == "Qualifying": candidates = ["Qualifying", "Q"]
+            elif s == "Race": candidates = ["Race", "R"]
+
+            session_date_str = None
+            for cand in candidates:
+                if cand in session_dates:
+                    session_date_str = session_dates[cand]
+                    break
+
             if session_date_str:
                 try:
                     session_dt = datetime.fromisoformat(session_date_str)
@@ -288,9 +301,9 @@ class RaceSelectionWindow(QMainWindow):
     def _on_session_button_clicked(self, ev, session_label):
         """Launch main.py in a separate process to run the selected session.
 
-        Uses the same CLI flags that `main.py` understands: `--qualifying`,
-        `--sprint-qualifying`, `--sprint`. Runs the command detached so the
-        Qt UI remains responsive.
+        Uses the same CLI flags that `main.py` understands: `--fp1`, `--fp2`,
+        `--fp3`, `--qualifying`, `--sprint-qualifying`, `--sprint`. Runs the command
+        detached so the Qt UI remains responsive.
         """
         try:
             year = ev.get("year") or self.selected_year
@@ -304,7 +317,13 @@ class RaceSelectionWindow(QMainWindow):
 
         # map button labels to CLI flags
         flag = None
-        if session_label == "Qualifying":
+        if session_label == "FP1":
+            flag = "--fp1"
+        elif session_label == "FP2":
+            flag = "--fp2"
+        elif session_label == "FP3":
+            flag = "--fp3"
+        elif session_label == "Qualifying":
             flag = "--qualifying"
         elif session_label == "Sprint Qualifying":
             flag = "--sprint-qualifying"
@@ -323,7 +342,9 @@ class RaceSelectionWindow(QMainWindow):
             cmd.append(flag)
         if "--verbose" in sys.argv:
             cmd.append("--verbose")
-        # Show a modal loading dialog and load the session in a background thread.
+        # Spawn the subprocess directly – the child process loads the session
+        # itself, so there is no need to pre-load it here (which was causing
+        # the session to be loaded twice and doubling the wait time).
         dlg = QProgressDialog("Loading session data...", None, 0, 0, self)
         dlg.setWindowTitle("Loading")
         dlg.setWindowModality(Qt.ApplicationModal)
@@ -333,99 +354,52 @@ class RaceSelectionWindow(QMainWindow):
         dlg.show()
         QApplication.processEvents()
 
-        # Map label -> fastf1 session type code
-        session_code = 'R'
-        if session_label == "Qualifying":
-            session_code = 'Q'
-        elif session_label == "Sprint Qualifying":
-            session_code = 'SQ'
-        elif session_label == "Sprint":
-            session_code = 'S'
+        ready_path = os.path.join(tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}")
+        cmd_with_ready = list(cmd) + ["--ready-file", ready_path]
 
-        class FetchSessionWorker(QThread):
-            result = Signal(object)
-            error = Signal(str)
-
-            def __init__(self, year, round_no, session_type, parent=None):
-                super().__init__(parent)
-                self.year = year
-                self.round_no = round_no
-                self.session_type = session_type
-
-            def run(self):
-                try:
-                    try:
-                        from src.f1_data import enable_cache
-                        enable_cache()
-                    except Exception:
-                        pass
-                    sess = load_session(self.year, self.round_no, self.session_type)
-                    self.result.emit(sess)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-        def _on_loaded(session_obj):
-            # create a unique ready-file path and pass it to the child
-            ready_path = os.path.join(tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}")
-            cmd_with_ready = list(cmd) + ["--ready-file", ready_path]
-
-            try:
-                proc = subprocess.Popen(cmd_with_ready)
-            except Exception as exc:
-                try:
-                    dlg.close()
-                except Exception:
-                    pass
-                QMessageBox.critical(self, "Playback error", f"Failed to start playback:\n{exc}")
-                return
-
-            # Poll for ready file or child exit
-            timer = QTimer(self)
-
-            def _check_ready():
-                try:
-                    if os.path.exists(ready_path):
-                        try:
-                            dlg.close()
-                        except Exception:
-                            pass
-                        timer.stop()
-                        try:
-                            os.remove(ready_path)
-                        except Exception:
-                            pass
-                        return
-                    # if process exited early, show error
-                    if proc.poll() is not None:
-                        try:
-                            dlg.close()
-                        except Exception:
-                            pass
-                        timer.stop()
-                        QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
-                except Exception:
-                    # ignore transient file-system errors
-                    pass
-
-            timer.timeout.connect(_check_ready)
-            timer.start(200)
-            # keep references
-            self._play_proc = proc
-            self._ready_timer = timer
-
-        def _on_error(msg):
+        try:
+            proc = subprocess.Popen(cmd_with_ready)
+        except Exception as exc:
             try:
                 dlg.close()
             except Exception:
                 pass
-            QMessageBox.critical(self, "Load error", f"Failed to load session data:\n{msg}")
+            QMessageBox.critical(self, "Playback error", f"Failed to start playback:\n{exc}")
+            return
 
-        worker = FetchSessionWorker(year, round_no, session_code)
-        worker.result.connect(_on_loaded)
-        worker.error.connect(_on_error)
-        # Keep a reference so it doesn't get GC'd
-        self._session_worker = worker
-        worker.start()
+        # Poll for ready file or child exit
+        timer = QTimer(self)
+
+        def _check_ready():
+            try:
+                if os.path.exists(ready_path):
+                    try:
+                        dlg.close()
+                    except Exception:
+                        pass
+                    timer.stop()
+                    try:
+                        os.remove(ready_path)
+                    except Exception:
+                        pass
+                    return
+                # if process exited early, show error
+                if proc.poll() is not None:
+                    try:
+                        dlg.close()
+                    except Exception:
+                        pass
+                    timer.stop()
+                    QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
+            except Exception:
+                # ignore transient file-system errors
+                pass
+
+        timer.timeout.connect(_check_ready)
+        timer.start(200)
+        # keep references
+        self._play_proc = proc
+        self._ready_timer = timer
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
