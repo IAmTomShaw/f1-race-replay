@@ -299,10 +299,36 @@ class LapTimeChartWindow(PitWallWindow):
     Pit wall insight that plots lap times for all drivers across the race.
     """
 
-    def __init__(self):
+    def __init__(self, master_client=None, auto_start=True):
         self._lap_times = {}        # code -> list of {"lap", "time_s", "tyre"}
         self._status_laps = []      # list of {"status", "start_lap", "end_lap"}
         self._driver_colors = {}    # code -> hex colour
+        self._hover_annotation = None
+        self._hover_scatter = None
+        self._hovered_point = None  # (driver, lap_idx)
+        self._pure_pace_mode = False
+        self._last_processed_frame = -1
+        self._history = []
+        self._undo_stack = []
+        self._redo_stack = []
+        self._is_restoring_state = False
+
+        self._driver_picker = None
+        self._yaxis_picker = None
+        self._pure_pace_check = None
+        self._undo_btn = None
+        self._redo_btn = None
+        self._reset_btn = None
+        self._help_btn = None
+        self._lap_status_lbl = None
+
+        self._artist_cache = {
+            "lines": {},
+            "markers": {},
+            "status_spans": [],
+            "status_texts": [],
+        }
+        self._overlay_blit = None
         self._known_drivers = []
         self._total_laps = 0
         self._leader_lap = 0
@@ -311,6 +337,8 @@ class LapTimeChartWindow(PitWallWindow):
         self._needs_full_redraw = True
         self._focused_drivers = set()   # set of codes
         self._y_mode = _YMODE_TIME
+
+        super().__init__(master_client=master_client, auto_start=auto_start)
         self._has_ever_drawn = False    # True after first successful redraw
         self._legend_visible = True
         self._legend_artist = None
@@ -372,8 +400,6 @@ class LapTimeChartWindow(PitWallWindow):
             "resize_freeze_ms": 0.0,
         }
         self._overlay_blit = None
-
-        super().__init__()
 
         self._deferred_redraw_timer = QTimer(self)
         self._deferred_redraw_timer.setSingleShot(True)

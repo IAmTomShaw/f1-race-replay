@@ -44,6 +44,12 @@ class InsightsMenu(QMainWindow):
         content_layout.setContentsMargins(10, 10, 10, 10)
         
         # Add insight categories
+        content_layout.addWidget(self.create_category_section(
+            "PIT WALL WORKSPACE",
+            [
+                ("Unified Pit Wall Dashboard", "Combined dockable workspace for all live telemetry insights", self.launch_pit_wall_dashboard),
+            ]
+        ))
 
         content_layout.addWidget(self.create_category_section(
             "Example Insights",
@@ -76,9 +82,10 @@ class InsightsMenu(QMainWindow):
         ))
 
         content_layout.addWidget(self.create_category_section(
-            "Race Analysis",
+            "RACE ANALYSIS",
             [
-                ("Lap Time & Gap Evolution", "Lap time and gap trends per driver", self.launch_lap_time_chart),
+                ("Lap Time & Pace Evolution", "Lap time and pace trends per driver", self.launch_lap_time_chart),
+                ("Gap & Interval Evolution", "Gap to leader and interval to car ahead across laps", self.launch_gap_evolution),
             ]
         ))
         
@@ -272,6 +279,20 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: DRS Usage")
         self.show_placeholder_message("DRS Usage")
     
+    def launch_pit_wall_dashboard(self):
+        print("🚀 Launching: Unified Pit Wall Dashboard")
+        from src.gui.pit_wall_dashboard import PitWallDashboardWindow
+        window = PitWallDashboardWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_gap_evolution(self):
+        print("🚀 Launching: Gap & Interval Evolution")
+        from src.insights.gap_evolution_window import GapEvolutionWindow
+        window = GapEvolutionWindow()
+        window.show()
+        self.opened_windows.append(window)
+
     def show_placeholder_message(self, insight_name):
         from PySide6.QtWidgets import QMessageBox
         

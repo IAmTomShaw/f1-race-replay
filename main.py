@@ -145,7 +145,12 @@ if __name__ == "__main__":
       visible_hud = False
 
     # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
+    session_type = (
+        'SQ' if "--sprint-qualifying" in sys.argv else
+        'S' if "--sprint" in sys.argv else
+        'Q' if "--qualifying" in sys.argv else
+        'R'
+    )
 
     # Optional ready-file path used when spawned from the GUI to signal ready state
     ready_file = None
@@ -156,6 +161,13 @@ if __name__ == "__main__":
 
     main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
     sys.exit(0)
+
+  if "--dashboard" in sys.argv:
+    from src.gui.pit_wall_dashboard import PitWallDashboardWindow
+    app = QApplication(sys.argv)
+    dash = PitWallDashboardWindow()
+    dash.show()
+    sys.exit(app.exec())
 
   # Run the GUI
 

@@ -175,20 +175,19 @@ class LapAxisWidget(QWidget):
 
 class TyreStrategyWindow(PitWallWindow):
 
-    def __init__(self):
+    def __init__(self, master_client=None, auto_start=True):
         # attrs FIRST — super().__init__() calls setup_ui() immediately
         self.stints      = {}
         self.prev_tyres  = {}
-        self.positions   = {}
-        self.total_laps  = 60
-        self.current_lap = 1
-        self._row_widgets: dict[str, StintBar] = {}
-        self._redraw_pending = False
+        self.stint_count = {}
+        self.driver_names = {}
+        self.total_laps  = 0
+        self.current_lap = 0
 
         # Load persisted state if exists
         self._load_state()
 
-        super().__init__()
+        super().__init__(master_client=master_client, auto_start=auto_start)
         self.setWindowTitle("F1 Tyre Strategy")
         self.statusBar().hide()
         self.setStyleSheet("QMainWindow { background: #0f0f0f; } QStatusBar { background: #111111; }")
