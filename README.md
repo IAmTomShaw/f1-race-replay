@@ -8,6 +8,10 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 
 ## Features
 
+- **Unified Pit Wall Dashboard:** Single-window dockable PySide6 control center embedding Track Position Map, Driver Telemetry, Tyre Strategy & Stints, Race Control Feed, and Lap Pace into a customizable, multi-dock workspace. Includes layout presets (*Full Pit Wall*, *Quad View*, *Driver Focus*, *Strategy & Pace Focus*) and a single-socket `master_client` shared telemetry stream architecture.
+- **Gap & Interval Evolution Insight:** Interactive chart plotting live gap to leader and interval to car ahead across laps, safety cars, and pit stops.
+- **Practice Session (FP1 / FP2 / FP3) Replay:** Complete practice session telemetry extraction, sector breakdown, stint pace analysis, and long run vs qualifying simulation classifications.
+- **Enhanced Driver Live Telemetry:** Speed, gear, throttle/brake visual bars, DRS indicator, tyre wear %, compound age, and gap deltas (ahead/behind).
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
 - **Safety Car Visualization:** See the Safety Car deploy from pit lane, lead the field, and return to pits — with animated transitions and pulsing glow effects.
 - **Insights Menu:** Floating menu for quick access to telemetry analysis tools (launches automatically with replay).
@@ -15,8 +19,21 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Lap & Time Display:** Track the current lap and total race time.
 - **Driver Status:** Drivers who retire or go out are marked as "OUT" on the leaderboard.
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
-- **Legend:** On-screen legend explains all controls.
-- **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+
+## Gallery & Features Overview
+
+| Feature | Preview |
+|---------|---------|
+| **Unified Pit Wall Dashboard** | ![Pit Wall Dashboard](./images/screenshot_pit_wall_dashboard.jpeg) |
+| **Race Replay & Insights Menu** | ![Race Replay Insights](./images/screenshot_race_replay_insights.jpeg) |
+| **Lap Pace Evolution** | ![Lap Pace Evolution](./images/screenshot_lap_pace_evolution.jpeg) |
+| **Gap to Leader Evolution** | ![Gap to Leader](./images/screenshot_gap_to_leader.jpeg) |
+| **Race Selection GUI** | ![Race Selection](./images/screenshot_race_selection_gui.jpeg) |
+
+> 📌 **Detailed Documentation**:
+> - [Pit Wall Dashboard Architecture & Guide](./docs/PitWallDashboard.md)
+> - [Testing Strategy & Test Coverage Guide](./docs/Testing.md)
+
 
 ## Controls
 
@@ -114,7 +131,29 @@ To get started with this project locally, you can follow these steps:
     ```
 
 4. **Run the Application:**
-    You can now run the application using the instructions in the Usage section below.
+
+    Launch the graphical race picker:
+    ```bash
+    python main.py
+    ```
+
+    Launch the **Unified Pit Wall Dashboard**:
+    ```bash
+    python main.py --dashboard
+    ```
+
+    Launch **Practice Session (FP1 / FP2 / FP3)** replay:
+    ```bash
+    python main.py --fp1
+    python main.py --fp2
+    python main.py --fp3
+    ```
+
+    Launch **Qualifying Session** replay:
+    ```bash
+    python main.py --qualifying
+    ```
+
 ## Troubleshooting
 If the pull data proccess fails, run:
 ```bash
