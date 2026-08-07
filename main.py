@@ -1,6 +1,7 @@
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
+from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, get_practice_telemetry, list_rounds, list_sprints
 from src.run_session import run_arcade_replay, launch_insights_menu
 from src.interfaces.qualifying import run_qualifying_replay
+from src.interfaces.practice import run_practice_replay
 import sys
 from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
@@ -17,7 +18,12 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   # Enable cache for fastf1
   enable_cache()
 
-  if session_type == 'Q' or session_type == 'SQ':
+  if session_type.startswith('FP'):
+    practice_data = get_practice_telemetry(session, session_type=session_type)
+    title = f"{session.event['EventName']} - {session_type} Practice Analysis"
+    run_practice_replay(session=session, data=practice_data, title=title)
+
+  elif session_type == 'Q' or session_type == 'SQ':
 
     # Get the drivers who participated and their lap times
 
@@ -146,6 +152,9 @@ if __name__ == "__main__":
 
     # Session type selection
     session_type = (
+        'FP1' if "--fp1" in sys.argv else
+        'FP2' if "--fp2" in sys.argv else
+        'FP3' if "--fp3" in sys.argv else
         'SQ' if "--sprint-qualifying" in sys.argv else
         'S' if "--sprint" in sys.argv else
         'Q' if "--qualifying" in sys.argv else

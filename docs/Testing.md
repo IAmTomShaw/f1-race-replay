@@ -41,6 +41,7 @@ The current suite includes:
 - unit tests for settings persistence with temporary files
 - smoke import tests for project modules
 - unit tests for Pit Wall Dashboard dock initialization and preset views
+- unit tests for practice session telemetry extraction and stint analysis
 
 Some import smoke tests may be skipped locally when optional runtime dependencies are not installed.
 
@@ -52,6 +53,12 @@ Tests for PySide6-based components. These require the `PySide6` package to be in
 |------|---------------|
 | `test_pit_wall_dashboard.py` | Dashboard initialization with all 5 dock panels, preset view toggling (Full Pit Wall, Quad View, Driver Focus) |
 
+### Feature tests
+
+| File | What it covers |
+|------|---------------|
+| `test_practice.py` | Practice session telemetry extraction (`get_practice_telemetry`), best lap leaderboard structure, stint analysis output format |
+
 ## Running all tests
 
 Run the full suite:
@@ -62,7 +69,13 @@ Run only lightweight unit tests:
 
     python -m pytest tests/lib
 
+<<<<<<< HEAD
 Run GUI-specific tests:
 
     python -m pytest tests/gui -v
 
+=======
+Run feature tests individually:
+
+    python -m pytest tests/test_practice.py -v
+>>>>>>> feat/practice-session

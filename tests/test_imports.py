@@ -20,6 +20,7 @@ MODULES = [
     "src.insights.telemetry_stream_viewer",
     "src.insights.track_position_window",
     "src.insights.tyre_strategy_window",
+    "src.interfaces.practice",
     "src.interfaces.qualifying",
     "src.interfaces.race_replay",
     "src.lib.season",
