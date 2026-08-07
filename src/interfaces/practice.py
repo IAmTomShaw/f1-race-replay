@@ -166,9 +166,13 @@ class PracticeSessionWindow(QMainWindow):
 
 def run_practice_replay(session, data: dict, title: str = "Practice Session"):
     app = QApplication.instance()
+    is_standalone = False
     if app is None:
         app = QApplication(sys.argv)
+        is_standalone = True
 
     win = PracticeSessionWindow(title, data)
     win.show()
+    if is_standalone:
+        sys.exit(app.exec())
     return win

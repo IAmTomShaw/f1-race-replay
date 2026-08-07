@@ -242,11 +242,10 @@ class RaceSelectionWindow(QMainWindow):
             pass
         # determine sessions to show
         ev_type = (ev.get("type") or "").lower()
-        sessions = ["Qualifying", "Race"]
         if "sprint" in ev_type:
-            sessions.insert(0, "Sprint Qualifying")
-            # show sprint-related session
-            sessions.insert(2, "Sprint")
+            sessions = ["FP1", "Sprint Qualifying", "Sprint", "Qualifying", "Race"]
+        else:
+            sessions = ["FP1", "FP2", "FP3", "Qualifying", "Race"]
 
         # clear existing session widgets
         for i in reversed(range(self.session_list_layout.count())):
@@ -260,7 +259,21 @@ class RaceSelectionWindow(QMainWindow):
 
         available_sessions = []
         for s in sessions:
-            session_date_str = session_dates.get(s)
+            candidates = [s]
+            if s == "FP1": candidates = ["Practice 1", "FP1"]
+            elif s == "FP2": candidates = ["Practice 2", "FP2"]
+            elif s == "FP3": candidates = ["Practice 3", "FP3"]
+            elif s == "Sprint Qualifying": candidates = ["Sprint Qualifying", "Sprint Shootout", "SQ"]
+            elif s == "Sprint": candidates = ["Sprint", "S"]
+            elif s == "Qualifying": candidates = ["Qualifying", "Q"]
+            elif s == "Race": candidates = ["Race", "R"]
+
+            session_date_str = None
+            for cand in candidates:
+                if cand in session_dates:
+                    session_date_str = session_dates[cand]
+                    break
+
             if session_date_str:
                 try:
                     session_dt = datetime.fromisoformat(session_date_str)
@@ -288,9 +301,9 @@ class RaceSelectionWindow(QMainWindow):
     def _on_session_button_clicked(self, ev, session_label):
         """Launch main.py in a separate process to run the selected session.
 
-        Uses the same CLI flags that `main.py` understands: `--qualifying`,
-        `--sprint-qualifying`, `--sprint`. Runs the command detached so the
-        Qt UI remains responsive.
+        Uses the same CLI flags that `main.py` understands: `--fp1`, `--fp2`,
+        `--fp3`, `--qualifying`, `--sprint-qualifying`, `--sprint`. Runs the command
+        detached so the Qt UI remains responsive.
         """
         try:
             year = ev.get("year") or self.selected_year
@@ -341,7 +354,13 @@ class RaceSelectionWindow(QMainWindow):
 
         # Map label -> fastf1 session type code
         session_code = 'R'
-        if session_label == "Qualifying":
+        if session_label == "FP1":
+            session_code = 'FP1'
+        elif session_label == "FP2":
+            session_code = 'FP2'
+        elif session_label == "FP3":
+            session_code = 'FP3'
+        elif session_label == "Qualifying":
             session_code = 'Q'
         elif session_label == "Sprint Qualifying":
             session_code = 'SQ'
