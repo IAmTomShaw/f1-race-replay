@@ -21,7 +21,7 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   if session_type.startswith('FP'):
     practice_data = get_practice_telemetry(session, session_type=session_type)
     title = f"{session.event['EventName']} - {session_type} Practice Analysis"
-    run_practice_replay(session=session, data=practice_data, title=title)
+    run_practice_replay(session=session, data=practice_data, title=title, ready_file=ready_file)
 
   elif session_type == 'Q' or session_type == 'SQ':
 

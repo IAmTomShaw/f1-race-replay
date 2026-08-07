@@ -25,6 +25,8 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 | Feature | Preview |
 |---------|---------|
 | **Unified Pit Wall Dashboard** | ![Pit Wall Dashboard](./images/screenshot_pit_wall_dashboard.jpeg) |
+| **Practice Session Stint Pace** | ![Practice Stint Pace](./images/screenshot_practice_stint_pace.png) |
+| **Practice Best Laps Leaderboard** | ![Practice Best Laps](./images/screenshot_practice_best_laps.png) |
 | **Race Replay & Insights Menu** | ![Race Replay Insights](./images/screenshot_race_replay_insights.jpeg) |
 | **Lap Pace Evolution** | ![Lap Pace Evolution](./images/screenshot_lap_pace_evolution.jpeg) |
 | **Gap to Leader Evolution** | ![Gap to Leader](./images/screenshot_gap_to_leader.jpeg) |

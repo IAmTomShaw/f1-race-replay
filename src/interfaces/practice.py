@@ -164,7 +164,14 @@ class PracticeSessionWindow(QMainWindow):
         return table
 
 
-def run_practice_replay(session, data: dict, title: str = "Practice Session"):
+def run_practice_replay(session, data: dict, title: str = "Practice Session", ready_file: str = None):
+    if ready_file:
+        try:
+            with open(ready_file, 'w') as f:
+                f.write('ready')
+        except Exception:
+            pass
+
     app = QApplication.instance()
     is_standalone = False
     if app is None:

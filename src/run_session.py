@@ -56,7 +56,8 @@ def launch_insights_menu():
     try:
       # Give the main application a moment to start
       time.sleep(1)
-      subprocess.run([sys.executable, "-m", "src.gui.insights_menu"], check=False)
+      project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+      subprocess.run([sys.executable, "-m", "src.gui.insights_menu"], cwd=project_root, check=False)
     except Exception as e:
       print(f"Failed to launch insights menu: {e}")
   
