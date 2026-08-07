@@ -68,7 +68,6 @@ def _process_single_driver(args):
             # Handle case where FastF1 fails to merge car and position data
             # due to empty position telemetry (missing 'Date' column)
             if "'Date'" in str(e):
-                print(f"Warning: Skipping lap {lap.LapNumber} for driver {driver_code} due to missing position telemetry")
                 continue
             else:
                 # Re-raise if it's a different KeyError
