@@ -15,6 +15,7 @@ MODULES = [
     "src.insights.driver_telemetry_window",
     "src.insights.example_pit_wall_window",
     "src.insights.race_control_feed_window",
+    "src.insights.sector_times_window",
     "src.insights.telemetry_stream_viewer",
     "src.insights.track_position_window",
     "src.insights.tyre_strategy_window",

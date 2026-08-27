@@ -79,6 +79,7 @@ class InsightsMenu(QMainWindow):
             "Race Analysis",
             [
                 ("Lap Time & Gap Evolution", "Lap time and gap trends per driver", self.launch_lap_time_chart),
+                ("Sector Times", "Per-lap sector breakdown with session & personal bests", self.launch_sector_times),
             ]
         ))
         
@@ -250,7 +251,10 @@ class InsightsMenu(QMainWindow):
     
     def launch_sector_times(self):
         print("🚀 Launching: Sector Times")
-        self.show_placeholder_message("Sector Times")
+        from src.insights.sector_times_window import SectorTimesWindow
+        window = SectorTimesWindow()
+        window.show()
+        self.opened_windows.append(window)
     
     def launch_lap_evolution(self):
         print("🚀 Launching: Lap Time & Gap Evolution")

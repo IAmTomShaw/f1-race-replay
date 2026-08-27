@@ -97,6 +97,20 @@ The `safety_car` field in each frame contains the simulated Safety Car position 
 
 > **Note:** The Safety Car position is simulated (placed ~500m ahead of the race leader) since the F1 API does not provide real SC GPS data. The `phase` field is useful for triggering visual effects in custom tools.
 
+### Sector Times
+
+Each entry in the `lap_times` payload carries the three sector times for that lap, in seconds:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `sector1_s` | float \| null | Sector 1 time in seconds |
+| `sector2_s` | float \| null | Sector 2 time in seconds |
+| `sector3_s` | float \| null | Sector 3 time in seconds |
+
+These come from official FastF1 lap data. A field is `null` when the timing feed has no sector time for that lap — most commonly the opening lap of a session, laps interrupted by a red flag, and laps reconstructed from frame data rather than official timing. Consumers should treat `null` as "unknown" rather than zero.
+
+`src/lib/sectors.py` provides helpers for working with these values: `best_sectors`, `theoretical_best_s` (ideal-lap sum), `classify_sector_statuses` (session best / personal best colouring), and `session_best_holders`.
+
 ## Technical Details
 
 - **Protocol**: TCP socket on `localhost:9999`
