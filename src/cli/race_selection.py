@@ -41,7 +41,7 @@ def cli_load():
     if not round_number:
         sys.exit(0)
 
-    sessions = ["Qualifying", "Race"]
+    sessions = ["FP1", "FP2", "FP3", "Qualifying", "Race"]
     for row in data:
         if row['round_number'] == round_number:
             if row['type'].find('sprint') != -1:
@@ -67,6 +67,8 @@ def cli_load():
             flag = "--sprint-qualifying"  
         case "Sprint":
             flag = "--sprint"     
+        case "FP1" | "FP2" | "FP3":
+            flag = f"--{session.lower()}"
     main_path = os.path.normpath(os.path.join(os.path.dirname(__file__), '..', '..', 'main.py'))
     cmd = [sys.executable, main_path, "--viewer"]
     if year is not None:

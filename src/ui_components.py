@@ -604,6 +604,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
         self.selected = []  # Changed to list
         self.row_height = 25
         self._visible = True
+        self.title = "Lap Times"
 
     def set_entries(self, entries: List[dict]):
         """Accept a list of dicts with keys: pos, code, color, time"""
@@ -630,7 +631,7 @@ class LapTimeLeaderboardComponent(BaseComponent):
             return
         self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
-        arcade.Text("Lap Times", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        arcade.Text(self.title, self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
         for i, entry in enumerate(self.entries):
             pos = entry.get('pos', i + 1)
@@ -654,9 +655,11 @@ class LapTimeLeaderboardComponent(BaseComponent):
                 # accept tuple rgb or fallback to white
                 text_color = tuple(color) if isinstance(color, (list, tuple)) else arcade.color.WHITE
 
-            # Draw code on left, time right-aligned
-            arcade.Text(f"{pos}. {code}", left_x + 8, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
-            arcade.Text(time_str, right_x - 8, top_y, text_color, 14, anchor_x="right", anchor_y="top").draw()
+            # Draw position and driver name on left, time on right with more padding
+            driver_name = entry.get('driver_name', code)
+            arcade.Text(f"{pos}. {driver_name}", left_x + 12, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+            if time_str:
+                arcade.Text(time_str, right_x - 12, top_y, text_color, 14, anchor_x="right", anchor_y="top").draw()
 
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int):
         for code, left, bottom, right, top in self.rects:

@@ -39,6 +39,7 @@ class PracticeReplay(arcade.Window):
             x=LEFT_MARGIN,
             width=300
         )
+        self.leaderboard.title = "Practice Times"
 
         self.race_controls_comp = RaceControlsComponent(
             center_x= self.width // 2 + 100,
@@ -437,7 +438,7 @@ class PracticeReplay(arcade.Window):
 
                         # Draw text label
                         arcade.Text(
-                            f"Comparison: {comp_driver_code}",
+                            f"Comparison   {comp_driver_code}",
                             comp_square_x + comp_key_size + key_label_padding,
                             row_y,
                             arcade.color.ANTI_FLASH_WHITE,
@@ -1088,7 +1089,9 @@ class PracticeReplay(arcade.Window):
                         telemetry = seg
 
             if telemetry is None and getattr(self, "session", None) is not None:
-                telemetry = get_driver_practice_telemetry(self.session, driver_code)
+                telemetry_by_driver = get_driver_practice_telemetry(self.session, driver_code)
+                driver_block = telemetry_by_driver.get(driver_code)
+                telemetry = driver_block.get("best_lap") if driver_block else None
 
             if telemetry is None:
                 pass  # Just don't add to loaded_telemetry
