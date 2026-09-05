@@ -243,10 +243,55 @@ class RaceSelectionWindow(QMainWindow):
         # determine sessions to show
         ev_type = (ev.get("type") or "").lower()
         sessions = ["Qualifying", "Race"]
-        if "sprint" in ev_type:
-            sessions.insert(0, "Sprint Qualifying")
-            # show sprint-related session
-            sessions.insert(2, "Sprint")
+
+        session_dates = ev.get("session_dates", {})
+
+        if session_dates:
+            if "Practice 1" in session_dates:
+                sessions.append("FP1")
+            if "Practice 2" in session_dates:
+                sessions.append("FP2")
+            if "Practice 3" in session_dates:
+                sessions.append("FP3")
+            if "Sprint Shootout" in session_dates or "Sprint Qualifying" in session_dates:
+                sessions.append("Sprint Qualifying")
+            elif "sprint" in ev_type:
+                sessions.append("Sprint Qualifying")
+
+            if "Sprint" in session_dates or "sprint" in ev_type:
+                sessions.append("Sprint")
+        else:
+            if "sprint" in ev_type:
+                sessions.extend(["FP1", "Sprint Qualifying", "FP2", "Sprint"])
+            else:
+                sessions.extend(["FP1", "FP2", "FP3"])
+
+        # Deduplicate just in case
+        sessions = list(dict.fromkeys(sessions))
+
+        def get_session_date(s_name):
+            if not session_dates:
+                return ""
+            if s_name == "FP1": return session_dates.get("Practice 1", "")
+            if s_name == "FP2": return session_dates.get("Practice 2", "")
+            if s_name == "FP3": return session_dates.get("Practice 3", "")
+            if s_name == "Sprint Qualifying": return session_dates.get("Sprint Qualifying", session_dates.get("Sprint Shootout", ""))
+            return session_dates.get(s_name, "")
+
+        def sort_key(s_name):
+            ds = get_session_date(s_name)
+            if not ds:
+                fallback = {"FP1": 0, "FP2": 1, "FP3": 2, "Sprint Qualifying": 3, "Sprint": 4, "Qualifying": 5, "Race": 6}
+                return fallback.get(s_name, 99)
+            if "Z" in ds:
+                ds = ds.replace("Z", "+00:00")
+            try:
+                return datetime.fromisoformat(ds).timestamp()
+            except Exception:
+                fallback = {"FP1": 0, "FP2": 1, "FP3": 2, "Sprint Qualifying": 3, "Sprint": 4, "Qualifying": 5, "Race": 6}
+                return fallback.get(s_name, 99)
+
+        sessions.sort(key=sort_key)
 
         # clear existing session widgets
         for i in reversed(range(self.session_list_layout.count())):
@@ -310,6 +355,8 @@ class RaceSelectionWindow(QMainWindow):
             flag = "--sprint-qualifying"
         elif session_label == "Sprint":
             flag = "--sprint"
+        elif session_label in ["FP1", "FP2", "FP3"]:
+            flag = f"--{session_label.lower()}"
 
         main_path = os.path.normpath(
             os.path.join(os.path.dirname(__file__), "..", "..", "main.py")
@@ -341,6 +388,8 @@ class RaceSelectionWindow(QMainWindow):
             session_code = 'SQ'
         elif session_label == "Sprint":
             session_code = 'S'
+        elif session_label in ["FP1", "FP2", "FP3"]:
+            session_code = session_label
 
         class FetchSessionWorker(QThread):
             result = Signal(object)
