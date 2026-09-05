@@ -57,6 +57,7 @@ class InsightsMenu(QMainWindow):
             [
                 ("Telemetry Stream Viewer", "View raw telemetry data", self.launch_telemetry_viewer),
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
+                ("Live Tyre Strategy", "Live tyre stints and pit stop timeline per driver", self.launch_tyre_strategy),
             ]
         ))
 
@@ -71,6 +72,13 @@ class InsightsMenu(QMainWindow):
             "Race Events",
             [
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
+            "Race Analysis",
+            [
+                ("Lap Time & Gap Evolution", "Lap time and gap trends per driver", self.launch_lap_time_chart),
             ]
         ))
         
@@ -200,6 +208,13 @@ class InsightsMenu(QMainWindow):
         window.show()
         self.opened_windows.append(window)
 
+    def launch_lap_time_chart(self):
+        print("🚀 Launching: Lap Time & Gap Evolution")
+        from src.insights.lap_time_chart_window import LapTimeChartWindow
+        window = LapTimeChartWindow()
+        window.show()
+        self.opened_windows.append(window)
+
     def launch_telemetry_viewer(self):
         print("🚀 Launching: Telemetry Stream Viewer")
         try:
@@ -219,8 +234,11 @@ class InsightsMenu(QMainWindow):
         self.show_placeholder_message("Position Tracker")
     
     def launch_tyre_strategy(self):
-        print("🚀 Launching: Tyre Strategy")
-        self.show_placeholder_message("Tyre Strategy")
+        print("🚀 Launching: Live Tyre Strategy")
+        from src.insights.tyre_strategy_window import TyreStrategyWindow
+        window = TyreStrategyWindow()
+        window.show()
+        self.opened_windows.append(window)
     
     def launch_pit_analysis(self):
         print("🚀 Launching: Pit Stop Analysis")
@@ -235,8 +253,8 @@ class InsightsMenu(QMainWindow):
         self.show_placeholder_message("Sector Times")
     
     def launch_lap_evolution(self):
-        print("🚀 Launching: Lap Time Evolution")
-        self.show_placeholder_message("Lap Time Evolution")
+        print("🚀 Launching: Lap Time & Gap Evolution")
+        self.show_placeholder_message("Lap Time & Gap Evolution")
     
     def launch_top_speed(self):
         print("🚀 Launching: Top Speed Tracker")

@@ -61,6 +61,12 @@ class F1RaceReplayWindow(arcade.Window):
         self.paused = False
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
+
+        # Pre-compute per-driver lap times from the full frame data.
+        # This avoids playback-speed-dependent sampling errors when insight
+        # windows try to derive lap times from the streamed frames.
+        self._precomputed_lap_times = self._compute_lap_times(frames, session)
+        self._precomputed_status_laps = self._compute_status_laps(frames, track_statuses)
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
 
         # Rotation (degrees) to apply to the whole circuit around its centre
@@ -300,6 +306,7 @@ class F1RaceReplayWindow(arcade.Window):
             "race_control_events": rc_events,
             "session_data": {
                 "time": time_str,
+                "time_s": float(t),
                 "lap": leader_lap,
                 "leader": leader_code,
                 "total_laps": self.total_laps
@@ -318,7 +325,815 @@ class F1RaceReplayWindow(arcade.Window):
                 "rotation_deg": self.circuit_rotation,
             }
 
+        # Send pre-computed data continuously. It's just a Python dictionary reference 
+        # (O(1) memory overhead in local publish/subscribe) and ensures windows 
+        # opened after the race has finished still receive the data.
+        payload["lap_times"] = self._precomputed_lap_times
+        payload["status_laps"] = self._precomputed_status_laps
+
         self.telemetry_stream.broadcast(payload)
+
+    @staticmethod
+    def _compute_lap_times(frames, session=None):
+        """
+        Scan the full frame array once to build deterministic lap times
+        for every driver.  Returns {code: [{lap, time_s, end_time_s, tyre}, ...]}.
+        """
+        fallback_result = F1RaceReplayWindow._compute_fallback_lap_times_raw(frames)
+        classified_fallback = F1RaceReplayWindow._classify_lap_entries(
+            fallback_result,
+            official_data=False,
+        )
+
+        if session is not None and hasattr(session, 'laps'):
+            try:
+                import pandas as pd
+                import fastf1._api as ffapi
+                import fastf1.utils as ffutils
+                from src.lib.tyres import get_tyre_compound_int
+                result = {}
+                for _, row in session.laps.iterrows():
+                    code = row.get("Driver")
+                    lap_num = row.get("LapNumber")
+                    lap_time_td = row.get("LapTime")
+                    tyre_str = row.get("Compound")
+                    tyre_life = row.get("TyreLife")
+                    
+                    if pd.isna(lap_num):
+                        continue
+                        
+                    lap = int(lap_num)
+                    time_s = lap_time_td.total_seconds() if pd.notna(lap_time_td) else -1.0
+                    lap_end_td = row.get("Time")
+                    end_time_s = lap_end_td.total_seconds() if pd.notna(lap_end_td) else None
+                    line_end_td = row.get("Sector3SessionTime")
+                    line_end_s = line_end_td.total_seconds() if pd.notna(line_end_td) else end_time_s
+                    
+                    tyre_int = -1
+                    if pd.notna(tyre_str):
+                        tyre_int = get_tyre_compound_int(tyre_str)
+                        
+                    t_life = 0
+                    if pd.notna(tyre_life):
+                        t_life = int(tyre_life)
+                        
+                    is_pit_entry = False
+                    if "PitInTime" in session.laps.columns and pd.notna(row.get("PitInTime")):
+                        is_pit_entry = True
+                    is_out_lap = False
+                    if "PitOutTime" in session.laps.columns and pd.notna(row.get("PitOutTime")):
+                        is_out_lap = True
+                        
+                    result.setdefault(code, []).append({
+                        "lap": int(lap_num),
+                        "time_s": float(time_s),
+                        "end_time_s": float(end_time_s) if end_time_s is not None else None,
+                        "line_time_s": float(line_end_s) if line_end_s is not None else None,
+                        "tyre": tyre_int,
+                        "tyre_life": t_life,
+                        "is_pit_entry": is_pit_entry,
+                        "is_pit_affected": is_pit_entry,
+                        "is_out_lap": is_out_lap,
+                        "fastf1_generated": bool(row.get("FastF1Generated", False)),
+                        "is_accurate": bool(row.get("IsAccurate", True)),
+                    })
+                if result:
+                    fallback_by_code = {
+                        code: {entry["lap"]: entry for entry in entries}
+                        for code, entries in classified_fallback.items()
+                    }
+                    for code, entries in result.items():
+                        fallback_entries = fallback_by_code.get(code, {})
+                        for entry in entries:
+                            fb_entry = fallback_entries.get(entry["lap"])
+                            if fb_entry is None:
+                                continue
+                            if entry.get("time_s", -1.0) <= 0 and fb_entry.get("time_s", -1.0) > 0:
+                                entry["time_s"] = fb_entry["time_s"]
+                                entry["time_source"] = "frame_backfill"
+                                entry["source"] = "derived"
+                                if entry.get("end_time_s") is None and fb_entry.get("end_time_s") is not None:
+                                    entry["end_time_s"] = fb_entry["end_time_s"]
+                                if entry.get("line_time_s") is None and fb_entry.get("end_time_s") is not None:
+                                    entry["line_time_s"] = fb_entry["end_time_s"]
+                                if fb_entry.get("end_time_s") is not None:
+                                    replay_end = float(fb_entry["end_time_s"])
+                                    entry["replay_end_time_s"] = replay_end
+                                    entry["replay_line_time_s"] = replay_end
+                                if fb_entry.get("start_time_s") is not None:
+                                    entry["start_time_s"] = fb_entry["start_time_s"]
+                            if (fb_entry.get("is_pit_affected") or fb_entry.get("is_pit")) and not entry.get("is_pit_affected"):
+                                entry["is_pit_affected"] = True
+                                if not entry.get("pit_confidence") or entry.get("pit_confidence") == "none":
+                                    entry["pit_confidence"] = fb_entry.get("pit_confidence", "medium")
+                            if fb_entry.get("is_out_lap"):
+                                entry["is_out_lap"] = True
+                            if fb_entry.get("is_outlier"):
+                                entry["is_outlier"] = True
+                            if fb_entry.get("pace_baseline_s") is not None and entry.get("pace_baseline_s") is None:
+                                entry["pace_baseline_s"] = fb_entry["pace_baseline_s"]
+
+                    F1RaceReplayWindow._fill_missing_official_tyre_life(result)
+                    replay_time_offset_s = F1RaceReplayWindow._estimate_official_replay_time_offset(
+                        result,
+                        classified_fallback,
+                    )
+                    F1RaceReplayWindow._attach_replay_aligned_lap_times(
+                        result,
+                        replay_time_offset_s,
+                        classified_fallback,
+                    )
+                    try:
+                        _, stream_data, _ = ffapi._extended_timing_data(session.api_path)
+                        required_stream_cols = {"Driver", "Time", "Position", "GapToLeader", "IntervalToPositionAhead"}
+                        missing_stream_cols = required_stream_cols.difference(stream_data.columns)
+                        if missing_stream_cols:
+                            raise KeyError(
+                                f"extended timing data missing columns: {sorted(missing_stream_cols)}"
+                            )
+                        number_to_code = {}
+                        code_to_number = {}
+                        if (
+                            hasattr(session, "results")
+                            and session.results is not None
+                            and not session.results.empty
+                            and "DriverNumber" in session.results.columns
+                            and "Abbreviation" in session.results.columns
+                        ):
+                            for _, res_row in session.results.iterrows():
+                                drv_num = res_row.get("DriverNumber")
+                                code = res_row.get("Abbreviation")
+                                if pd.notna(drv_num) and pd.notna(code):
+                                    drv_num = str(drv_num)
+                                    code = str(code)
+                                    number_to_code[drv_num] = code
+                                    code_to_number[code] = drv_num
+                        if (
+                            "DriverNumber" in session.laps.columns
+                            and "Driver" in session.laps.columns
+                        ):
+                            for _, lap_row in (
+                                session.laps[["DriverNumber", "Driver"]]
+                                .dropna()
+                                .drop_duplicates()
+                                .iterrows()
+                            ):
+                                drv_num = str(lap_row["DriverNumber"])
+                                code = str(lap_row["Driver"])
+                                number_to_code.setdefault(drv_num, code)
+                                code_to_number.setdefault(code, drv_num)
+
+                        official_pos_lookup = {}
+                        if (
+                            "Driver" in session.laps.columns
+                            and "LapNumber" in session.laps.columns
+                            and "Position" in session.laps.columns
+                        ):
+                            for _, sess_lap_row in session.laps[["Driver", "LapNumber", "Position"]].dropna(subset=["Driver", "LapNumber"]).iterrows():
+                                try:
+                                    pos_val = sess_lap_row.get("Position")
+                                    pos_int = int(pos_val) if pd.notna(pos_val) else None
+                                    official_pos_lookup[(str(sess_lap_row["Driver"]), int(sess_lap_row["LapNumber"]))] = pos_int
+                                except (TypeError, ValueError):
+                                    continue
+
+                        def _parse_timing_delta(raw_value, row_position=None):
+                            leader_row = str(row_position or "") == "1"
+                            if pd.isna(raw_value):
+                                return 0.0 if leader_row else None
+                            gap_text = str(raw_value).strip()
+                            if not gap_text:
+                                return 0.0 if leader_row else None
+                            upper_text = gap_text.upper()
+                            if upper_text.startswith("LAP") or upper_text.endswith(" L") or upper_text.endswith("L"):
+                                return 0.0 if leader_row else None
+                            gap_td = ffutils.to_timedelta(gap_text)
+                            if gap_td is not None:
+                                return float(gap_td.total_seconds())
+                            return None
+
+                        lap_match_data = {}
+                        for code, entries in result.items():
+                            drv_num = code_to_number.get(code)
+                            if not drv_num:
+                                continue
+                            drv_stream_rows = stream_data[stream_data["Driver"].astype(str) == drv_num]
+                            if drv_stream_rows.empty:
+                                continue
+                            for lap_entry in entries:
+                                lap_no = lap_entry.get("lap")
+                                gap_s = None
+                                target_time_s = lap_entry.get("line_time_s")
+                                if target_time_s is None:
+                                    target_time_s = lap_entry.get("end_time_s")
+                                if target_time_s is None:
+                                    continue
+                                first_time = pd.to_timedelta(float(target_time_s), unit="s")
+                                official_pos = official_pos_lookup.get((code, lap_no))
+                                time_delta = (drv_stream_rows["Time"] - first_time).abs()
+                                local_window = drv_stream_rows[time_delta <= pd.to_timedelta(20, unit="s")]
+                                matched_stream_row = None
+                                if official_pos is not None and not local_window.empty:
+                                    pos_rows = local_window[local_window["Position"] == official_pos]
+                                    if not pos_rows.empty:
+                                        ref_idx = (pos_rows["Time"] - first_time).abs().idxmin()
+                                        matched_stream_row = pos_rows.loc[ref_idx]
+                                if matched_stream_row is None and not local_window.empty:
+                                    ref_idx = (local_window["Time"] - first_time).abs().idxmin()
+                                    matched_stream_row = local_window.loc[ref_idx]
+                                if matched_stream_row is None:
+                                    candidate_rows = drv_stream_rows[drv_stream_rows["Time"] <= first_time]
+                                    if official_pos is not None and not candidate_rows.empty:
+                                        pos_rows = candidate_rows[candidate_rows["Position"] == official_pos]
+                                        if not pos_rows.empty:
+                                            ref_idx = (pos_rows["Time"] - first_time).abs().idxmin()
+                                            matched_stream_row = pos_rows.loc[ref_idx]
+                                    if matched_stream_row is None and not candidate_rows.empty:
+                                        matched_stream_row = candidate_rows.sort_values("Time").iloc[-1]
+                                if matched_stream_row is None:
+                                    ref_idx = (drv_stream_rows["Time"] - first_time).abs().idxmin()
+                                    matched_stream_row = drv_stream_rows.loc[ref_idx]
+                                matched_position = matched_stream_row.get("Position")
+
+                                interval_chain_reliable = False
+                                interval_quality_rows = local_window
+                                target_position = official_pos
+                                if target_position is None and pd.notna(matched_position):
+                                    try:
+                                        target_position = int(matched_position)
+                                    except (TypeError, ValueError):
+                                        target_position = None
+                                if target_position is not None and not interval_quality_rows.empty:
+                                    interval_quality_rows = interval_quality_rows[
+                                        interval_quality_rows["Position"] == target_position
+                                    ]
+                                if not interval_quality_rows.empty:
+                                    scored_intervals = []
+                                    for _, cand_row in interval_quality_rows.iterrows():
+                                        cand_interval_s = _parse_timing_delta(
+                                            cand_row.get("IntervalToPositionAhead")
+                                        )
+                                        if cand_interval_s is None:
+                                            continue
+                                        cand_dt_s = abs(
+                                            float((cand_row["Time"] - first_time).total_seconds())
+                                        )
+                                        scored_intervals.append((cand_dt_s, float(cand_interval_s)))
+                                    if scored_intervals:
+                                        scored_intervals.sort(key=lambda item: item[0])
+                                        close_intervals = [
+                                            val for dt_s, val in scored_intervals[:4] if dt_s <= 6.0
+                                        ]
+                                        if len(close_intervals) >= 2:
+                                            interval_chain_reliable = (
+                                                max(close_intervals) - min(close_intervals) <= 1.0
+                                            )
+                                gap_s = _parse_timing_delta(
+                                    matched_stream_row.get("GapToLeader"), matched_position
+                                )
+                                interval_s = _parse_timing_delta(
+                                    matched_stream_row.get("IntervalToPositionAhead")
+                                )
+                                if gap_s is None and interval_s is None:
+                                    continue
+
+                                if matched_stream_row.get("Time") is not None and pd.notna(matched_stream_row.get("Time")):
+                                    lap_entry["official_stream_time_s"] = float(
+                                        matched_stream_row["Time"].total_seconds()
+                                    )
+                                if pd.notna(matched_position):
+                                    try:
+                                        lap_entry["official_stream_position"] = int(matched_position)
+                                    except (TypeError, ValueError):
+                                        pass
+                                if interval_s is not None:
+                                    lap_entry["official_interval_to_ahead_s"] = float(interval_s)
+
+                                lap_match_data.setdefault(int(lap_no), []).append(
+                                    {
+                                        "code": code,
+                                        "entry": lap_entry,
+                                        "official_pos": official_pos,
+                                        "matched_pos": (
+                                            int(matched_position)
+                                            if pd.notna(matched_position)
+                                            else None
+                                        ),
+                                        "gap_s": gap_s,
+                                        "interval_s": interval_s,
+                                        "interval_chain_reliable": interval_chain_reliable,
+                                    }
+                                )
+
+                        # Reconstruct a coherent per-lap official gap ladder. Direct GapToLeader
+                        # remains authoritative when present. IntervalToPositionAhead is only used
+                        # to fill gaps where GapToLeader is absent/non-numeric.
+                        for _, lap_items in lap_match_data.items():
+                            ordered_items = sorted(
+                                lap_items,
+                                key=lambda item: (
+                                    item["official_pos"] is None,
+                                    item["official_pos"]
+                                    if item["official_pos"] is not None
+                                    else (
+                                        item["matched_pos"]
+                                        if item["matched_pos"] is not None
+                                        else 999
+                                    ),
+                                    item["code"],
+                                ),
+                            )
+                            assigned_by_pos = {}
+                            for item in ordered_items:
+                                pos = item["official_pos"]
+                                if pos is None:
+                                    pos = item["matched_pos"]
+                                if pos is None:
+                                    continue
+
+                                direct_gap_s = item["gap_s"]
+                                if pos == 1:
+                                    assigned_gap_s = 0.0
+                                    source = "direct"
+                                else:
+                                    prev_gap_s = assigned_by_pos.get(pos - 1)
+                                    predicted_gap_s = None
+                                    if (
+                                        prev_gap_s is not None
+                                        and item["interval_s"] is not None
+                                        and item.get("interval_chain_reliable")
+                                    ):
+                                        predicted_gap_s = float(prev_gap_s) + float(item["interval_s"])
+
+                                    assigned_gap_s = None
+                                    source = None
+                                    if direct_gap_s is not None:
+                                        assigned_gap_s = float(direct_gap_s)
+                                        source = "direct"
+                                    elif predicted_gap_s is not None:
+                                        assigned_gap_s = float(predicted_gap_s)
+                                        source = "interval_chain"
+
+                                if assigned_gap_s is None:
+                                    continue
+                                assigned_by_pos[pos] = assigned_gap_s
+                                item["entry"]["official_gap_to_leader_s"] = float(assigned_gap_s)
+                                item["entry"]["official_gap_source"] = source
+                    except Exception as e:
+                        print(f"Warning: official gap enrichment failed, using fallback gaps where needed: {e}")
+                    try:
+                        import pandas as pd
+                        results_df = session.results
+                        if results_df is not None and not results_df.empty:
+                            winner_rows = results_df[results_df["ClassifiedPosition"] == "1"]
+                            if not winner_rows.empty:
+                                winner_row = winner_rows.iloc[0]
+                                winner_code = winner_row.get("Abbreviation")
+                                winner_laps = int(winner_row.get("Laps", 0) or 0)
+                                if winner_code in result and winner_laps > 0:
+                                    winner_entries = {e["lap"]: e for e in result[winner_code]}
+                                    winner_entry = winner_entries.get(winner_laps)
+                                    if winner_entry is not None:
+                                        winner_entry["official_finish_gap_s"] = 0.0
+
+                                for _, res_row in results_df.iterrows():
+                                    code = res_row.get("Abbreviation")
+                                    if code not in result:
+                                        continue
+                                    if str(res_row.get("Status", "")) != "Finished":
+                                        continue
+                                    laps_done = int(res_row.get("Laps", 0) or 0)
+                                    if winner_laps <= 0 or laps_done != winner_laps:
+                                        continue
+                                    gap_td = res_row.get("Time")
+                                    if code == winner_code:
+                                        gap_s = 0.0
+                                    elif pd.isna(gap_td):
+                                        continue
+                                    else:
+                                        gap_s = float(gap_td.total_seconds())
+                                    lap_entry = next((e for e in result[code] if e["lap"] == winner_laps), None)
+                                    if lap_entry is not None:
+                                        lap_entry["official_finish_gap_s"] = gap_s
+
+                            for _, res_row in results_df.iterrows():
+                                code = str(res_row.get("Abbreviation", "")).strip()
+                                if not code:
+                                    continue
+                                laps_completed = res_row.get("Laps")
+                                if pd.isna(laps_completed):
+                                    continue
+                                try:
+                                    terminal_lap = int(laps_completed)
+                                except (TypeError, ValueError):
+                                    continue
+
+                                status_text = str(res_row.get("Status", "")).strip()
+                                classified_pos = str(res_row.get("ClassifiedPosition", "")).strip()
+
+                                def _is_terminal_event_entry(entry):
+                                    if entry is None:
+                                        return False
+                                    if entry.get("time_s", -1.0) <= 0:
+                                        return True
+                                    if entry.get("fastf1_generated"):
+                                        return True
+                                    if not entry.get("is_accurate", True):
+                                        return True
+                                    return False
+
+                                code_entries = result.setdefault(code, [])
+                                completed_entry = next(
+                                    (e for e in code_entries if e.get("lap") == terminal_lap),
+                                    None,
+                                )
+                                terminal_entry = next(
+                                    (
+                                        e for e in code_entries
+                                        if e.get("lap") == terminal_lap + 1
+                                        and _is_terminal_event_entry(e)
+                                    ),
+                                    None,
+                                )
+                                if (
+                                    terminal_entry is not None
+                                    and completed_entry is not None
+                                ):
+                                    completed_time_s = (
+                                        completed_entry.get("line_time_s")
+                                        if completed_entry.get("line_time_s") is not None
+                                        else completed_entry.get("end_time_s")
+                                    )
+                                    terminal_time_s = (
+                                        terminal_entry.get("line_time_s")
+                                        if terminal_entry.get("line_time_s") is not None
+                                        else terminal_entry.get("end_time_s")
+                                    )
+                                    if (
+                                        terminal_time_s is None
+                                        or completed_time_s is None
+                                        or terminal_time_s <= completed_time_s
+                                    ):
+                                        terminal_entry = None
+
+                                has_follow_on_terminal_event = terminal_entry is not None
+                                has_same_lap_terminal_event = (
+                                    not has_follow_on_terminal_event
+                                    and _is_terminal_event_entry(completed_entry)
+                                )
+                                if classified_pos != "R":
+                                    continue
+                                if not (has_follow_on_terminal_event or has_same_lap_terminal_event):
+                                    continue
+
+                                if terminal_entry is None:
+                                    terminal_entry = completed_entry
+
+                                if terminal_entry is None:
+                                    terminal_entry = {
+                                        "lap": terminal_lap,
+                                        "time_s": -1.0,
+                                        "end_time_s": None,
+                                        "line_time_s": None,
+                                        "tyre": -1,
+                                        "tyre_life": 0,
+                                        "is_pit": False,
+                                        "source": "official",
+                                    }
+                                    code_entries.append(terminal_entry)
+
+                                terminal_entry["is_terminal_lap"] = True
+                                terminal_event_time_s = (
+                                    terminal_entry.get("replay_line_time_s")
+                                    if terminal_entry.get("replay_line_time_s") is not None
+                                    else terminal_entry.get("replay_end_time_s")
+                                )
+                                if terminal_event_time_s is None:
+                                    terminal_event_time_s = (
+                                        terminal_entry.get("line_time_s")
+                                        if terminal_entry.get("line_time_s") is not None
+                                        else terminal_entry.get("end_time_s")
+                                    )
+                                if terminal_event_time_s is not None:
+                                    terminal_entry["terminal_event_time_s"] = terminal_event_time_s
+                                if (
+                                    not status_text
+                                    or status_text in {"Finished", "Lapped"}
+                                    or status_text.startswith("+")
+                                ):
+                                    terminal_entry["result_status"] = "Retired"
+                                else:
+                                    terminal_entry["result_status"] = status_text
+                    except Exception as e:
+                        print(f"Warning: result-status enrichment failed, continuing without terminal/result metadata: {e}")
+                    return F1RaceReplayWindow._classify_lap_entries(result, official_data=True)
+            except Exception as e:
+                print(f"Error parsing official lap times: {e}")
+
+        return classified_fallback
+
+    @staticmethod
+    def _estimate_official_replay_time_offset(official_result, fallback_result):
+        diffs = []
+        for code, entries in official_result.items():
+            fallback_entries = {
+                entry.get("lap"): entry
+                for entry in fallback_result.get(code, [])
+                if isinstance(entry.get("end_time_s"), (int, float))
+            }
+            for entry in entries:
+                if entry.get("time_source") == "frame_backfill":
+                    continue
+                lap = entry.get("lap")
+                fb_entry = fallback_entries.get(lap)
+                line_time_s = entry.get("line_time_s")
+                if (
+                    fb_entry is None
+                    or not isinstance(line_time_s, (int, float))
+                ):
+                    continue
+                diff = float(line_time_s) - float(fb_entry["end_time_s"])
+                if 0.0 <= diff <= 8 * 3600:
+                    diffs.append(diff)
+        if len(diffs) < 5:
+            return None
+        diffs.sort()
+        return float(diffs[len(diffs) // 2])
+
+    @staticmethod
+    def _attach_replay_aligned_lap_times(result, replay_time_offset_s, fallback_result=None):
+        fallback_by_code = {}
+        if fallback_result:
+            fallback_by_code = {
+                code: {
+                    entry.get("lap"): entry
+                    for entry in entries
+                    if isinstance(entry.get("end_time_s"), (int, float))
+                }
+                for code, entries in fallback_result.items()
+            }
+
+        for code, entries in result.items():
+            fallback_entries = fallback_by_code.get(code, {})
+            for entry in entries:
+                if entry.get("time_source") == "frame_backfill":
+                    fb_entry = fallback_entries.get(entry.get("lap"))
+                    if fb_entry is not None and isinstance(fb_entry.get("end_time_s"), (int, float)):
+                        replay_end = float(fb_entry["end_time_s"])
+                        entry.setdefault("replay_line_time_s", replay_end)
+                        entry.setdefault("replay_end_time_s", replay_end)
+
+                if replay_time_offset_s is None:
+                    continue
+
+                for src_key, dst_key in (
+                    ("line_time_s", "replay_line_time_s"),
+                    ("end_time_s", "replay_end_time_s"),
+                ):
+                    if isinstance(entry.get(dst_key), (int, float)):
+                        continue
+                    src_val = entry.get(src_key)
+                    if not isinstance(src_val, (int, float)):
+                        continue
+                    aligned_val = float(src_val) - replay_time_offset_s
+                    if aligned_val >= 0:
+                        entry[dst_key] = aligned_val
+
+    @staticmethod
+    def _fill_missing_official_tyre_life(result):
+        def _iter_stints(entries):
+            current = []
+            prev = None
+            for entry in entries:
+                tyre = entry.get("tyre", -1)
+                if tyre == -1:
+                    if current:
+                        yield current
+                        current = []
+                    prev = entry
+                    continue
+                new_stint = (
+                    not current
+                    or prev is None
+                    or entry.get("lap") != prev.get("lap", 0) + 1
+                    or entry.get("tyre") != prev.get("tyre")
+                    or entry.get("is_out_lap")
+                    or prev.get("is_pit_entry")
+                )
+                if new_stint:
+                    if current:
+                        yield current
+                    current = [entry]
+                else:
+                    current.append(entry)
+                prev = entry
+            if current:
+                yield current
+
+        for entries in result.values():
+            entries.sort(key=lambda item: item.get("lap", 0))
+            for stint in _iter_stints(entries):
+                known = [
+                    (int(entry["lap"]), int(entry["tyre_life"]))
+                    for entry in stint
+                    if isinstance(entry.get("tyre_life"), (int, float))
+                    and int(entry.get("tyre_life", 0)) > 0
+                ]
+                if known:
+                    anchor_lap, anchor_life = known[0]
+                    for entry in stint:
+                        if int(entry.get("tyre_life", 0)) > 0:
+                            continue
+                        inferred = anchor_life + (int(entry["lap"]) - anchor_lap)
+                        if inferred > 0:
+                            entry["tyre_life"] = inferred
+                    continue
+
+                first_entry = stint[0]
+                if first_entry.get("is_out_lap") or int(first_entry.get("lap", 0)) == 1:
+                    for idx, entry in enumerate(stint, start=1):
+                        if int(entry.get("tyre_life", 0)) <= 0:
+                            entry["tyre_life"] = idx
+
+    @staticmethod
+    def _compute_fallback_lap_times_raw(frames, min_lap_time_s=30.0, max_lap_time_s=7200.0):
+        lap_start_t = {}    # code -> session time when current lap began
+        current_lap = {}    # code -> last seen lap number
+        result = {}         # code -> list of lap time entries
+
+        for frame in frames:
+            t = frame.get("t", 0)
+            drivers = frame.get("drivers", {})
+            for code, drv in drivers.items():
+                lap = drv.get("lap")
+                if lap is None:
+                    continue
+
+                prev_lap = current_lap.get(code)
+                if prev_lap is None:
+                    current_lap[code] = lap
+                    lap_start_t[code] = t
+                    result.setdefault(code, [])
+                    continue
+
+                if lap > prev_lap:
+                    lap_time = t - lap_start_t.get(code, t)
+                    tyre = int(round(drv.get("tyre", 0)))
+                    tyre_life = int(round(drv.get("tyre_life", 0)))
+
+                    if min_lap_time_s < lap_time < max_lap_time_s and prev_lap >= 2:
+                        result.setdefault(code, []).append({
+                            "lap": prev_lap,
+                            "time_s": float(lap_time),
+                            "end_time_s": float(t),
+                            "tyre": tyre,
+                            "tyre_life": tyre_life,
+                            "start_time_s": float(lap_start_t.get(code, t)),
+                        })
+
+                    current_lap[code] = lap
+                    lap_start_t[code] = t
+
+        return result
+
+    @staticmethod
+    def _classify_lap_entries(result, official_data=False):
+        """
+        Enrich lap entries with derived metadata so insight windows can
+        distinguish pit laps, out laps, and generic slow-lap outliers even
+        when official pit timing fields are unavailable.
+        """
+        for entries in result.values():
+            entries.sort(key=lambda e: e["lap"])
+            clean_history = []
+            gap_clock_s = 0.0
+
+            for i, entry in enumerate(entries):
+                next_entry = entries[i + 1] if i + 1 < len(entries) else None
+                entry.setdefault("source", "official" if official_data else "derived")
+                entry.setdefault("is_pit_entry", bool(entry.get("is_pit", False)))
+                entry.setdefault("is_pit_affected", bool(entry.get("is_pit_entry", False) or entry.get("is_pit", False)))
+                entry.setdefault("is_out_lap", False)
+                entry.setdefault("is_outlier", False)
+                entry.setdefault(
+                    "pit_confidence",
+                    "official" if entry.get("is_pit_entry") and entry.get("source") == "official" else "none",
+                )
+
+                baseline_pool = clean_history[-5:]
+                baseline = None
+                if baseline_pool:
+                    baseline = sorted(baseline_pool)[len(baseline_pool) // 2]
+                    entry["pace_baseline_s"] = round(float(baseline), 3)
+
+                time_s = entry.get("time_s", -1.0)
+                if time_s > 0:
+                    gap_clock_s += float(time_s)
+                    entry["gap_clock_s"] = gap_clock_s
+                else:
+                    entry["gap_clock_s"] = None
+                if (
+                    entry.get("source") != "official"
+                    and not entry.get("is_pit_affected")
+                    and baseline is not None
+                    and time_s > 0
+                    and entry["lap"] > 1
+                ):
+                    tyre = entry.get("tyre", -1)
+                    tyre_life = entry.get("tyre_life", -1)
+                    next_tyre = next_entry.get("tyre", -1) if next_entry else -1
+                    next_tyre_life = next_entry.get("tyre_life", -1) if next_entry else -1
+
+                    compound_change = (
+                        next_entry is not None
+                        and tyre != -1
+                        and next_tyre != -1
+                        and next_tyre != tyre
+                    )
+                    age_reset = (
+                        next_entry is not None
+                        and tyre_life >= 0
+                        and next_tyre_life >= 0
+                        and next_tyre_life <= 2
+                        and next_tyre_life + 1 < tyre_life
+                    )
+                    severe_delta = (time_s - baseline) >= max(12.0, baseline * 0.12)
+                    moderate_delta = (time_s - baseline) >= max(7.0, baseline * 0.08)
+
+                    if severe_delta and (compound_change or age_reset):
+                        entry["is_pit_affected"] = True
+                        entry["pit_confidence"] = "high"
+                    elif moderate_delta and age_reset:
+                        entry["is_pit_affected"] = True
+                        entry["pit_confidence"] = "medium"
+                    elif severe_delta:
+                        entry["is_outlier"] = True
+
+                if entry.get("is_pit_entry") and next_entry and next_entry["lap"] == entry["lap"] + 1:
+                    next_entry["is_out_lap"] = True
+
+                entry["is_pit"] = bool(entry.get("is_pit_affected"))
+
+                if (
+                    time_s > 0
+                    and not entry.get("is_pit_affected")
+                    and not entry.get("is_out_lap")
+                    and not entry.get("is_outlier")
+                ):
+                    clean_history.append(time_s)
+
+        return result
+
+    @staticmethod
+    def _compute_status_laps(frames, track_statuses):
+        """
+        Map track status periods to leader lap numbers.
+        Returns a list of {"status": str, "start_lap": int, "end_lap": int}.
+
+        Status codes: "4" = Safety Car, "6" = VSC, "7" = VSC Ending,
+                      "5" = Red Flag.
+        """
+        if not track_statuses or not frames:
+            return []
+
+        # Build a time → leader lap lookup from frames
+        # (sample every 25th frame for speed; 1 sample per second is plenty)
+        time_to_lap = []
+        for i in range(0, len(frames), 25):
+            f = frames[i]
+            t = f.get("t", 0)
+            lap = f.get("lap", 1)
+            time_to_lap.append((t, int(lap)))
+
+        def _lap_at_time(target_t):
+            """Binary-ish lookup for leader lap at a given session time."""
+            best_lap = 1
+            for t, lap in time_to_lap:
+                if t <= target_t:
+                    best_lap = lap
+                else:
+                    break
+            return best_lap
+
+        result = []
+        for status in track_statuses:
+            code = str(status.get("status", ""))
+            if code not in ("4", "5", "6", "7"):
+                continue
+            start_t = status.get("start_time", 0)
+            end_t = status.get("end_time")
+            start_lap = _lap_at_time(start_t)
+            end_lap = _lap_at_time(end_t) if end_t else start_lap
+            # Merge consecutive entries with same status
+            if result and result[-1]["status"] == code and result[-1]["end_lap"] >= start_lap - 1:
+                result[-1]["end_lap"] = max(result[-1]["end_lap"], end_lap)
+            else:
+                result.append({
+                    "status": code,
+                    "start_lap": start_lap,
+                    "end_lap": end_lap,
+                })
+        return result
 
     def _interpolate_points(self, xs, ys, interp_points=2000):
         t_old = np.linspace(0, 1, len(xs))

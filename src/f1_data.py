@@ -14,7 +14,6 @@ from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
 
-
 def enable_cache():
     # Get cache location from settings
     settings = get_settings()
@@ -63,7 +62,17 @@ def _process_single_driver(args):
     # iterate laps in order
     for _, lap in laps_driver.iterlaps():
         # get telemetry for THIS lap only
-        lap_tel = lap.get_telemetry()
+        try:
+            lap_tel = lap.get_telemetry()
+        except KeyError as e:
+            # Handle case where FastF1 fails to merge car and position data
+            # due to empty position telemetry (missing 'Date' column)
+            if "'Date'" in str(e):
+                print(f"Warning: Skipping lap {lap.LapNumber} for driver {driver_code} due to missing position telemetry")
+                continue
+            else:
+                # Re-raise if it's a different KeyError
+                raise
         lap_number = lap.LapNumber
         tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
         tyre_life = lap.TyreLife if pd.notna(lap.TyreLife) else 0
@@ -600,7 +609,7 @@ def get_race_telemetry(session, session_type="R"):
     # 2. Create a timeline (start from zero)
     timeline = np.arange(global_t_min, global_t_max, DT) - global_t_min
 
-    # 3. Resample each driver's telemetry (x, y, gap) onto the common timeline
+    # 3. Resample each driver's telemetry (x, y) onto the common timeline
     resampled_data = {}
     max_tyre_life_map = {}
 
@@ -768,6 +777,39 @@ def get_race_telemetry(session, session_type="R"):
         except Exception as e:
             print(f"Weather data could not be processed: {e}")
 
+    #4.2. Aggregating Driver pit-in and pit-out data for Pitstop leaderboard indicator
+    pit_windows={}
+    laps=session.laps
+
+    for driver_no in drivers:
+        drv=session.get_driver(driver_no)["Abbreviation"]
+        driver_laps=laps.pick_drivers(drv)
+        windows=[]
+
+        for _, lap in driver_laps.iterrows():
+            pit_in=lap.get("PitInTime")
+            pit_out=lap.get("PitOutTime")
+
+            if pd.notna(pit_in):
+                start=pit_in.total_seconds()
+                if pd.notna(pit_out):
+                    end=pit_out.total_seconds()
+                else:
+                    end=start+40 #Error Rare case
+                
+                windows.append((start,end))
+        pit_windows[drv]=windows
+    
+    #Adjusting pit windows to the telemetry timeline
+    pit_windows_shifted={}
+    for drv, windows in pit_windows.items():
+        shifted=[]
+        for start,end in windows:
+            shifted.append((start-global_t_min,end-global_t_min))
+        pit_windows_shifted[drv]=shifted
+    
+    print("PIT WINDOWS: ", pit_windows)
+
     # 5. Build the frames + LIVE LEADERBOARD
     frames = []
     num_frames = len(timeline)
@@ -808,15 +850,20 @@ def get_race_telemetry(session, session_type="R"):
         leader = snapshot[0]
         leader_lap = leader["lap"]
 
-        # TODO: This 5c. step seems futile currently as we are not using gaps anywhere, and it doesn't even comput the gaps. I think I left this in when removing the "gaps" feature that was half-finished during the initial development.
-
-        # 5c. Compute gap to car in front in SECONDS
+        # 5c. Prepare frame data
         frame_data = {}
 
         for idx, car in enumerate(snapshot):
             code = car["code"]
             position = idx + 1
 
+            #Pit stop detection
+            in_pit=False
+            for start,end in pit_windows_shifted.get(code,[]):
+                if start<=t<=end:
+                    in_pit=True
+                    break
+            
             # include speed, gear, drs_active in frame driver dict
             frame_data[code] = {
                 "x": car["x"],
@@ -832,6 +879,7 @@ def get_race_telemetry(session, session_type="R"):
                 "drs": car["drs"],
                 "throttle": car["throttle"],
                 "brake": car["brake"],
+                "in_pit": in_pit
             }
 
         weather_snapshot = {}

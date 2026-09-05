@@ -1,0 +1,29 @@
+name: Documentation request
+description: Suggest an improvement to documentation
+title: "[DOCS] "
+labels: ["documentation"]
+body:
+  - type: textarea
+    id: location
+    attributes:
+      label: Documentation location
+      description: Which file, section, or page should be improved?
+      placeholder: "README.md, telemetry.md, docs/..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: issue
+    attributes:
+      label: What is unclear or missing?
+      description: Explain the documentation problem.
+    validations:
+      required: true
+
+  - type: textarea
+    id: suggestion
+    attributes:
+      label: Suggested improvement
+      description: Suggest wording, examples, screenshots, or structure changes.
+    validations:
+      required: false
