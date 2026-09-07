@@ -12,6 +12,13 @@ if sys.platform == "win32":
 
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.lib.season import get_season
+# PHASE J: argparse-based CLI parser. The legacy ``main.py``
+# did manual ``if "--flag" in sys.argv`` chains; the new
+# ``parse_args`` is the single source of truth. Public
+# behaviour (no-arg = GUI, --cli = CLI menu, --viewer =
+# viewer, --list-rounds/--list-sprints = list, --diagnostics =
+# print report and exit) is preserved.
+from src.cli.args import parse_args, session_type as _resolve_session_type
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
   from src.interfaces.qualifying import run_qualifying_replay
@@ -122,51 +129,41 @@ if __name__ == "__main__":
   if "--verbose" not in sys.argv:# fastf1 logging is disabled by default
     logging.getLogger("fastf1").setLevel(logging.CRITICAL)
 
-  if "--cli" in sys.argv:
-    # Run the CLI
-    from src.cli.race_selection import cli_load
+  # PHASE J: delegate argv parsing to the argparse-based
+  # ``parse_args``. The dispatch below preserves the legacy
+  # behaviour exactly.
+  args = parse_args()
 
+  # Early-exit branches: --diagnostics, --cli, --list-rounds,
+  # --list-sprints.
+  if args.diagnostics:
+    from src.tools.diagnostics import collect_diagnostics
+    print(collect_diagnostics())
+    sys.exit(0)
+  if args.cli:
+    from src.cli.race_selection import cli_load
     cli_load()
     sys.exit(0)
-
-  if "--year" in sys.argv:
-    year_index = sys.argv.index("--year") + 1
-    year = int(sys.argv[year_index])
-  else:
-    year = get_season()  # Default year
-
-  if "--round" in sys.argv:
-    round_index = sys.argv.index("--round") + 1
-    round_number = int(sys.argv[round_index])
-  else:
-    round_number = 12  # Default round number
-
-  if "--list-rounds" in sys.argv:
-    list_rounds(year)
+  if args.list_rounds:
+    yr = args.year if args.year is not None else get_season()
+    list_rounds(yr)
     sys.exit(0)
-  elif "--list-sprints" in sys.argv:
-    list_sprints(year)
+  if args.list_sprints:
+    yr = args.year if args.year is not None else get_season()
+    list_sprints(yr)
     sys.exit(0)
-  else:
-    playback_speed = 1
 
-  if "--viewer" in sys.argv:
-  
-    visible_hud = True
-    if "--no-hud" in sys.argv:
-      visible_hud = False
-
-    # Session type selection
-    session_type = 'SQ' if "--sprint-qualifying" in sys.argv else ('S' if "--sprint" in sys.argv else ('Q' if "--qualifying" in sys.argv else 'R'))
-
-    # Optional ready-file path used when spawned from the GUI to signal ready state
-    ready_file = None
-    if "--ready-file" in sys.argv:
-      idx = sys.argv.index("--ready-file") + 1
-      if idx < len(sys.argv):
-        ready_file = sys.argv[idx]
-
-    main(year, round_number, playback_speed, session_type=session_type, visible_hud=visible_hud, ready_file=ready_file)
+  # If the user asked for the viewer explicitly, run the legacy
+  # viewer path. If they passed --year without --viewer, fall
+  # through to the GUI as before.
+  if args.viewer:
+    year = args.year if args.year is not None else get_season()
+    round_number = args.round if args.round is not None else 12
+    visible_hud = not args.no_hud
+    main(year, round_number, 1,
+          session_type=_resolve_session_type(args),
+          visible_hud=visible_hud,
+          ready_file=args.ready_file)
     sys.exit(0)
 
   # Run the GUI

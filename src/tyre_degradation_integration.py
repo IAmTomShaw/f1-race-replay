@@ -1,6 +1,19 @@
 import pandas as pd
 from typing import Optional, Dict
 from src.bayesian_tyre_model import BayesianTyreDegradationModel
+# TASK 2: explicit availability contract. The Bayesian model
+# has a placeholder path that returns ``{'actual_delta': 0.0,
+# 'overdriving': False}`` when no fit is available. We
+# translate that placeholder into a real ``available=False``
+# ``TyreModelResult`` at the integrator boundary so the UI
+# renders "not available" rather than treating 0 / False as
+# a real analytics value.
+from src.analytics.tyre_model_availability import (
+    TyreModelResult,
+    is_placeholder,
+    not_available,
+    available_result,
+)
 
 
 class TyreDegradationIntegrator:
@@ -104,12 +117,80 @@ class TyreDegradationIntegrator:
         
         
         track_condition = frame_data.get("track_condition")
-        
-        return self.get_tyre_health(driver_code, lap_num, track_condition)
+
+        # TASK 2: at the consumer boundary, translate the
+        # legacy placeholder into an explicit "not available"
+        # result. ``wrap_legacy`` preserves the public dict
+        # shape (``actual_delta`` / ``overdriving`` are set to
+        # ``None`` and ``available`` is added) so existing UI
+        # code that reads the dict keeps working.
+        health = self.get_tyre_health(driver_code, lap_num,
+                                       track_condition)
+        return _wrap_with_availability(health)
     
     def clear_cache(self):
         """Clear cache."""
         self._cache.clear()
+
+
+def _wrap_with_availability(health: Optional[Dict]) -> Optional[Dict]:
+    """TASK 2: at the integrator boundary, replace the legacy
+    placeholder ``(actual_delta=0.0, overdriving=False)`` with
+    an explicit ``available=False`` result. Real values pass
+    through with an added ``available=True`` flag.
+    """
+    if not health:
+        return health
+    actual_delta = health.get("actual_delta", 0.0)
+    overdriving = health.get("overdriving", False)
+    if is_placeholder(actual_delta, overdriving):
+        result = not_available("Bayesian tyre model returned a "
+                                 "placeholder (no fit available)")
+    else:
+        result = available_result(
+            baseline_pace=float(health.get("baseline_pace", 0.0))
+                         or 0.0,
+            expected_pace=float(health.get("expected_pace", 0.0))
+                         or float(health.get("expected_delta", 0.0)) * -1
+                         or 0.0,
+            actual_delta=float(actual_delta),
+            credible_low=float(health.get("credible_low",
+                                            actual_delta)),
+            credible_high=float(health.get("credible_high",
+                                             actual_delta)),
+            overdriving=bool(overdriving),
+            tyre_age_laps=int(health.get("laps_on_tyre", 0) or 0),
+            compound=str(health.get("compound", "?")),
+        )
+    # Merge strategy:
+    # 1. Start from the legacy health dict (it carries
+    #    compound / laps_on_tyre / health / expected_delta, which
+    #    ``format_degradation_text`` reads).
+    # 2. Overlay the availability contract. Keys that the
+    #    contract sets to ``None`` (e.g. actual_delta,
+    #    overdriving, credible_low / high when unavailable)
+    #    OVERWRITE the legacy values, because those are exactly
+    #    the placeholders the contract says must be cleared.
+    # 3. Add contract-only keys (``available``,
+    #    ``not_available_reason``) that the legacy dict lacks.
+    public = result.to_public_dict()
+    merged: Dict = dict(health)
+    for k, v in public.items():
+        # None from the public dict wins for these specific
+        # keys (the contract says "clear the placeholder").
+        if k in {"actual_delta", "overdriving", "credible_low",
+                 "credible_high", "baseline_pace", "expected_pace",
+                 "tyre_age_laps"}:
+            merged[k] = v
+        elif k in merged and merged[k] is None:
+            # public has a value but legacy's was None; prefer
+            # the public one.
+            merged[k] = v
+        elif k not in merged:
+            merged[k] = v
+        # else: legacy has a non-None value and the public
+        # didn't change it; keep the legacy value.
+    return merged
 
 
 def format_tyre_health_bar(health: int, width: int = 100, height: int = 12) -> Dict:
@@ -138,10 +219,18 @@ def format_tyre_health_bar(health: int, width: int = 100, height: int = 12) -> D
     }
 
 def format_degradation_text(health_data: Dict) -> str:
-    """Format degradation info as text."""
+    """Format degradation info as text.
+
+    TASK 2: if the integrator flagged the result as unavailable,
+    render ``"N/A (tyre model: not available)"`` rather than
+    presenting placeholder values as real analytics.
+    """
     if not health_data:
         return "N/A"
-    
+
+    if health_data.get("available") is False:
+        return "N/A (tyre model: not available)"
+
     compound = health_data.get("compound", "?")
     laps = health_data.get("laps_on_tyre", 0)
     health = health_data.get("health", 0)

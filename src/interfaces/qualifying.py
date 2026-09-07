@@ -16,6 +16,7 @@ from src.ui_components import (
 )
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
+from src.interfaces.race_replay import _is_finite_coord
 
 # Enable DPI awareness on Windows for crisp rendering on high-DPI displays
 if sys.platform == "win32":
@@ -751,6 +752,9 @@ class QualifyingReplay(arcade.Window):
         return list(zip(xs_i, ys_i))
 
     def world_to_screen(self, x, y):
+        if not _is_finite_coord(x, y):
+            return None, None
+
         # Rotate around the track centre (if rotation is set), then scale+translate
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
@@ -1058,6 +1062,25 @@ class QualifyingReplay(arcade.Window):
             self.paused = self.was_paused_before_hold
 
 def run_qualifying_replay(session, data, title="Qualifying Results", ready_file=None):
+    # TASK 1: validate each qualifying segment's frames payload
+    # at the boundary where the data becomes trusted replay
+    # state. Hard violations abort; soft anomalies are logged.
+    from src.data.replay_validator import (
+        run_replay_validation,
+    )
+    from src.f1_data import FPS as _FPS
+    for seg in ("Q1", "Q2", "Q3"):
+        seg_data = (data.get("telemetry") or {}).get(seg) or {}
+        for code, driver_seg in seg_data.items():
+            frames = (driver_seg or {}).get("frames") or []
+            if not frames:
+                continue
+            _rep = run_replay_validation(frames, fps=_FPS)
+            if _rep.is_hard_fatal:
+                raise RuntimeError(
+                    f"qualifying replay aborted at {seg} / {code}: "
+                    f"{_rep.summary()}"
+                )
     _window = QualifyingReplay(session=session, data=data, title=title)
     # Signal readiness to parent process (if requested) after window created
     if ready_file:

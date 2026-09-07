@@ -297,7 +297,7 @@ class InsightsMenu(QMainWindow):
     # Insight launch methods (placeholders for now)
     
     def launch_example_window(self):
-        print("🚀 Launching: Example Insight Window")
+        print("[INFO] Launching: Example Insight Window")
         # Open the Example PitWallWindow
         from src.insights.example_pit_wall_window import ExamplePitWallWindow
         example_window = ExamplePitWallWindow()
@@ -306,35 +306,35 @@ class InsightsMenu(QMainWindow):
         self.opened_windows.append(example_window)
 
     def launch_driver_telemetry(self):
-        print("🚀 Launching: Driver Live Telemetry")
+        print("[INFO] Launching: Driver Live Telemetry")
         from src.insights.driver_telemetry_window import DriverTelemetryWindow
         window = DriverTelemetryWindow()
         window.show()
         self.opened_windows.append(window)
 
     def launch_track_position(self):
-        print("🚀 Launching: Track Position Map")
+        print("[INFO] Launching: Track Position Map")
         from src.insights.track_position_window import TrackPositionWindow
         window = TrackPositionWindow()
         window.show()
         self.opened_windows.append(window)
 
     def launch_race_control_feed(self):
-        print("🚀 Launching: Race Control Feed")
+        print("[INFO] Launching: Race Control Feed")
         from src.insights.race_control_feed_window import RaceControlFeedWindow
         window = RaceControlFeedWindow()
         window.show()
         self.opened_windows.append(window)
 
     def launch_lap_time_chart(self):
-        print("🚀 Launching: Lap Time & Gap Evolution")
+        print("[INFO] Launching: Lap Time & Gap Evolution")
         from src.insights.lap_time_chart_window import LapTimeChartWindow
         window = LapTimeChartWindow()
         window.show()
         self.opened_windows.append(window)
 
     def launch_telemetry_viewer(self):
-        print("🚀 Launching: Telemetry Stream Viewer")
+        print("[INFO] Launching: Telemetry Stream Viewer")
         try:
             import subprocess
             import sys
@@ -344,50 +344,50 @@ class InsightsMenu(QMainWindow):
             self.show_placeholder_message("Telemetry Stream Viewer")
     
     def launch_speed_monitor(self):
-        print("🚀 Launching: Speed Monitor")
+        print("[INFO] Launching: Speed Monitor")
         self.show_placeholder_message("Speed Monitor")
     
     def launch_position_tracker(self):
-        print("🚀 Launching: Position Tracker")
+        print("[INFO] Launching: Position Tracker")
         self.show_placeholder_message("Position Tracker")
     
     def launch_tyre_strategy(self):
-        print("🚀 Launching: Live Tyre Strategy")
+        print("[INFO] Launching: Live Tyre Strategy")
         from src.insights.tyre_strategy_window import TyreStrategyWindow
         window = TyreStrategyWindow()
         window.show()
         self.opened_windows.append(window)
     
     def launch_pit_analysis(self):
-        print("🚀 Launching: Pit Stop Analysis")
+        print("[INFO] Launching: Pit Stop Analysis")
         self.show_placeholder_message("Pit Stop Analysis")
     
     def launch_gap_analysis(self):
-        print("🚀 Launching: Gap Analysis")
+        print("[INFO] Launching: Gap Analysis")
         self.show_placeholder_message("Gap Analysis")
     
     def launch_sector_times(self):
-        print("🚀 Launching: Sector Times")
+        print("[INFO] Launching: Sector Times")
         self.show_placeholder_message("Sector Times")
     
     def launch_lap_evolution(self):
-        print("🚀 Launching: Lap Time & Gap Evolution")
+        print("[INFO] Launching: Lap Time & Gap Evolution")
         self.show_placeholder_message("Lap Time & Gap Evolution")
     
     def launch_top_speed(self):
-        print("🚀 Launching: Top Speed Tracker")
+        print("[INFO] Launching: Top Speed Tracker")
         self.show_placeholder_message("Top Speed Tracker")
     
     def launch_flag_tracker(self):
-        print("🚀 Launching: Flag Tracker")
+        print("[INFO] Launching: Flag Tracker")
         self.show_placeholder_message("Flag Tracker")
     
     def launch_overtake_counter(self):
-        print("🚀 Launching: Overtake Counter")
+        print("[INFO] Launching: Overtake Counter")
         self.show_placeholder_message("Overtake Counter")
     
     def launch_drs_usage(self):
-        print("🚀 Launching: DRS Usage")
+        print("[INFO] Launching: DRS Usage")
         self.show_placeholder_message("DRS Usage")
     
     def show_placeholder_message(self, insight_name):

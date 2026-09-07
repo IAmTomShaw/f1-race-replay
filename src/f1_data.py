@@ -1,6 +1,7 @@
 import math
 import os
 import pickle
+import re
 import sys
 from datetime import timedelta, date
 from multiprocessing import Pool, cpu_count
@@ -14,6 +15,50 @@ import pandas as pd
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
+from src.data.telemetry_resample import (
+    ChannelKind,
+    Validity,
+    resample_driver,
+    safe_int,
+    safe_float,
+)
+from src.analytics.leaderboard import rank_frame as _rank_frame
+# PHASE D: versioned, atomic pickle cache. The legacy code did
+# raw ``pickle.load`` / ``pickle.dump`` with no envelope and no
+# atomic write; ``read_cache`` / ``write_cache_atomic`` add a
+# schema-versioned envelope and ``os.replace``-based atomic
+# writes. A schema mismatch falls back to recomputation, never
+# to a broken legacy read.
+from src.data.cache import (
+    read_cache,
+    write_cache_atomic,
+    is_cache_compatible,
+    CacheSchemaMismatch,
+    CacheCorrupted,
+)
+# PHASE E: qualifying helpers (segment validation, fastest-lap
+# selection, frame construction with canonical unit conversion).
+from src.data.qualifying import build_qualifying_frame
+# PHASE E: canonical unit conversion (brake 0/1 -> 0/100,
+# throttle clamped, rel_dist clamped, lap/tyre_life integer).
+from src.data.telemetry_units import normalize_frame
+# PHASE F: real vs simulated Safety Car separation. The legacy
+# ``_compute_safety_car_positions`` inlined a *simulated* SC
+# position into each frame without a source flag. The new
+# helpers attach a properly-tagged payload and expose the real
+# event timing separately.
+from src.replay.safety_car import (
+    extract_sc_periods,
+    close_open_periods,
+    attach_sc,
+)
+
+
+# PHASE B: track length is filled in once the example lap is
+# known (see get_race_telemetry). Until then it is 0 and the
+# rank_frame helper falls back to a (lap, dist) sort that matches
+# the legacy behaviour, so the rest of the function is unchanged.
+_INTEGRATION_TRACK_LENGTH = 0.0
 
 def enable_cache():
     # Get cache location from settings
@@ -30,9 +75,21 @@ def enable_cache():
 
 def _computed_data_file(event_name, cache_suffix):
     settings = get_settings()
+    # Sanitize the event name for cross-platform filenames.
+    # FastF1 3.6.1 returns a session ``__str__`` like
+    # ``"2024 Season Round 1: Bahrain Grand Prix - Race"``
+    # which after the space-to-underscore conversion contains
+    # a colon (``Round_1:``). Colons are illegal in Windows
+    # filenames, so the cache atomic-rename fails with
+    # ``OSError: [WinError 123]``. Replace the cross-platform
+    # reserved characters with underscores. The cache file
+    # name is an internal artifact (not user-visible); the
+    # user-visible event name is preserved in the cache
+    # metadata.
+    safe_event = re.sub(r'[<>:"/\\|?*]', "_", event_name)
     return os.path.join(
         settings.computed_data_location,
-        f"{event_name}_{cache_suffix}_telemetry.pkl",
+        f"{safe_event}_{cache_suffix}_telemetry.pkl",
     )
 
 
@@ -122,7 +179,7 @@ def _process_single_driver(args):
                 # Re-raise if it's a different KeyError
                 raise
         lap_number = lap.LapNumber
-        tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
+        tyre_compound_as_int = get_tyre_compound_int(lap.Compound)
         tyre_life = lap.TyreLife if pd.notna(lap.TyreLife) else 0
 
         if lap_tel.empty:
@@ -148,7 +205,7 @@ def _process_single_driver(args):
         race_dist_all.append(race_d_lap)
         rel_dist_all.append(rd_lap)
         lap_numbers.append(np.full_like(t_lap, lap_number))
-        tyre_compounds.append(np.full_like(t_lap, tyre_compund_as_int))
+        tyre_compounds.append(np.full_like(t_lap, tyre_compound_as_int))
         tyre_life_all.append(np.full_like(t_lap, tyre_life))
         speed_all.append(speed_kph_lap)
         gear_all.append(gear_lap)
@@ -601,19 +658,42 @@ def get_race_telemetry(session, session_type="R"):
     cache_suffix = "sprint" if session_type == "S" else "race"
     cache_file = _computed_data_file(event_name, cache_suffix)
 
-    # Check if this data has already been computed
-
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(cache_file, "rb") as f:
-                frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return frames
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    # PHASE D: cache read delegates to the versioned, atomic
+    # cache module. On schema mismatch or corruption the user
+    # gets a clear warning and we recompute, instead of an
+    # opaque traceback from raw pickle.load.
+    if "--refresh-data" not in sys.argv:
+        try:
+            payload = read_cache(cache_file)
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return payload
+        except FileNotFoundError:
+            pass  # Need to compute from scratch
+        except (CacheSchemaMismatch, CacheCorrupted) as exc:
+            # Old-format or corrupted cache: transparently
+            # recompute and overwrite. The legacy behaviour was
+            # to crash with an opaque traceback.
+            print(f"Cache at {cache_file!r} is incompatible "
+                  f"({type(exc).__name__}); recomputing.")
+        except Exception as exc:
+            # Any other cache error: also recompute, do not
+            # block startup.
+            print(f"Cache read failed ({type(exc).__name__}: {exc}); "
+                  f"recomputing.")
 
     drivers = session.drivers
+
+    # PHASE B: derive the canonical track length once so the
+    # rank_frame integration uses real progress (not the 0
+    # fallback). ``session.get_circuit_info()`` is the same
+    # source the legacy ``get_circuit_rotation`` uses.
+    try:
+        _TRACK_LEN = float(session.get_circuit_info().length or 0.0)
+    except Exception:
+        _TRACK_LEN = 0.0
+    global _INTEGRATION_TRACK_LENGTH
+    _INTEGRATION_TRACK_LENGTH = _TRACK_LEN
 
     driver_codes = {num: session.get_driver(num)["Abbreviation"] for num in drivers}
 
@@ -655,57 +735,73 @@ def get_race_telemetry(session, session_type="R"):
     timeline = np.arange(global_t_min, global_t_max, DT) - global_t_min
 
     # 3. Resample each driver's telemetry (x, y) onto the common timeline
+    #    using src.data.telemetry_resample.resample_driver so that
+    #    validity intervals (PRE / ACTIVE / GAP / POST / DNF / FINISHED)
+    #    are explicit and np.interp clamping no longer invents motion
+    #    for DNS or DNF drivers. The output shape is preserved so the
+    #    rest of f1_data.py is unchanged.
     resampled_data = {}
+    driver_validity_data = {}  # NEW: per-frame validity marker
     max_tyre_life_map = {}
 
     for code, data in driver_data.items():
         t = data["t"] - global_t_min  # Shift
 
-        # ensure sorted by time
-        order = np.argsort(t)
-        t_sorted = t[order]
+        # PHASE A: delegate per-driver resampling to the tested
+        # ``resample_driver`` helper. Channel kinds match the legacy
+        # "continuous vs step" treatment: gear is step (discrete),
+        # the rest are continuous.
+        res = resample_driver(
+            code,
+            timeline,
+            t,
+            {
+                "x": data["x"], "y": data["y"],
+                "dist": data["dist"], "rel_dist": data["rel_dist"],
+                "lap": data["lap"], "tyre": data["tyre"],
+                "tyre_life": data["tyre_life"], "speed": data["speed"],
+                "gear": data["gear"], "drs": data["drs"],
+                "throttle": data["throttle"], "brake": data["brake"],
+            },
+            channel_kinds={
+                "gear": ChannelKind.DISCRETE,
+                "drs": ChannelKind.DISCRETE,
+                "lap": ChannelKind.DISCRETE,
+                "tyre": ChannelKind.DISCRETE,
+            },
+        )
 
-        # Vectorize all resampling in one operation for speed
-        arrays_to_resample = [
-            data["x"][order],
-            data["y"][order],
-            data["dist"][order],
-            data["rel_dist"][order],
-            data["lap"][order],
-            data["tyre"][order],
-            data["tyre_life"][order],
-            data["speed"][order],
-            data["gear"][order],
-            data["drs"][order],
-            data["throttle"][order],
-            data["brake"][order],
-        ]
-
-        resampled = [np.interp(timeline, t_sorted, arr) for arr in arrays_to_resample]
-        x_resampled, y_resampled, dist_resampled, rel_dist_resampled, lap_resampled, \
-        tyre_resampled, tyre_life_resampled, speed_resampled, gear_resampled, drs_resampled, throttle_resampled, brake_resampled = resampled
- 
         resampled_data[code] = {
             "t": timeline,
-            "x": x_resampled,
-            "y": y_resampled,
-            "dist": dist_resampled,  # race distance (metres since Lap 1 start)
-            "rel_dist": rel_dist_resampled,
-            "lap": lap_resampled,
-            "tyre": tyre_resampled,
-            "tyre_life": tyre_life_resampled,
-            "speed": speed_resampled,
-            "gear": gear_resampled,
-            "drs": drs_resampled,
-            "throttle": throttle_resampled,
-            "brake": brake_resampled,
+            "x": res.channels["x"],
+            "y": res.channels["y"],
+            "dist": res.channels["dist"],
+            "rel_dist": res.channels["rel_dist"],
+            "lap": res.channels["lap"],
+            "tyre": res.channels["tyre"],
+            "tyre_life": res.channels["tyre_life"],
+            "speed": res.channels["speed"],
+            "gear": res.channels["gear"],
+            "drs": res.channels["drs"],
+            "throttle": res.channels["throttle"],
+            "brake": res.channels["brake"],
+            # PHASE A: validity markers for downstream consumers.
+            "validity": res.validity,
+            "valid_start": res.valid_start,
+            "valid_end": res.valid_end,
         }
+        driver_validity_data[code] = res.validity
 
-        for t_int in np.unique(tyre_resampled):
-            mask = tyre_resampled == t_int
-            c_max = np.nanmax(tyre_life_resampled[mask])
+        for t_int in np.unique(res.channels["tyre"]):
+            mask = res.channels["tyre"] == t_int
+            tyre_life_arr = res.channels["tyre_life"]
+            finite = np.isfinite(tyre_life_arr[mask])
+            if not np.any(finite):
+                continue
+            c_max = np.nanmax(tyre_life_arr[mask])
             if not np.isnan(c_max):
-                max_tyre_life_map[int(t_int)] = max(max_tyre_life_map.get(int(t_int), 1), int(c_max))
+                max_tyre_life_map[int(t_int)] = max(
+                    max_tyre_life_map.get(int(t_int), 1), int(c_max))
 
     # 4. Incorporate track status data into the timeline (for safety car, VSC, etc.)
 
@@ -868,29 +964,64 @@ def get_race_telemetry(session, session_type="R"):
         snapshot = []
         for code in driver_codes:
             d = driver_arrays[code]
+            # Use safe_int / safe_float so that NaN values (from
+            # outside the driver's valid interval, or inside a
+            # documented telemetry gap on a continuous channel)
+            # become an explicit None instead of crashing
+            # int(round(nan)) / float(nan). Unavailable values
+            # are NEVER replaced with 0 or any other default;
+            # consumers must check ``validity`` and ``active`` to
+            # interpret them.
             snapshot.append({
                 "code": code,
-                "dist": float(d["dist"][i]),
-                "x": float(d["x"][i]),
-                "y": float(d["y"][i]),
-                "lap": int(round(d["lap"][i])),
-                "rel_dist": float(d["rel_dist"][i]),
-                "tyre": float(d["tyre"][i]),
-                "tyre_life": float(d["tyre_life"][i]),
-                "speed": float(d['speed'][i]),
-                "gear": int(d['gear'][i]),
-                "drs": int(d['drs'][i]),
-                "throttle": float(d['throttle'][i]),
-                "brake": float(d['brake'][i]),
+                "dist": safe_float(d["dist"][i]),
+                "x": safe_float(d["x"][i]),
+                "y": safe_float(d["y"][i]),
+                "lap": safe_int(d["lap"][i]),
+                "rel_dist": safe_float(d["rel_dist"][i]),
+                "tyre": safe_float(d["tyre"][i]),
+                "tyre_life": safe_float(d["tyre_life"][i]),
+                "speed": safe_float(d['speed'][i]),
+                "gear": safe_int(d['gear'][i]),
+                "drs": safe_int(d['drs'][i]),
+                "throttle": safe_float(d['throttle'][i]),
+                "brake": safe_float(d['brake'][i]),
+                # PHASE A: per-frame validity / active flag so
+                # downstream code (leaderboard, invariants,
+                # insight windows) can avoid showing ghost motion.
+                "validity": (d["validity"][i].value
+                              if isinstance(d["validity"][i], Validity)
+                              else str(d["validity"][i])),
+                "active": d["validity"][i] in (Validity.ACTIVE,
+                                                 Validity.FINISHED),
             })
 
         # If for some reason we have no drivers at this instant
         if not snapshot:
             continue
 
-        # 5b. Sort by race distance to get POSITIONS (1–20)
-        # Leader = largest race distance covered
-        snapshot.sort(key=lambda r: (r.get("lap", 0), r["dist"]), reverse=True)
+        # 5b. PHASE B: delegate ranking to the tested
+        #     ``src.analytics.leaderboard.rank_frame``. The legacy
+        #     ``(lap, dist)`` sort did not honour validity, did
+        #     not demote in-pit drivers, and did not handle DNFs.
+        #     track_length is filled in below once the example
+        #     lap is known; here we use 0 which is the same
+        #     ordering as the legacy code (lap then dist).
+        _pit_codes = {c["code"] for c in snapshot
+                       if any(start <= t <= end
+                              for start, end in
+                              pit_windows_shifted.get(c["code"], []))}
+        _drivers_for_board = {c["code"]: c for c in snapshot}
+        board = _rank_frame(
+            {"t": float(t), "drivers": _drivers_for_board},
+            _INTEGRATION_TRACK_LENGTH,
+            pit_codes=_pit_codes,
+            frame_index=i,
+        )
+        pos_by_code = {e.code: e.position for e in board.entries}
+        snapshot.sort(key=lambda r: pos_by_code.get(r["code"], 99))
+        for car in snapshot:
+            car["position"] = pos_by_code.get(car["code"], 99)
 
         leader = snapshot[0]
         leader_lap = leader["lap"]
@@ -900,22 +1031,22 @@ def get_race_telemetry(session, session_type="R"):
 
         for idx, car in enumerate(snapshot):
             code = car["code"]
-            position = idx + 1
+            position = car["position"]
 
             #Pit stop detection
-            in_pit=False
-            for start,end in pit_windows_shifted.get(code,[]):
-                if start<=t<=end:
-                    in_pit=True
-                    break
-            
+            in_pit = code in _pit_codes
+
             # include speed, gear, drs_active in frame driver dict
             frame_data[code] = {
                 "x": car["x"],
                 "y": car["y"],
                 "dist": car["dist"],
                 "lap": car["lap"],
-                "rel_dist": round(car["rel_dist"], 4),
+                # ``rel_dist`` may be None for inactive drivers
+                # (PRE / POST / DNS); the rounding path must
+                # tolerate None.
+                "rel_dist": (round(car["rel_dist"], 4)
+                             if car["rel_dist"] is not None else None),
                 "tyre": car["tyre"],
                 "tyre_life": car["tyre_life"],
                 "position": position,
@@ -924,28 +1055,40 @@ def get_race_telemetry(session, session_type="R"):
                 "drs": car["drs"],
                 "throttle": car["throttle"],
                 "brake": car["brake"],
-                "in_pit": in_pit
+                "in_pit": in_pit,
+                # PHASE A: propagate validity / active flag.
+                "validity": car["validity"],
+                "active": car["active"],
             }
 
         weather_snapshot = {}
         if weather_resampled:
             try:
                 wt = weather_resampled
-                rain_val = wt["rainfall"][i] if wt.get("rainfall") is not None else 0.0
+                # The weather resampler uses np.interp which
+                # clamps to the first/last observation; some
+                # frames (very early / very late) may still
+                # be outside the broadcast range. Use the
+                # safe_float helper so NaN/Inf becomes None
+                # rather than crashing the float(...) call.
+                rain_val = (wt["rainfall"][i]
+                            if wt.get("rainfall") is not None
+                            and np.isfinite(wt["rainfall"][i])
+                            else 0.0)
                 weather_snapshot = {
-                    "track_temp": float(wt["track_temp"][i])
+                    "track_temp": safe_float(wt["track_temp"][i])
                     if wt.get("track_temp") is not None
                     else None,
-                    "air_temp": float(wt["air_temp"][i])
+                    "air_temp": safe_float(wt["air_temp"][i])
                     if wt.get("air_temp") is not None
                     else None,
-                    "humidity": float(wt["humidity"][i])
+                    "humidity": safe_float(wt["humidity"][i])
                     if wt.get("humidity") is not None
                     else None,
-                    "wind_speed": float(wt["wind_speed"][i])
+                    "wind_speed": safe_float(wt["wind_speed"][i])
                     if wt.get("wind_speed") is not None
                     else None,
-                    "wind_direction": float(wt["wind_direction"][i])
+                    "wind_direction": safe_float(wt["wind_direction"][i])
                     if wt.get("wind_direction") is not None
                     else None,
                     "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
@@ -961,24 +1104,60 @@ def get_race_telemetry(session, session_type="R"):
         if weather_snapshot:
             frame_payload["weather"] = weather_snapshot
 
+        # PHASE E: apply the canonical unit normalization once,
+        # uniformly, on every frame. This makes brake units
+        # canonical across race + qualifying (0..100 instead of
+        # race: raw 0/100, quali: 0/1 then *100).
+        frame_payload = normalize_frame(frame_payload)
+
         frames.append(frame_payload)
 
-    # 5d. Compute Safety Car positions for each frame
-    _compute_safety_car_positions(frames, formatted_track_statuses, session)
+    # 5d. PHASE F: delegate Safety Car processing to the tested
+    # ``src.replay.safety_car`` module. The real SC event
+    # timing is exposed separately; each frame gets a
+    # ``safety_car`` field with a ``source`` of
+    # ``"simulated"`` / ``"real"`` / ``"none"`` so consumers
+    # cannot confuse simulated visuals with real GPS data.
+    sc_periods = close_open_periods(
+        extract_sc_periods(formatted_track_statuses))
+    # Track length is needed to project (lap, dist) onto the
+    # within-lap distance. The legacy helper used the reference
+    # polyline; we fall back to 0 (the new helper's
+    # ``simulate_sc_position`` returns None when no leader is
+    # available, which is the same behaviour the legacy code
+    # had for the very first frame).
+    try:
+        _tl_for_sc = float(session.get_circuit_info().length or 0.0)
+    except Exception:
+        _tl_for_sc = 0.0
+    frames = attach_sc(frames, sc_periods, track_length=_tl_for_sc)
     print("completed telemetry extraction...")
     print("Saving to cache file...")
     _ensure_parent_dir(cache_file)
 
-    # Save using pickle (10-100x faster than JSON)
-    with open(cache_file, "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "race_control_messages": formatted_rc_messages,
-            "total_laps": int(max_lap_number),
-            "max_tyre_life": max_tyre_life_map,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
+    # PHASE D: cache write delegates to the versioned, atomic
+    # cache module. The payload shape is unchanged so legacy
+    # consumers (which read the dict by key) keep working.
+    cache_payload = {
+        "frames": frames,
+        "driver_colors": get_driver_colors(session),
+        "track_statuses": formatted_track_statuses,
+        "race_control_messages": formatted_rc_messages,
+        "total_laps": int(max_lap_number),
+        "max_tyre_life": max_tyre_life_map,
+    }
+    write_cache_atomic(
+        cache_file, cache_payload,
+        metadata={
+            "session_id": str(session),
+            "session_type": cache_suffix,
+            "year": getattr(session.event, "get", lambda *_: None)("Year")
+                     if hasattr(session, "event") else None,
+            "round_number": getattr(session.event, "get", lambda *_: None)("RoundNumber")
+                            if hasattr(session, "event") else None,
+            "telemetry_fps": FPS,
+        },
+    )
 
     print("Saved Successfully!")
     print("The replay should begin in a new window shortly")
@@ -1119,26 +1298,35 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
     brake_sorted = brake_arr[idx_map]
     drs_sorted = drs_arr[idx_map]
 
-    # Continuous interpolation
-    x_resampled = np.interp(timeline, t_sorted_unique, x_sorted)
-    y_resampled = np.interp(timeline, t_sorted_unique, y_sorted)
-    dist_resampled = np.interp(timeline, t_sorted_unique, dist_sorted)
-    rel_dist_resampled = np.interp(timeline, t_sorted_unique, rel_dist_sorted)
-    speed_resampled = np.round(np.interp(timeline, t_sorted_unique, speed_sorted), 1)
-    throttle_resampled = np.round(
-        np.interp(timeline, t_sorted_unique, throttle_sorted), 1
+    # PHASE A + E: delegate per-segment resampling to the tested
+    # ``resample_driver`` helper. The legacy code used bare
+    # ``np.interp`` and then multiplied ``brake`` by 100 to match
+    # the throttle scale. The new helper handles validity
+    # intervals (no extrapolation) and we let the canonical
+    # ``normalize_frame_entry`` (PHASE E) take care of the unit
+    # conversion at frame-build time, so the resampled ``brake``
+    # here is the raw 0/1 value from FastF1.
+    res = resample_driver(
+        driver_code, timeline, t_sorted_unique,
+        {
+            "x": x_sorted, "y": y_sorted,
+            "dist": dist_sorted, "rel_dist": rel_dist_sorted,
+            "speed": speed_sorted, "throttle": throttle_sorted,
+            "brake": brake_sorted, "drs": drs_sorted,
+            "gear": gear_sorted,
+        },
+        channel_kinds={"gear": ChannelKind.DISCRETE,
+                        "drs": ChannelKind.DISCRETE},
     )
-    brake_resampled = np.round(np.interp(timeline, t_sorted_unique, brake_sorted), 1)
-    drs_resampled = np.interp(timeline, t_sorted_unique, drs_sorted)
-
-    # Make sure that braking is between 0 and 100 so that it matches the throttle scale
-
-    brake_resampled = brake_resampled * 100.0
-
-    # Forward-fill / step sampling for discrete fields (gear)
-    idxs = np.searchsorted(t_sorted_unique, timeline, side="right") - 1
-    idxs = np.clip(idxs, 0, len(t_sorted_unique) - 1)
-    gear_resampled = gear_sorted[idxs].astype(int)
+    x_resampled = res.channels["x"]
+    y_resampled = res.channels["y"]
+    dist_resampled = res.channels["dist"]
+    rel_dist_resampled = res.channels["rel_dist"]
+    speed_resampled = np.round(res.channels["speed"], 1)
+    throttle_resampled = np.round(res.channels["throttle"], 1)
+    brake_resampled = np.round(res.channels["brake"], 1)
+    drs_resampled = res.channels["drs"]
+    gear_resampled = res.channels["gear"].astype(int)
 
     resampled_data = {
         "t": timeline,
@@ -1233,21 +1421,30 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
         if weather_resampled:
             try:
                 wt = weather_resampled
-                rain_val = wt["rainfall"][i] if wt.get("rainfall") is not None else 0.0
+                # The weather resampler uses np.interp which
+                # clamps to the first/last observation; some
+                # frames (very early / very late) may still
+                # be outside the broadcast range. Use the
+                # safe_float helper so NaN/Inf becomes None
+                # rather than crashing the float(...) call.
+                rain_val = (wt["rainfall"][i]
+                            if wt.get("rainfall") is not None
+                            and np.isfinite(wt["rainfall"][i])
+                            else 0.0)
                 weather_snapshot = {
-                    "track_temp": float(wt["track_temp"][i])
+                    "track_temp": safe_float(wt["track_temp"][i])
                     if wt.get("track_temp") is not None
                     else None,
-                    "air_temp": float(wt["air_temp"][i])
+                    "air_temp": safe_float(wt["air_temp"][i])
                     if wt.get("air_temp") is not None
                     else None,
-                    "humidity": float(wt["humidity"][i])
+                    "humidity": safe_float(wt["humidity"][i])
                     if wt.get("humidity") is not None
                     else None,
-                    "wind_speed": float(wt["wind_speed"][i])
+                    "wind_speed": safe_float(wt["wind_speed"][i])
                     if wt.get("wind_speed") is not None
                     else None,
-                    "wind_direction": float(wt["wind_direction"][i])
+                    "wind_direction": safe_float(wt["wind_direction"][i])
                     if wt.get("wind_direction") is not None
                     else None,
                     "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
@@ -1274,20 +1471,21 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
                 if lap_drs_zones and lap_drs_zones[-1]["zone_end"] is None:
                     lap_drs_zones[-1]["zone_end"] = float(resampled_data["dist"][i])
 
-        frame_payload = {
-            "t": round(t, 3),
-            "telemetry": {
-                "x": float(resampled_data["x"][i]),
-                "y": float(resampled_data["y"][i]),
-                "dist": float(resampled_data["dist"][i]),
-                "rel_dist": float(resampled_data["rel_dist"][i]),
-                "speed": float(resampled_data["speed"][i]),
-                "gear": int(resampled_data["gear"][i]),
-                "throttle": float(resampled_data["throttle"][i]),
-                "brake": float(resampled_data["brake"][i]),
-                "drs": int(resampled_data["drs"][i]),
-            },
+        # PHASE E: build the frame via the qualifying helper so
+        # the canonical unit conversion (brake 0/1 -> 0/100) is
+        # applied once and uniformly. The shape is unchanged.
+        row = {
+            "x": float(resampled_data["x"][i]),
+            "y": float(resampled_data["y"][i]),
+            "dist": float(resampled_data["dist"][i]),
+            "rel_dist": float(resampled_data["rel_dist"][i]),
+            "speed": float(resampled_data["speed"][i]),
+            "gear": int(resampled_data["gear"][i]),
+            "throttle": float(resampled_data["throttle"][i]),
+            "brake": float(resampled_data["brake"][i]),
+            "drs": int(resampled_data["drs"][i]),
         }
+        frame_payload = build_qualifying_frame(round(t, 3), row)
         if weather_snapshot:
             frame_payload["weather"] = weather_snapshot
 
@@ -1385,16 +1583,23 @@ def get_quali_telemetry(session, session_type="Q"):
     cache_suffix = "sprintquali" if session_type == "SQ" else "quali"
     cache_file = _computed_data_file(event_name, cache_suffix)
 
-    # Check if this data has already been computed
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(cache_file, "rb") as f:
-                data = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return data
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    # PHASE D: cache read delegates to the versioned, atomic
+    # cache module (qualifying path). On schema mismatch or
+    # corruption the user gets a clear warning and we recompute.
+    if "--refresh-data" not in sys.argv:
+        try:
+            payload = read_cache(cache_file)
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return payload
+        except FileNotFoundError:
+            pass  # Need to compute from scratch
+        except (CacheSchemaMismatch, CacheCorrupted) as exc:
+            print(f"Cache at {cache_file!r} is incompatible "
+                  f"({type(exc).__name__}); recomputing.")
+        except Exception as exc:
+            print(f"Cache read failed ({type(exc).__name__}: {exc}); "
+                  f"recomputing.")
 
     qualifying_results = get_qualifying_results(session)
 
@@ -1428,17 +1633,21 @@ def get_quali_telemetry(session, session_type="Q"):
 
     _ensure_parent_dir(cache_file)
 
-    with open(cache_file, "wb") as f:
-        pickle.dump(
-            {
-                "results": qualifying_results,
-                "telemetry": telemetry_data,
-                "max_speed": max_speed,
-                "min_speed": min_speed,
-            },
-            f,
-            protocol=pickle.HIGHEST_PROTOCOL,
-        )
+    # PHASE D: atomic, versioned cache write (qualifying path).
+    write_cache_atomic(
+        cache_file,
+        {
+            "results": qualifying_results,
+            "telemetry": telemetry_data,
+            "max_speed": max_speed,
+            "min_speed": min_speed,
+        },
+        metadata={
+            "session_id": str(session),
+            "session_type": cache_suffix,
+            "telemetry_fps": FPS,
+        },
+    )
 
     return {
         "results": qualifying_results,
