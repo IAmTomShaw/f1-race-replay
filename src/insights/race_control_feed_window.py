@@ -11,7 +11,7 @@ from PySide6.QtWidgets import (
     QApplication, QWidget, QVBoxLayout, QLabel, QTextBrowser
 )
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QFont, QColor
+from PySide6.QtGui import QFont
 from src.gui.pit_wall_window import PitWallWindow
 
 
@@ -84,7 +84,7 @@ def _clean_sector(val):
 _WAITING_TEXT = "Waiting for race control messages..."
 _NO_DATA_TEXT = (
     "No race control data in cache.\n\n"
-    "Delete the .pkl file in computed_data/\n"
+    "Delete the session .pkl file from the computed data folder\n"
     "and re-run the session to regenerate."
 )
 
@@ -274,10 +274,10 @@ class RaceControlFeedWindow(PitWallWindow):
     def on_connection_status_changed(self, status):
         if status == "Disconnected":
             self._status_line.setText("Disconnected")
-            self._status_line.setStyleSheet(f"color: #E74C3C; border: none;")
+            self._status_line.setStyleSheet("color: #E74C3C; border: none;")
         elif status == "Connecting...":
             self._status_line.setText("Connecting...")
-            self._status_line.setStyleSheet(f"color: #FF8C00; border: none;")
+            self._status_line.setStyleSheet("color: #FF8C00; border: none;")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

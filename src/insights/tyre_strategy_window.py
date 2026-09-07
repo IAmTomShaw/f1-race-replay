@@ -1,11 +1,13 @@
-import sys
+import os
+
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QScrollArea, QFrame, QSizePolicy
 )
 from PySide6.QtGui import QFont, QPainter, QColor, QPen, QBrush, QLinearGradient
 from PySide6.QtCore import Qt, QRect, QTimer
 from src.gui.pit_wall_window import PitWallWindow
+from src.lib.settings import get_settings
 
 
 TYRE_COLOURS = {
@@ -39,6 +41,10 @@ ACCENT      = "#e10600"
 TEXT_WHITE  = "#ffffff"
 TEXT_DIM    = "#888888"
 BORDER      = "#2a2a2a"
+
+
+def _tyre_state_file():
+    return os.path.join(get_settings().computed_data_location, "tyre_state.json")
 
 
 class StintBar(QWidget):
@@ -203,9 +209,10 @@ class TyreStrategyWindow(PitWallWindow):
 
     def _load_state(self):
         try:
-            import json, os
-            if os.path.exists("computed_data/tyre_state.json"):
-                with open("computed_data/tyre_state.json") as f:
+            import json
+            state_file = _tyre_state_file()
+            if os.path.exists(state_file):
+                with open(state_file) as f:
                     saved = json.load(f)
                     self.stints      = saved.get("stints", {})
                     self.positions   = saved.get("positions", {})
@@ -222,10 +229,10 @@ class TyreStrategyWindow(PitWallWindow):
 
     def _save_state(self):
         try:
-            import json, os
-            if not os.path.exists("computed_data"):
-                os.makedirs("computed_data")
-            with open("computed_data/tyre_state.json", "w") as f:
+            import json
+            state_file = _tyre_state_file()
+            os.makedirs(os.path.dirname(state_file), exist_ok=True)
+            with open(state_file, "w") as f:
                 json.dump({
                     "stints":      self.stints,
                     "positions":   self.positions,
@@ -295,7 +302,7 @@ class TyreStrategyWindow(PitWallWindow):
         leg_layout.setContentsMargins(80, 0, 12, 0)
         leg_layout.setSpacing(18)
 
-        for tval, (col, abbr) in TYRE_COLOURS.items():
+        for tval, (col, _abbr) in TYRE_COLOURS.items():
             if tval == 0.0:
                 continue
             dot = QLabel(f"● {TYRE_NAMES[tval]}")

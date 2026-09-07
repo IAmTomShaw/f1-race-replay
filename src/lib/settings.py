@@ -8,14 +8,28 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
+# PHASE G: the default cache and computed-data locations are
+# now resolved through ``src.lib.resource_paths`` so they are
+# project-root-relative (independent of the current working
+# directory). Existing user customizations are preserved: only
+# the DEFAULTS table is changed.
+from src.lib.resource_paths import (
+    cache_dir,
+    computed_data_dir,
+)
+
+
+_DEFAULT_CACHE = str(cache_dir())
+_DEFAULT_COMPUTED = str(computed_data_dir())
+
 
 class SettingsManager:
     """Manages application settings with JSON file persistence."""
 
-    # Default settings values
+    # Default settings values (PHASE G: project-root-relative).
     DEFAULTS = {
-        "cache_location": ".fastf1-cache",
-        "computed_data_location": "computed_data",
+        "cache_location": _DEFAULT_CACHE,
+        "computed_data_location": _DEFAULT_COMPUTED,
     }
 
     _instance: Optional["SettingsManager"] = None
@@ -103,8 +117,20 @@ class SettingsManager:
 
     @property
     def cache_location(self) -> str:
-        """Get the FastF1 cache location."""
-        return self.get("cache_location")
+        """Get the FastF1 cache location.
+
+        PHASE G: when the user has not customized the value
+        (i.e. it still equals the legacy default), we resolve
+        it through ``src.lib.resource_paths.cache_dir`` to
+        guarantee a project-root-relative path. Customized
+        values are returned as-is.
+        """
+        v = self.get("cache_location")
+        if v == ".fastf1-cache":
+            # Legacy CWD-relative value: redirect to the
+            # project-root-relative path.
+            return str(cache_dir())
+        return v
 
     @cache_location.setter
     def cache_location(self, value: str) -> None:
@@ -113,8 +139,18 @@ class SettingsManager:
 
     @property
     def computed_data_location(self) -> str:
-        """Get the computed data location."""
-        return self.get("computed_data_location")
+        """Get the computed data location.
+
+        PHASE G: when the user has not customized the value
+        (i.e. it still equals the legacy default), we resolve
+        it through ``src.lib.resource_paths.computed_data_dir``
+        to guarantee a project-root-relative path. Customized
+        values are returned as-is.
+        """
+        v = self.get("computed_data_location")
+        if v == "computed_data":
+            return str(computed_data_dir())
+        return v
 
     @computed_data_location.setter
     def computed_data_location(self, value: str) -> None:

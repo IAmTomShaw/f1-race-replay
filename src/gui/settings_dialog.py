@@ -3,7 +3,6 @@ Settings dialog for F1 Race Replay application.
 Provides UI for configuring application settings like cache location.
 """
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QDialog,
     QDialogButtonBox,
@@ -38,6 +37,70 @@ class SettingsDialog(QDialog):
 
         layout = QVBoxLayout()
         self.setLayout(layout)
+
+        # Apply dark theme matching the main launcher
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #0f0f1a;
+                color: #e0e0e0;
+                font-family: 'Segoe UI', 'Arial', sans-serif;
+                font-size: 13px;
+            }
+            QLabel {
+                color: #c8c8d0;
+            }
+            QGroupBox {
+                background-color: #12121f;
+                border: 1px solid #1e1e30;
+                border-radius: 8px;
+                margin-top: 14px;
+                padding: 16px 12px 12px 12px;
+                font-weight: bold;
+                color: #e10600;
+            }
+            QGroupBox::title {
+                subcontrol-origin: margin;
+                left: 14px;
+                padding: 0 6px;
+                color: #e10600;
+                font-size: 14px;
+            }
+            QLineEdit {
+                background-color: #1c1c2e;
+                color: #e0e0e0;
+                border: 1px solid #2a2a3e;
+                border-radius: 6px;
+                padding: 6px 10px;
+                font-size: 13px;
+            }
+            QLineEdit:focus {
+                border: 1px solid #e10600;
+            }
+            QPushButton {
+                background-color: #1c1c2e;
+                color: #e0e0e0;
+                border: 1px solid #2a2a3e;
+                border-radius: 6px;
+                padding: 7px 16px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #2a2a40;
+                border: 1px solid #e10600;
+                color: #ffffff;
+            }
+            QPushButton:pressed {
+                background-color: #e10600;
+                color: #ffffff;
+            }
+            QDialogButtonBox QPushButton {
+                min-width: 80px;
+            }
+            QMessageBox {
+                background-color: #0f0f1a;
+                color: #e0e0e0;
+            }
+        """)
 
         # Cache Settings Group
         cache_group = QGroupBox("Cache Settings")

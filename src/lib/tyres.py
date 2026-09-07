@@ -9,7 +9,9 @@ tyre_compounds_ints = {
 }
 
 def get_tyre_compound_int(compound_str):
-  return int(tyre_compounds_ints.get(compound_str.upper(), -1))
+  if compound_str is None:
+    return -1
+  return int(tyre_compounds_ints.get(str(compound_str).upper(), -1))
 
 def get_tyre_compound_str(compound_int):
   for k, v in tyre_compounds_ints.items():

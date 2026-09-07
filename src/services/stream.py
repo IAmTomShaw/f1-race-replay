@@ -99,9 +99,12 @@ class TelemetryStreamClient(QThread):
     self.socket = None
     self.connected = False
     self.running = False
+    self._stop_requested = False
       
   def run(self):
     # Main thread loop - connects to server and receives data.
+    if self._stop_requested:
+      return
     self.running = True
     
     while self.running:
@@ -109,14 +112,16 @@ class TelemetryStreamClient(QThread):
         self._connect_to_server()
         self._receive_data()
       except Exception as e:
+        if not self.running:
+          break
         self.error_occurred.emit(f"Connection error: {str(e)}")
         if self.socket:
           self.socket.close()
         self.connected = False
         self.connection_status.emit("Disconnected")
         
-        # Wait before attempting to reconnect
-        self.sleep(2)
+        if self.running:
+          self.sleep(2)
               
   def _connect_to_server(self):
     # Establish connection to the telemetry stream server.
@@ -125,14 +130,14 @@ class TelemetryStreamClient(QThread):
         
     self.connection_status.emit("Connecting...")
     self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    self.socket.settimeout(5.0)  # 5 second timeout
+    self.socket.settimeout(1.0)
     
     try:
       self.socket.connect((self.host, self.port))
       self.connected = True
       self.connection_status.emit("Connected")
     except socket.timeout:
-      self.error_occurred.emit(f"Connection timeout - is F1 Race Replay running?")
+      self.error_occurred.emit("Connection timeout - is F1 Race Replay running?")
       raise
     except ConnectionRefusedError:
       self.error_occurred.emit(f"Connection refused - is F1 Race Replay running on {self.host}:{self.port}?")
@@ -159,7 +164,28 @@ class TelemetryStreamClient(QThread):
           if line.strip():
             try:
               data = json.loads(line.strip())
-              self.data_received.emit(data)
+              # TASK 4: the wire payload is the protocol
+              # envelope directly. The legacy V1 client does
+              # not need envelope metadata; it only needs the
+              # application payload. We support three wire
+              # shapes for backward compatibility:
+              #
+              # 1. The new protocol envelope: the JSON has
+              #    ``payload``, ``type``, ``version`` etc.
+              #    We extract ``payload`` so the application
+              #    sees the same dict it always has.
+              # 2. The legacy ``{"envelope": ..., "raw": ...}``
+              #    wrapper (pre-TASK-4 producers). Unwrap
+              #    ``raw`` so existing producers still work.
+              # 3. A bare payload (no envelope at all). Pass
+              #    through unchanged.
+              if isinstance(data, dict):
+                if "raw" in data and "envelope" in data:
+                  self.data_received.emit(data["raw"])
+                elif "payload" in data and "type" in data and "version" in data:
+                  self.data_received.emit(data["payload"])
+                else:
+                  self.data_received.emit(data)
             except json.JSONDecodeError as e:
               self.error_occurred.emit(f"JSON decode error: {str(e)}")
                       
@@ -172,7 +198,143 @@ class TelemetryStreamClient(QThread):
               
   def stop(self):
     # Stop the client thread.
+    self._stop_requested = True
     self.running = False
     self.connected = False
     if self.socket:
-      self.socket.close()
+      try:
+        self.socket.shutdown(socket.SHUT_RDWR)
+      except OSError:
+        pass
+      finally:
+        self.socket.close()
+        self.socket = None
+
+
+# ---------------------------------------------------------------------------
+# TASK 3: the V2 client decodes the protocol envelope and emits
+# the raw payload together with envelope metadata.
+# ---------------------------------------------------------------------------
+class TelemetryStreamClientV2(QThread):
+  """Consumer that decodes the protocol envelope.
+
+  The publisher sends a single JSON line per frame with the
+  shape ``{"envelope": <protocol envelope>, "raw": <payload>}``.
+  The V2 client emits:
+
+  * ``envelope_received(envelope)``     -- the full envelope
+                                          (type, version, session_id,
+                                          seq, ts, payload)
+  * ``data_received(payload)``          -- the raw payload
+  * ``connection_status(str)``          -- "Connected" / "Disconnected"
+  * ``error_occurred(str)``             -- error message
+
+  The frame stream is the same TCP socket the legacy client
+  uses. The wire format is versioned; an envelope with a
+  different protocol version triggers a clean error rather
+  than a JSON decode failure.
+  """
+
+  envelope_received = Signal(dict)
+  data_received = Signal(dict)
+  connection_status = Signal(str)
+  error_occurred = Signal(str)
+
+  def __init__(self, host='localhost', port=9999):
+    super().__init__()
+    self.host = host
+    self.port = port
+    self.socket = None
+    self.connected = False
+    self.running = False
+    self._stop_requested = False
+
+  def run(self):
+    if self._stop_requested:
+      return
+    self.running = True
+    while self.running:
+      try:
+        self._connect_to_server()
+        self._receive_data()
+      except Exception as e:
+        if not self.running:
+          break
+        self.error_occurred.emit(f"Connection error: {str(e)}")
+        if self.socket:
+          try:
+            self.socket.close()
+          except OSError:
+            pass
+        self.connected = False
+        self.connection_status.emit("Disconnected")
+        if self.running:
+          self.sleep(2)
+
+  def _connect_to_server(self):
+    if self.connected:
+      return
+    self.connection_status.emit("Connecting...")
+    self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.socket.settimeout(1.0)
+    try:
+      self.socket.connect((self.host, self.port))
+      self.connected = True
+      self.connection_status.emit("Connected")
+    except socket.timeout:
+      self.error_occurred.emit("Connection timeout")
+      raise
+    except ConnectionRefusedError:
+      self.error_occurred.emit("Connection refused")
+      raise
+
+  def _receive_data(self):
+    buffer = ""
+    while self.running and self.connected:
+      try:
+        chunk = self.socket.recv(4096).decode('utf-8')
+        if not chunk:
+          self.connected = False
+          break
+        buffer += chunk
+        while '\n' in buffer:
+          line, buffer = buffer.split('\n', 1)
+          if line.strip():
+            try:
+              envelope = json.loads(line.strip())
+            except json.JSONDecodeError as e:
+              self.error_occurred.emit(f"JSON decode error: {str(e)}")
+              continue
+            # The wire is ``{"envelope": ..., "raw": ...}`` (TASK 3
+            # migration). We pull out the envelope and the raw
+            # payload, emit them, and let consumers subscribe
+            # to whichever they need.
+            if isinstance(envelope, dict) and "envelope" in envelope:
+              env = envelope["envelope"]
+              raw = envelope.get("raw", {})
+              self.envelope_received.emit(env)
+              self.data_received.emit(raw)
+            else:
+              # Producer has not yet migrated; fall back to
+              # legacy shape.
+              self.envelope_received.emit({})
+              self.data_received.emit(envelope)
+      except socket.timeout:
+        continue
+      except Exception as e:
+        if self.running:
+          self.error_occurred.emit(f"Receive error: {str(e)}")
+        break
+
+  def stop(self):
+    self._stop_requested = True
+    self.running = False
+    self.connected = False
+    if self.socket:
+      try:
+        self.socket.shutdown(socket.SHUT_RDWR)
+      except OSError:
+        pass
+      finally:
+        self.socket.close()
+        self.socket = None
