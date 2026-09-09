@@ -2,8 +2,9 @@ fastf1
 pandas
 matplotlib
 numpy
-arcade
-pyglet
+scipy
+arcade==2.6.17
+pyglet==2.0.dev23
 pyside6
 questionary
 rich

@@ -1,14 +1,34 @@
 import os
+import sys
 import time
+import threading
+import logging
+import math
 import arcade
 import numpy as np
 from scipy.spatial import cKDTree
+from typing import Dict
 from src.f1_data import FPS
+from src.lib.arcade_compat import ensure_arcade_compat
+# TASK 4: streaming is now served by the new
+# ``src.streaming.transport.TelemetryStreamServer`` which owns
+# its own broker and dispatch thread. The server enforces
+# SO_REUSEADDR, a state machine, bounded per-subscriber queues
+# (drop-oldest), and non-blocking delivers. The on-the-wire
+# payload is the protocol envelope (consumed by
+# ``TelemetryStreamClientV2``); a wrapper preserves the
+# legacy ``{"raw": ...}`` field for any V1 client still in
+# the loop. The render loop enqueues into the broker via
+# ``publish()`` and returns immediately; a slow client never
+# stalls the render.
+from src.streaming.broker import StreamingBroker
+from src.streaming.protocol import MessageType
+from src.streaming.transport import TelemetryStreamServer
 from src.ui_components import (
-    LeaderboardComponent, 
-    WeatherComponent, 
-    LegendComponent, 
-    DriverInfoComponent, 
+    LeaderboardComponent,
+    WeatherComponent,
+    LegendComponent,
+    DriverInfoComponent,
     RaceProgressBarComponent,
     RaceControlsComponent,
     ControlsPopupComponent,
@@ -18,13 +38,41 @@ from src.ui_components import (
     draw_finish_line
 )
 from src.tyre_degradation_integration import TyreDegradationIntegrator
-from src.services.stream import TelemetryStreamServer
+# PHASE C: canonical replay clock. The legacy float
+# ``self.frame_index`` accumulator in on_update is now
+# delegated to a ReplayClock instance; the legacy attribute
+# is preserved (and updated from the clock) so every existing
+# reader keeps working unchanged.
+from src.replay.clock import ReplayClock, Direction
 
+# Enable DPI awareness on Windows for crisp rendering on high-DPI displays
+if sys.platform == "win32":
+    try:
+        import ctypes
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
 
-SCREEN_WIDTH = 1280
-SCREEN_HEIGHT = 720
+ensure_arcade_compat(arcade)
+
+SCREEN_WIDTH = 1920
+SCREEN_HEIGHT = 1080
 SCREEN_TITLE = "F1 Race Replay"
 PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
+
+
+def _is_finite_coord(x, y) -> bool:
+    """Return True iff both x and y are finite numerical values.
+
+    Rejects None, NaN, +Inf, -Inf, and non-numeric types.
+    Does not rely on truthiness (0.0 is valid).
+    """
+    if x is None or y is None:
+        return False
+    if not isinstance(x, (int, float, np.number)) or not isinstance(y, (int, float, np.number)):
+        return False
+    return math.isfinite(x) and math.isfinite(y)
+
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
@@ -33,22 +81,51 @@ class F1RaceReplayWindow(arcade.Window):
                  session_info=None, session=None, enable_telemetry=False,
                  race_control_messages=None):
         # Set resizable to True so the user can adjust mid-sim
-        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True)
+        super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True, antialiasing=True, samples=4)
         self.maximize()
 
+        # TASK 4: live streaming uses the new transport. The
+        # server owns its own broker and dispatch thread; a
+        # slow client can never stall the render loop because
+        # the server's bounded per-subscriber queue
+        # (drop-oldest) absorbs backpressure. The render path
+        # enqueues into ``self._broker`` and returns
+        # immediately.
         self.telemetry_stream = None
+        self._broker = None
+        self._telemetry_server = None
         if enable_telemetry:
+            session_id = (f"race-{getattr(session, 'name', 'session')}"
+                          if session is not None else "race")
+            self._broker = StreamingBroker(session_id=session_id,
+                                           queue_capacity=64)
             try:
-                self.telemetry_stream = TelemetryStreamServer()
-                self.telemetry_stream.start()
-                print("Telemetry stream server started on localhost:9999")
+                self._telemetry_server = TelemetryStreamServer(
+                    self._broker, host="localhost", port=9999,
+                )
+                self._telemetry_server.start()
+                # Public attribute kept for back-compat with any
+                # consumer that introspects the stream. The new
+                # server exposes ``.bound_port`` and a clean
+                # state machine rather than the legacy
+                # ``.broadcast`` API.
+                self.telemetry_stream = self._telemetry_server
+                print(f"Telemetry stream server started on "
+                      f"localhost:{self._telemetry_server.bound_port}")
             except OSError as e:
                 print(f"Failed to start telemetry server: {e}")
                 print("Continuing without telemetry streaming...")
                 self.telemetry_stream = None
+                self._telemetry_server = None
             except Exception as e:
                 print(f"Error starting telemetry server: {e}")
                 self.telemetry_stream = None
+                self._telemetry_server = None
+
+        # Structured logger (lazy import so the legacy logger-free
+        # path still works).
+        import logging
+        self._broker_logger = logging.getLogger("f1_replay.streaming.broker")
 
         self.frames = frames
         self.track_statuses = track_statuses
@@ -57,7 +134,17 @@ class F1RaceReplayWindow(arcade.Window):
         self.drivers = list(drivers)
         self.playback_speed = PLAYBACK_SPEEDS[PLAYBACK_SPEEDS.index(playback_speed)] if playback_speed in PLAYBACK_SPEEDS else 1.0
         self.driver_colors = driver_colors or {}
-        self.frame_index = 0.0  # use float for fractional-frame accumulation
+        # PHASE C: canonical replay clock owns the time source.
+        # The total_seconds is the resampled frames' last t; for
+        # robustness we use n_frames / FPS. Legacy
+        # ``self.frame_index`` / ``self.paused`` are kept as
+        # attributes and updated from the clock each tick so
+        # every other reader of those attributes keeps working.
+        _total_replay_s = float(self.n_frames) / float(FPS) if FPS else 0.0
+        self._clock = ReplayClock(total_seconds=_total_replay_s,
+                                    fps=FPS,
+                                    initial_speed=self.playback_speed)
+        self.frame_index = 0.0  # mirror of clock.frame_index (legacy)
         self.paused = False
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
@@ -99,14 +186,14 @@ class F1RaceReplayWindow(arcade.Window):
                 init_success = self.degradation_integrator.initialize_from_session()
                 
                 if init_success:
-                    print("✓ Tyre degradation model initialized successfully")
+                    print("[OK] Tyre degradation model initialized successfully")
                     # Link integrator to driver info component
                     self.driver_info_comp.degradation_integrator = self.degradation_integrator
                 else:
-                    print("✗ Tyre degradation model initialization failed")
+                    print("[ERROR] Tyre degradation model initialization failed")
                     self.degradation_integrator = None
             except Exception as e:
-                print(f"✗ Tyre degradation initialization error: {e}")
+                print(f"[ERROR] Tyre degradation initialization error: {e}")
                 self.degradation_integrator = None
         else:
             print("Note: Session not provided, tyre degradation disabled")
@@ -200,6 +287,8 @@ class F1RaceReplayWindow(arcade.Window):
         # These will hold the actual screen coordinates to draw
         self.screen_inner_points = []
         self.screen_outer_points = []
+        # Cache for static track line shapes: track_color -> (inner_shape, outer_shape)
+        self._track_shapes = {}
         
         # Scaling parameters (initialized to 0, calculated in update_scaling)
         self.world_scale = 1.0
@@ -222,6 +311,7 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
+        self.selected_drivers = []
         self.leaderboard_rects = []  # list of tuples: (code, left, bottom, right, top)
         # store previous leaderboard order for up/down arrows
         self.last_leaderboard_order = None
@@ -230,52 +320,61 @@ class F1RaceReplayWindow(arcade.Window):
         self._broadcast_telemetry_state()
 
     def _broadcast_telemetry_state(self):
-        """Broadcast current telemetry state to connected clients."""
-        if not hasattr(self, 'telemetry_stream') or not self.telemetry_stream:
+        """Broadcast current telemetry state to connected clients.
+
+        TASK 4: enqueues onto the bounded broker. The new
+        transport's dispatch thread does the network I/O so
+        a slow client cannot stall the render loop.
+        """
+        if getattr(self, "_broker", None) is None:
             return
-            
-        current_frame = self.frames[min(int(self.frame_index), len(self.frames) - 1)] if self.frames else None
-        
+
+        current_frame = (self.frames[min(int(self.frame_index),
+                                          len(self.frames) - 1)]
+                          if self.frames else None)
+
         # Get current track status
         current_track_status = "GREEN"
         if current_frame:
             current_time = current_frame["t"]
             for status in self.track_statuses:
-                if (current_time >= status["start_time"] and 
+                if (current_time >= status["start_time"] and
                     (status["end_time"] is None or current_time <= status["end_time"])):
                     current_track_status = status["status"]
-                    
+
         # Calculate leader info
         leader_code = ""
         leader_lap = 1
         if current_frame and "drivers" in current_frame:
             driver_progress = {}
             for code, pos in current_frame["drivers"].items():
-                x, y = pos.get("x", 0.0), pos.get("y", 0.0)
+                x, y = pos.get("x"), pos.get("y")
                 lap_raw = pos.get("lap", 1)
                 try:
                     lap = int(lap_raw)
                 except (ValueError, TypeError):
                     lap = 1
-                projected_m = self._project_to_reference(x, y)
-                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
-                driver_progress[code] = progress_m
-                if self._ref_total_length > 0:
-                    pos["fraction"] = progress_m / self._ref_total_length
-                else:
-                    pos["fraction"] = 0.0
-                
+                if _is_finite_coord(x, y):
+                    projected_m = self._project_to_reference(x, y)
+                    if projected_m is not None:
+                        progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                        driver_progress[code] = progress_m
+                        if self._ref_total_length > 0:
+                            pos["fraction"] = progress_m / self._ref_total_length
+                        else:
+                            pos["fraction"] = 0.0
+
             if driver_progress:
                 leader_code = max(driver_progress.keys(), key=lambda c: driver_progress[c])
                 leader_lap = current_frame["drivers"][leader_code].get("lap", 1)
-        
+
         # Format time
         t = current_frame["t"] if current_frame else 0
         hours = int(t // 3600)
         minutes = int((t % 3600) // 60)
         seconds = int(t % 60)
         time_str = f"{hours:02}:{minutes:02}:{seconds:02}"
-        
+
         # Gather all race control events up to the current frame time.
         # Sends the full history every broadcast so newly opened windows
         # receive all past events immediately.  The list is small (30-80
@@ -325,13 +424,20 @@ class F1RaceReplayWindow(arcade.Window):
                 "rotation_deg": self.circuit_rotation,
             }
 
-        # Send pre-computed data continuously. It's just a Python dictionary reference 
-        # (O(1) memory overhead in local publish/subscribe) and ensures windows 
+        # Send pre-computed data continuously. It's just a Python dictionary reference
+        # (O(1) memory overhead in local publish/subscribe) and ensures windows
         # opened after the race has finished still receive the data.
         payload["lap_times"] = self._precomputed_lap_times
         payload["status_laps"] = self._precomputed_status_laps
 
-        self.telemetry_stream.broadcast(payload)
+        # TASK 4: publish through the broker. The render thread
+        # returns immediately; the new transport's own dispatch
+        # thread does the network I/O so a slow client cannot
+        # stall the render. The on-the-wire payload is the
+        # protocol envelope (consumed by ``TelemetryStreamClientV2``).
+        if self._broker is None:
+            return
+        self._broker.publish(MessageType.FRAME_UPDATE, payload)
 
     @staticmethod
     def _compute_lap_times(frames, session=None):
@@ -942,7 +1048,24 @@ class F1RaceReplayWindow(arcade.Window):
                 if known:
                     anchor_lap, anchor_life = known[0]
                     for entry in stint:
-                        if int(entry.get("tyre_life", 0)) > 0:
+                        # TASK 4 follow-up: ``tyre_life`` may
+                        # be ``None`` for entries where the
+                        # source had no finite sample. The
+                        # ``known`` comprehension already
+                        # filtered out ``None`` and non-positive
+                        # values, so an entry reaching this
+                        # body has ``tyre_life`` either
+                        # missing, ``None``, or a real
+                        # non-positive integer. Treat all of
+                        # those as "needs inference" and leave
+                        # ``None`` alone when inference is
+                        # impossible.
+                        if isinstance(entry.get("tyre_life"), (int, float)) \
+                                and entry.get("tyre_life") is not None \
+                                and int(entry.get("tyre_life", 0)) > 0:
+                            continue
+                        # Skip inference for ``None`` (unknown)
+                        if entry.get("tyre_life") is None:
                             continue
                         inferred = anchor_life + (int(entry["lap"]) - anchor_lap)
                         if inferred > 0:
@@ -952,11 +1075,34 @@ class F1RaceReplayWindow(arcade.Window):
                 first_entry = stint[0]
                 if first_entry.get("is_out_lap") or int(first_entry.get("lap", 0)) == 1:
                     for idx, entry in enumerate(stint, start=1):
-                        if int(entry.get("tyre_life", 0)) <= 0:
+                        # TASK 4 follow-up: ``tyre_life`` may
+                        # be ``None`` for entries where the
+                        # source had no finite sample. The
+                        # fallback inference to ``idx`` (the
+                        # lap number) is only applied when the
+                        # existing value is missing entirely
+                        # OR a real non-positive integer. A
+                        # ``None`` value is left alone (the
+                        # semantic rule: UNKNOWN MUST NOT be
+                        # interpreted as a fresh tyre).
+                        if entry.get("tyre_life") is None:
+                            continue
+                        if not isinstance(entry.get("tyre_life"), (int, float)) \
+                                or int(entry.get("tyre_life", 0)) <= 0:
                             entry["tyre_life"] = idx
 
     @staticmethod
     def _compute_fallback_lap_times_raw(frames, min_lap_time_s=30.0, max_lap_time_s=7200.0):
+        # Use the shared ``safe_int`` helper from the resampling
+        # layer so that the new ``None``/NaN contract introduced
+        # at the frame-construction boundary does not crash the
+        # fallback lap-time calculation. The fallback stores the
+        # converted value (or ``None`` for unavailable) verbatim
+        # in the lap entry; downstream classification
+        # (``_classify_lap_entries``) already uses
+        # ``entry.get("tyre_life", -1)`` and tolerates the value
+        # being anything, so the contract is preserved.
+        from src.data.telemetry_resample import safe_int
         lap_start_t = {}    # code -> session time when current lap began
         current_lap = {}    # code -> last seen lap number
         result = {}         # code -> list of lap time entries
@@ -979,7 +1125,15 @@ class F1RaceReplayWindow(arcade.Window):
                 if lap > prev_lap:
                     lap_time = t - lap_start_t.get(code, t)
                     tyre = int(round(drv.get("tyre", 0)))
-                    tyre_life = int(round(drv.get("tyre_life", 0)))
+                    # TASK 4 follow-up: ``tyre_life`` may be
+                    # ``None`` for frames where the driver is in
+                    # the PRE/POST/DNS region or where the
+                    # resampler has no finite sample. Use
+                    # ``safe_int`` so we store the explicit
+                    # ``None`` ("unknown") instead of crashing on
+                    # ``int(round(None))`` or fabricating a fake
+                    # tyre life of 0.
+                    tyre_life = safe_int(drv.get("tyre_life"))
 
                     if min_lap_time_s < lap_time < max_lap_time_s and prev_lap >= 2:
                         result.setdefault(code, []).append({
@@ -1050,8 +1204,21 @@ class F1RaceReplayWindow(arcade.Window):
                         and next_tyre != -1
                         and next_tyre != tyre
                     )
+                    # TASK 4 follow-up: ``tyre_life`` and
+                    # ``next_tyre_life`` may be ``None`` (the
+                    # frame-construction boundary correctly
+                    # represents unavailable tyre life as
+                    # ``None``). Guard each comparison so an
+                    # unknown value short-circuits this branch
+                    # to ``False`` rather than crashing on
+                    # ``None >= 0``. The classifier then falls
+                    # back to other signals (compound_change,
+                    # severe_delta alone) which don't require
+                    # the tyre_life comparison.
                     age_reset = (
                         next_entry is not None
+                        and tyre_life is not None
+                        and next_tyre_life is not None
                         and tyre_life >= 0
                         and next_tyre_life >= 0
                         and next_tyre_life <= 2
@@ -1143,6 +1310,9 @@ class F1RaceReplayWindow(arcade.Window):
         return list(zip(xs_i, ys_i))
 
     def _project_to_reference(self, x, y):
+        if not _is_finite_coord(x, y):
+            return None
+
         if self._ref_total_length == 0.0:
             return 0.0
 
@@ -1227,6 +1397,23 @@ class F1RaceReplayWindow(arcade.Window):
         # Update the polyline screen coordinates based on new scale
         self.screen_inner_points = [self.world_to_screen(x, y) for x, y in self.world_inner_points]
         self.screen_outer_points = [self.world_to_screen(x, y) for x, y in self.world_outer_points]
+        if hasattr(self, '_track_shapes') and self._track_shapes:
+            self._track_shapes.clear()
+
+    def _get_track_shapes(self, track_color):
+        """Return cached pre-buffered Shape objects for inner and outer track lines."""
+        if not hasattr(self, '_track_shapes'):
+            self._track_shapes = {}
+        shapes = self._track_shapes.get(track_color)
+        if shapes is None and len(self.screen_inner_points) > 1 and len(self.screen_outer_points) > 1:
+            try:
+                inner_shape = arcade.create_line_strip(self.screen_inner_points, track_color, 5)
+                outer_shape = arcade.create_line_strip(self.screen_outer_points, track_color, 5)
+                shapes = (inner_shape, outer_shape)
+                self._track_shapes[track_color] = shapes
+            except Exception:
+                shapes = None
+        return shapes
 
     def on_resize(self, width, height):
         """Called automatically by Arcade when window is resized."""
@@ -1246,6 +1433,9 @@ class F1RaceReplayWindow(arcade.Window):
         self.status_text.y = self.height - 120
 
     def world_to_screen(self, x, y):
+        if not _is_finite_coord(x, y):
+            return None, None
+
         # Rotate around the track centre (if rotation is set), then scale+translate
         world_cx = (self.x_min + self.x_max) / 2
         world_cy = (self.y_min + self.y_max) / 2
@@ -1271,6 +1461,38 @@ class F1RaceReplayWindow(arcade.Window):
         ]
         idx = int((deg_norm / 22.5) + 0.5) % len(dirs)
         return dirs[idx]
+
+    # Per-text-object cache of the last value written via
+    # ``_set_text_if_changed``. Keyed by ``id(text_obj)`` so the
+    # same physical text widget is tracked across ``on_draw``
+    # invocations without growing the instance state. Cleared
+    # on ``close()``.
+    _text_cache: Dict[int, str] = {}
+
+    @staticmethod
+    def _set_text_if_changed(text_obj, new_text: str) -> None:
+        """Assign ``text_obj.text = new_text`` only when the new
+        value differs from the last value written for this
+        text object.
+
+        Pyglet's ``arcade.Text`` setter triggers a text-layout
+        rebuild and a font-glyph cache lookup on every
+        assignment, even when the new string is identical to
+        the old one. Over many frames this leaks memory through
+        the font-glyph texture atlas until ``MemoryError`` is
+        raised when allocating a new GL texture. Guarding the
+        assignment with a per-object cache stops the leak while
+        keeping the visible formatting unchanged.
+        """
+        if text_obj is None:
+            return
+        cache = F1RaceReplayWindow._text_cache
+        key = id(text_obj)
+        prev = cache.get(key)
+        if prev == new_text:
+            return
+        text_obj.text = new_text
+        cache[key] = new_text
 
     def on_draw(self):
         self.clear()
@@ -1312,10 +1534,15 @@ class F1RaceReplayWindow(arcade.Window):
         elif current_track_status == "6" or current_track_status == "7":
             track_color = STATUS_COLORS.get("VSC")
             
-        if len(self.screen_inner_points) > 1:
-            arcade.draw_line_strip(self.screen_inner_points, track_color, 4)
-        if len(self.screen_outer_points) > 1:
-            arcade.draw_line_strip(self.screen_outer_points, track_color, 4)
+        track_shapes = self._get_track_shapes(track_color)
+        if track_shapes is not None:
+            track_shapes[0].draw()
+            track_shapes[1].draw()
+        else:
+            if len(self.screen_inner_points) > 1:
+                arcade.draw_line_strip(self.screen_inner_points, track_color, 5)
+            if len(self.screen_outer_points) > 1:
+                arcade.draw_line_strip(self.screen_outer_points, track_color, 5)
         
         # 2.5 Draw DRS Zones (green segments on outer track edge)
         if hasattr(self, 'drs_zones') and self.drs_zones and self.toggle_drs_zones:
@@ -1347,14 +1574,19 @@ class F1RaceReplayWindow(arcade.Window):
             selected_drivers = [self.selected_driver]
 
         for i, (code, pos) in enumerate(frame["drivers"].items()):
-            sx, sy = self.world_to_screen(pos["x"], pos["y"])
+            x = pos.get("x")
+            y = pos.get("y")
+            if not _is_finite_coord(x, y):
+                continue
+
+            sx, sy = self.world_to_screen(x, y)
             color = self.driver_colors.get(code, arcade.color.WHITE)
             
             is_selected = code in selected_drivers
             
             if self.show_driver_labels or is_selected:
                 # Find closest point index on reference track (Optimized KD-Tree)
-                _, idx = self.track_tree.query([pos["x"], pos["y"]])
+                _, idx = self.track_tree.query([x, y])
                 idx = int(idx)
                 
                 # Get normal vector in world space
@@ -1380,13 +1612,31 @@ class F1RaceReplayWindow(arcade.Window):
                 text_padding = 3 if snx >= 0 else -3
                 arcade.draw_text(code, lx + text_padding, ly, color, 10, anchor_x=anchor_x, anchor_y="center", bold=True)
 
-            arcade.draw_circle_filled(sx, sy, 6, color)
+            arcade.draw_circle_filled(sx, sy, 8, color)
         
         # 3b. Draw Safety Car (if active)
         sc_data = frame.get("safety_car")
-        if sc_data is not None:
-            sc_x = sc_data["x"]
-            sc_y = sc_data["y"]
+        # The safety_car payload is produced by ``attach_sc`` in
+        # ``src/replay/safety_car.py`` with one of three shapes:
+        #   1. ``{"source": "none"}`` — no SC period active.
+        #   2. ``{"source": "real", ...}`` — SC active but no
+        #      leader found; no positional keys present.
+        #   3. ``{"source": "simulated", "x": <val>, "y": <val>,
+        #      ...}`` — SC active with a usable position; ``x`` /
+        #      ``y`` may be None when the renderer is expected to
+        #      derive them from the track polyline.
+        # The legacy qualifying path also writes ``None`` for the
+        # no-SC case. We accept both contracts by requiring a
+        # non-``none`` source AND valid finite (x, y) before
+        # rendering; otherwise we skip the SC overlay for this
+        # frame and retain the rest of the replay.
+        sc_x = sc_data.get("x") if isinstance(sc_data, dict) else None
+        sc_y = sc_data.get("y") if isinstance(sc_data, dict) else None
+        sc_source = sc_data.get("source") if isinstance(sc_data, dict) else None
+        if (sc_data is not None
+                and sc_source != "none"
+                and sc_x is not None and sc_y is not None
+                and math.isfinite(sc_x) and math.isfinite(sc_y)):
             sc_phase = sc_data.get("phase", "on_track")
             sc_alpha = sc_data.get("alpha", 1.0)
             
@@ -1447,6 +1697,7 @@ class F1RaceReplayWindow(arcade.Window):
                     phase_text, sc_sx, sc_sy - 18, phase_color, 8,
                     anchor_x="center", anchor_y="top", bold=True
                 )
+
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
@@ -1461,13 +1712,15 @@ class F1RaceReplayWindow(arcade.Window):
             except Exception:
                 lap = 1
 
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
-
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
-
-            driver_progress[code] = progress_m
+            x = pos.get("x")
+            y = pos.get("y")
+            if _is_finite_coord(x, y):
+                # Project (x,y) to reference and combine with lap count
+                projected_m = self._project_to_reference(x, y)
+                if projected_m is not None:
+                    # progress in metres since race start: (lap-1) * lap_length + projected_m
+                    progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                    driver_progress[code] = progress_m
 
         # Leader is the one with greatest progress_m
         if driver_progress:
@@ -1491,22 +1744,39 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Draw HUD - Top Left
         if self.visible_hud:
+            # lap_text changes only when the leader completes a lap
+            # (low frequency); no guard needed.
             self.lap_text.text = lap_str
-            self.time_text.text = f"Race Time: {time_str} (x{self.playback_speed})"
-            # default no status text
-            self.status_text.text = ""
+            # time_text and status_text are checked via the per-object
+            # cache so identical assignments do not trigger a
+            # pyglet text-layout rebuild and font-glyph cache growth.
+            F1RaceReplayWindow._set_text_if_changed(
+                self.time_text,
+                f"Race Time: {time_str} (x{self.playback_speed})",
+            )
+            F1RaceReplayWindow._set_text_if_changed(
+                self.status_text, "",
+            )
             # update status color and text if required
             if current_track_status == "2":
-                self.status_text.text = "YELLOW FLAG"
+                F1RaceReplayWindow._set_text_if_changed(
+                    self.status_text, "YELLOW FLAG",
+                )
                 self.status_text.color = arcade.color.YELLOW
             elif current_track_status == "5":
-                self.status_text.text = "RED FLAG"
+                F1RaceReplayWindow._set_text_if_changed(
+                    self.status_text, "RED FLAG",
+                )
                 self.status_text.color = arcade.color.RED
             elif current_track_status == "6":
-                self.status_text.text = "VIRTUAL SAFETY CAR"
+                F1RaceReplayWindow._set_text_if_changed(
+                    self.status_text, "VIRTUAL SAFETY CAR",
+                )
                 self.status_text.color = arcade.color.ORANGE
             elif current_track_status == "4":
-                self.status_text.text = "SAFETY CAR"
+                F1RaceReplayWindow._set_text_if_changed(
+                    self.status_text, "SAFETY CAR",
+                )
                 self.status_text.color = arcade.color.BROWN
 
             self.lap_text.draw()
@@ -1525,7 +1795,12 @@ class F1RaceReplayWindow(arcade.Window):
         driver_list = []
         for code, pos in frame["drivers"].items():
             color = self.driver_colors.get(code, arcade.color.WHITE)
-            progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
+            raw_dist = pos.get("dist", 0.0)
+            try:
+                fallback_progress = float(raw_dist if raw_dist is not None else 0.0)
+            except (TypeError, ValueError):
+                fallback_progress = 0.0
+            progress_m = driver_progress.get(code, fallback_progress)
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
 
@@ -1558,7 +1833,7 @@ class F1RaceReplayWindow(arcade.Window):
                     
     def on_update(self, delta_time: float):
         self.race_controls_comp.on_update(delta_time)
-        
+
         seek_speed = 3.0 * max(1.0, self.playback_speed) # Multiplier for seeking speed, scales with current playback speed
         if self.is_rewinding:
             self.frame_index = max(0.0, self.frame_index - delta_time * FPS * seek_speed)
@@ -1570,11 +1845,18 @@ class F1RaceReplayWindow(arcade.Window):
         if self.paused:
             return
 
-        self.frame_index += delta_time * FPS * self.playback_speed
-        
-        if self.frame_index >= self.n_frames:
-            self.frame_index = float(self.n_frames - 1)
-            
+        # PHASE C: delegate the per-frame time advance to the
+        # canonical ReplayClock. The clock is the single source
+        # of truth for replay time; legacy self.frame_index is
+        # mirrored from it for back-compat with the rest of the
+        # render code (UI components, broadcast payload, etc.).
+        self._clock.set_speed(self.playback_speed)
+        self._clock.tick(delta_time)
+        # Clamp to the last valid frame and mirror.
+        if self._clock.frame_index > self.n_frames - 1:
+            self._clock.seek_frame(self.n_frames - 1)
+        self.frame_index = float(self._clock.frame_index)
+
         # Broadcast telemetry state during playback
         self._broadcast_telemetry_state()
 
@@ -1684,6 +1966,7 @@ class F1RaceReplayWindow(arcade.Window):
             return
         # default: clear selection if clicked elsewhere
         self.selected_driver = None
+        self.selected_drivers = []
         
     def on_mouse_motion(self, x: float, y: float, dx: float, dy: float):
         """Handle mouse motion for hover effects on progress bar and controls."""
@@ -1692,7 +1975,23 @@ class F1RaceReplayWindow(arcade.Window):
         
     def close(self):
         """Clean up resources when window closes."""
-        if hasattr(self, 'telemetry_stream') and self.telemetry_stream:
-            print("Stopping telemetry stream server...")
-            self.telemetry_stream.stop()
+        # Clear the per-text-object cache so a future window
+        # instance starts with a clean state.
+        F1RaceReplayWindow._text_cache.clear()
+        # TASK 4: stop the new transport (which also stops its
+        # internal broker dispatch thread).
+        if getattr(self, "_telemetry_server", None) is not None:
+            try:
+                self._telemetry_server.stop()
+            except Exception:
+                pass
+            self._telemetry_server = None
+        elif hasattr(self, 'telemetry_stream') and self.telemetry_stream:
+            # Defensive fallback: legacy server if a subclass
+            # constructed one directly.
+            try:
+                self.telemetry_stream.stop()
+            except Exception:
+                pass
+        self.telemetry_stream = None
         super().close()

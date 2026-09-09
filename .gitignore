@@ -6,19 +6,35 @@ env/
 # Python caches
 __pycache__/
 *.py[cod]
+*.pyo
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 
-# Local FastF1/cache/generated data
-.fastf1-cache
+# Local FastF1 / computed data (generated on first run)
+.fastf1-cache/
 computed_data/
 
-# Generated media/output
+# Distribution archives
+*.zip
+*.tar.gz
+*.whl
+dist/
+build/
+*.egg-info/
+
+# Generated media / output
 output_animation.mp4
 still_frame.png
 
-# OS / IDE files
+# OS files
 .DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / editor files
 .idea/
 .vscode/
+*.swp
+*.swo
+*~

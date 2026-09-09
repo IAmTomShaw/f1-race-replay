@@ -1,2 +1,21 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Python
+*.py text diff=python
+
+# Binary images
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+
+# Binary data
+*.pkl binary
+*.pickle binary
+
+# Archives
+*.zip binary
+*.tar.gz binary

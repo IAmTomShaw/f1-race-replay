@@ -1,14 +1,84 @@
 from PySide6.QtWidgets import QMainWindow, QStatusBar, QLabel
-from PySide6.QtCore import Qt
 from src.services.stream import TelemetryStreamClient
 
 
 class PitWallWindow(QMainWindow):
+    """Base class for F1 insight windows with telemetry streaming and F1 theming."""
+
+    # F1 base stylesheet inherited by all PitWall windows
+    F1_BASE_STYLESHEET = """
+        QMainWindow {
+            background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                stop:0 #0a0a14, stop:0.5 #0f0f1a, stop:1.0 #08080f);
+        }
+        QWidget {
+            background: transparent;
+            color: #e0e0ea;
+            font-family: 'Segoe UI', 'Inter', 'Arial', sans-serif;
+            font-size: 13px;
+        }
+        QLabel {
+            color: #c8c8d8;
+            background: transparent;
+        }
+        QFrame {
+            background: transparent;
+        }
+        QStatusBar {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #14142a, stop:1 #0a0a14);
+            border-top: 1px solid #1c1c32;
+            color: #9898b0;
+            font-size: 11px;
+        }
+        QPushButton {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #22223a, stop:1 #181830);
+            color: #e0e0ea;
+            border: 1px solid #2e2e48;
+            border-radius: 6px;
+            padding: 7px 16px;
+            font-weight: 600;
+        }
+        QPushButton:hover {
+            background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                stop:0 #2e2e4a, stop:1 #242440);
+            border: 1px solid #e10600;
+            color: #ffffff;
+        }
+        QPushButton:pressed {
+            background: #e10600;
+            color: #ffffff;
+        }
+        QScrollBar:vertical {
+            background: rgba(15, 15, 26, 0.6);
+            width: 8px;
+            border-radius: 4px;
+        }
+        QScrollBar::handle:vertical {
+            background: #3a3a55;
+            border-radius: 4px;
+            min-height: 30px;
+        }
+        QScrollBar::handle:vertical:hover {
+            background: #e10600;
+        }
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+            height: 0;
+        }
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+            background: transparent;
+        }
+    """
+
     def __init__(self):
         super().__init__()
         
         # Default window properties
         self.setGeometry(100, 100, 1000, 700)
+        
+        # Apply F1 base theme
+        self.setStyleSheet(self.F1_BASE_STYLESHEET)
         
         # Data tracking
         self.message_count = 0

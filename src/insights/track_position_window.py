@@ -635,15 +635,21 @@ class TrackPositionWindow(PitWallWindow):
         positions: dict[str, float] = {}
         for code, info in drivers.items():
             self._ensure_color(code)
-            if "fraction" in info:
-                positions[code] = info["fraction"]
+            frac = info.get("fraction")
+            if frac is not None and isinstance(frac, (int, float)) and math.isfinite(frac):
+                positions[code] = float(frac)
             else:
-                dist = info.get("dist", 0.0)
-                positions[code] = (dist % self._circuit_length_m) / self._circuit_length_m
+                dist = info.get("dist")
+                if dist is not None and isinstance(dist, (int, float)) and math.isfinite(dist):
+                    positions[code] = (float(dist) % self._circuit_length_m) / self._circuit_length_m
+
+        def _safe_dist(entry):
+            d = entry.get("dist")
+            return float(d) if (d is not None and isinstance(d, (int, float)) and math.isfinite(d)) else 0.0
 
         leader_code = next(
             (code for code, info in drivers.items() if info.get("position") == 1),
-            max(drivers, key=lambda c: drivers[c].get("dist", 0.0)) if drivers else None,
+            max(drivers, key=lambda c: _safe_dist(drivers[c])) if drivers else None,
         )
         self._map.update_positions(positions, self._driver_colors, leader_code, self._circuit_length_m)
 

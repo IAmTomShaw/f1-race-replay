@@ -2,24 +2,32 @@ import sys
 import json
 from datetime import datetime
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout, QWidget, 
+    QApplication, QMainWindow, QVBoxLayout, QWidget,
     QTextEdit, QLabel, QStatusBar, QSplitter, QListWidget,
     QTabWidget
 )
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont, QTextCursor
-from src.services.stream import TelemetryStreamClient
+# TASK 4: migrated to the new V2 client. The new client
+# decodes the protocol envelope (type, version, session_id,
+# seq, ts, payload) emitted by the new
+# ``src.streaming.transport.TelemetryStreamServer`` and
+# exposes both ``envelope_received`` and ``data_received``
+# signals. The on-the-wire frame stream is unchanged; this
+# is a pure consumer-side upgrade.
+from src.services.stream import TelemetryStreamClientV2
 
 class TelemetryStreamViewer(QMainWindow):
     # This window is used to demonstrate the telemetry stream data being sent from the replay process. It connects to the telemetry stream server, receives real-time telemetry data, and displays it in a simple UI for debugging and demonstration purposes.
-    
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("F1 Race Replay - Telemetry Stream Viewer")
         self.setGeometry(100, 100, 1200, 800)
-        
-        # Initialize client
-        self.client = TelemetryStreamClient()
+
+        # Initialize client (TASK 4: V2 reads the protocol
+        # envelope and emits raw payload + envelope metadata).
+        self.client = TelemetryStreamClientV2()
         self.client.data_received.connect(self.on_data_received)
         self.client.connection_status.connect(self.on_connection_status)
         self.client.error_occurred.connect(self.on_error)

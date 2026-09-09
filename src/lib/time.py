@@ -19,19 +19,17 @@ def parse_time_string(time_str: str) -> Optional[float]:
     - "01:26"
   and return total seconds as float. Returns None if parsing fails.
   """
+  if time_str is None:
+    return None
+
   # Handle timedelta format like "0 days 00:01:27.060000"
   if "days" in str(time_str):
     time_str = str(time_str).split(" ", 2)[-1]  # Take the time part after "X days "
   else:
     time_str = str(time_str).split(" ")[0]  # Remove any trailing text after space
-    
-  if time_str is None:
-    print('1parse_time_string output: None')
-    return None
   
   s = str(time_str).strip()
   if s == "":
-    print('2parse_time_string output: None')
     return None
 
   # Split on colon or dot
@@ -53,7 +51,6 @@ def parse_time_string(time_str: str) -> Optional[float]:
     elif len(parts) == 2:
       mm, ss = parts
     else:
-      print('3parse_time_string output: None')
       return None
 
     hh = int(hh)
@@ -64,7 +61,5 @@ def parse_time_string(time_str: str) -> Optional[float]:
     total_seconds = hh * 3600 + mm * 60 + ss + micro / 1_000_000.0
 
     return round(total_seconds, 3)
-  except Exception as e:
-    print('Exception in parse_time_string:', e)
-    print('4parse_time_string output: None')
+  except (TypeError, ValueError):
     return None
