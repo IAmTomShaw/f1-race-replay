@@ -396,8 +396,27 @@ class LeaderboardComponent(BaseComponent):
                 text_color = arcade.color.BLACK
             else:
                 text_color = color
-            text = f"{current_pos}. {code}" if pos.get("rel_dist",0) != 1 else f"{current_pos}. {code}   OUT"
-            arcade.Text(text, left_x, top_y, text_color, 16, anchor_x="left", anchor_y="top").draw()
+
+            text = f"{current_pos}. {code}" 
+            if pos.get("rel_dist",0) != 1:
+                out_text=""
+            else:
+                out_text="  OUT"
+
+            if pos.get("in_pit"):
+                driver_text = text
+                pit_text="  PIT"
+            else:
+                driver_text = text
+                pit_text = ""
+
+            arcade.Text(driver_text,left_x,top_y,text_color,16,anchor_x="left",anchor_y="top").draw()
+            
+            #PIT indicator in white
+            if pit_text:arcade.Text(pit_text, left_x + 80, top_y,arcade.color.WHITE,16,anchor_x="left",anchor_y="top").draw()
+
+            #OUT indicator in red
+            if out_text: arcade.Text(out_text, left_x + 80, top_y, (155,17,30), 16, anchor_x="left", anchor_y="top",bold=True).draw()
 
             # Gap display (if enabled)
             if getattr(self, "show_neighbor_gaps", False):
@@ -514,6 +533,8 @@ class LeaderboardComponent(BaseComponent):
                 drs_dot_y = tyre_icon_y
 
                 arcade.draw_circle_filled(drs_dot_x, drs_dot_y, 4, drs_color)
+
+        
 
         # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
         if new_entries[0][2].get("lap", 0) == 1:

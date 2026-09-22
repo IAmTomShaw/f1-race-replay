@@ -1,13 +1,14 @@
 from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
-from src.arcade_replay import run_arcade_replay
-
+from src.run_session import run_arcade_replay, launch_insights_menu
 from src.interfaces.qualifying import run_qualifying_replay
 import sys
 from src.cli.race_selection import cli_load
 from src.gui.race_selection import RaceSelectionWindow
 from PySide6.QtWidgets import QApplication
+from src.lib.season import get_season
+import logging
 
-def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None):
+def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
@@ -80,8 +81,13 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         'year': year,
         'round': round_number,
         'date': session.event.get('EventDate', '').strftime('%B %d, %Y') if session.event.get('EventDate') else '',
-        'total_laps': race_telemetry['total_laps']
+        'total_laps': race_telemetry['total_laps'],
+        'circuit_length_m': float(example_lap["Distance"].max()) if example_lap is not None and "Distance" in example_lap else None,
     }
+
+    # Launch insights menu (always shown with replay)
+    launch_insights_menu()
+    print("Launching insights menu...")
 
     # Run the arcade replay
 
@@ -99,13 +105,17 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
       ready_file=ready_file,
       session_info=session_info,
       session=session,
+      enable_telemetry=True,
+      race_control_messages=race_telemetry.get('race_control_messages', [])
     )
 
 if __name__ == "__main__":
 
+  if "--verbose" not in sys.argv:# fastf1 logging is disabled by default
+    logging.getLogger("fastf1").setLevel(logging.CRITICAL)
+
   if "--cli" in sys.argv:
     # Run the CLI
-
     cli_load()
     sys.exit(0)
 
@@ -113,7 +123,7 @@ if __name__ == "__main__":
     year_index = sys.argv.index("--year") + 1
     year = int(sys.argv[year_index])
   else:
-    year = 2025  # Default year
+    year = get_season()  # Default year
 
   if "--round" in sys.argv:
     round_index = sys.argv.index("--round") + 1
