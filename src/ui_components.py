@@ -292,8 +292,8 @@ class LeaderboardComponent(BaseComponent):
         self._visible = True
 
     def set_entries(self, entries: List[Tuple[str, Tuple[int,int,int], dict, float]]):
-        # entries sorted as expected
-        self.entries = entries
+        # Ensure entries are sorted by progress descending (e[3] is progress_m)
+        self.entries = sorted(entries, key=lambda e: (e[3] if len(e) > 3 and e[3] is not None else float(e[2].get("dist", 0.0))), reverse=True)
         self._calculate_gaps()
 
     def _calculate_gaps(self):
@@ -368,19 +368,8 @@ class LeaderboardComponent(BaseComponent):
 
         self.rects = []
 
-        # Sort entries by lap number an distance progressed
-        # If any of the entries have lap > 1, then sort
-
-        if any(e[2].get("lap", 0) > 1 for e in self.entries):
-            new_entries = sorted(
-                self.entries,
-                key=lambda e: (
-                    -e[2].get("lap", 0),  # Descending lap number
-                    -e[2].get("dist")                 # Descending distance progressed
-                )
-            )
-        else:
-            new_entries = self.entries
+        # Render entries directly in sorted progress order
+        new_entries = self.entries
 
         for i, (code, color, pos, progress_m) in enumerate(new_entries):
             current_pos = i + 1
@@ -537,7 +526,7 @@ class LeaderboardComponent(BaseComponent):
         
 
         # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
-        if new_entries[0][2].get("lap", 0) == 1:
+        if new_entries and new_entries[0][2].get("lap", 0) == 1:
             arcade.Text("May be inaccurate during Lap 1",
                         self.x, leaderboard_y - 30 - (len(new_entries) * self.row_height) - 20,
                         arcade.color.YELLOW, 12, anchor_x="left", anchor_y="top").draw()

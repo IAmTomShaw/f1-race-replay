@@ -258,16 +258,19 @@ class F1RaceReplayWindow(arcade.Window):
                 except (ValueError, TypeError):
                     lap = 1
                 projected_m = self._project_to_reference(x, y)
-                progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
+                progress_m = float(pos.get("dist", 0.0))
                 driver_progress[code] = progress_m
                 if self._ref_total_length > 0:
-                    pos["fraction"] = progress_m / self._ref_total_length
+                    pos["fraction"] = (projected_m / self._ref_total_length) % 1.0
                 else:
                     pos["fraction"] = 0.0
                 
             if driver_progress:
-                leader_code = max(driver_progress.keys(), key=lambda c: driver_progress[c])
+                sorted_codes = sorted(driver_progress.keys(), key=lambda c: driver_progress[c], reverse=True)
+                leader_code = sorted_codes[0]
                 leader_lap = current_frame["drivers"][leader_code].get("lap", 1)
+                for rank, c in enumerate(sorted_codes, start=1):
+                    current_frame["drivers"][c]["position"] = rank
         
         # Format time
         t = current_frame["t"] if current_frame else 0
@@ -1450,23 +1453,10 @@ class F1RaceReplayWindow(arcade.Window):
         
         # --- UI ELEMENTS (Dynamic Positioning) ---
         
-        # Determine Leader info using projected along-track distance (more robust than dist)
-        # Use the progress metric in metres for each driver and use that to order the leaderboard.
+        # Determine Leader info using race distance
         driver_progress = {}
         for code, pos in frame["drivers"].items():
-            # parse lap defensively
-            lap_raw = pos.get("lap", 1)
-            try:
-                lap = int(lap_raw)
-            except Exception:
-                lap = 1
-
-            # Project (x,y) to reference and combine with lap count
-            projected_m = self._project_to_reference(pos.get("x", 0.0), pos.get("y", 0.0))
-
-            # progress in metres since race start: (lap-1) * lap_length + projected_m
-            progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
-
+            progress_m = float(pos.get("dist", 0.0))
             driver_progress[code] = progress_m
 
         # Leader is the one with greatest progress_m
@@ -1528,6 +1518,9 @@ class F1RaceReplayWindow(arcade.Window):
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
+
+        for rank, (code, _, pos, _) in enumerate(driver_list, start=1):
+            pos["position"] = rank
 
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)

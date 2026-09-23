@@ -246,9 +246,9 @@ class _TrackMapWidget(QWidget):
 
         # -- Leader arrow -------------------------------------------------
         if self.leader_code and self.leader_code in self.driver_positions:
-            frac = self.driver_positions[self.leader_code]
-            lx, ly = self._pos_on_track(frac, to_widget)
-            idx = self._frac_to_index(frac)
+            frac_norm = frac % 1.0
+            lx, ly = self._pos_on_track(frac_norm, to_widget)
+            idx = self._frac_to_index(frac_norm)
             idx_next = (idx + 1) % len(self._center_xs)
             nx, ny = to_widget(self._center_xs[idx_next], self._center_ys[idx_next])
             angle = math.atan2(ny - ly, nx - lx)
