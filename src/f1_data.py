@@ -155,9 +155,22 @@ def get_live_standings(current_driver_standings, current_constructors_standings,
 
         
 
+# The loaded FastF1 session is large (tens of MB). Instead of pickling it into
+# every Pool task, it is handed to each worker process once via the Pool
+# initializer and kept in this module-level variable.
+_WORKER_SESSION = None
+
+
+def _init_worker_session(session):
+    """Pool initializer: store the shared session in the worker process."""
+    global _WORKER_SESSION
+    _WORKER_SESSION = session
+
+
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
-    driver_no, session, driver_code = args
+    driver_no, driver_code = args
+    session = _WORKER_SESSION
 
     print(f"Getting telemetry for driver: {driver_code}")
 
@@ -752,13 +765,15 @@ def get_race_telemetry(session, session_type="R"):
     # 1. Get all of the drivers telemetry data using multiprocessing
     # Prepare arguments for parallel processing
     print(f"Processing {len(drivers)} drivers in parallel...")
-    driver_args = [
-        (driver_no, session, driver_codes[driver_no]) for driver_no in drivers
-    ]
+    driver_args = [(driver_no, driver_codes[driver_no]) for driver_no in drivers]
 
     num_processes = min(cpu_count(), len(drivers))
 
-    with Pool(processes=num_processes) as pool:
+    with Pool(
+        processes=num_processes,
+        initializer=_init_worker_session,
+        initargs=(session,),
+    ) as pool:
         results = pool.map(_process_single_driver, driver_args)
 
     # Process results
@@ -1460,7 +1475,8 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
 
 def _process_quali_driver(args):
     """Process qualifying telemetry data for a single driver - must be top-level for multiprocessing"""
-    session, driver_code = args
+    (driver_code,) = args
+    session = _WORKER_SESSION
     print(f"Getting qualifying telemetry for driver: {driver_code}")
 
     driver_telemetry_data = {}
@@ -1541,13 +1557,17 @@ def get_quali_telemetry(session, session_type="Q"):
 
     telemetry_data = {}
 
-    driver_args = [(session, driver_codes[driver_no]) for driver_no in session.drivers]
+    driver_args = [(driver_codes[driver_no],) for driver_no in session.drivers]
 
     print(f"Processing {len(session.drivers)} drivers in parallel...")
 
     num_processes = min(cpu_count(), len(session.drivers))
 
-    with Pool(processes=num_processes) as pool:
+    with Pool(
+        processes=num_processes,
+        initializer=_init_worker_session,
+        initargs=(session,),
+    ) as pool:
         results = pool.map(_process_quali_driver, driver_args)
     for result in results:
         driver_code = result["driver_code"]
