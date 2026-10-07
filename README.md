@@ -179,24 +179,52 @@ python main.py --viewer --year 2025 --round 12 --qualifying --sprint
 
 ```
 f1-race-replay/
-├── main.py                    # Entry point, handles session loading and starts the replay
-├── requirements.txt           # Python dependencies
-├── README.md                  # Project documentation
-├── roadmap.md                 # Planned features and project vision
-├── resources/
-│   └── preview.png           # Race replay preview image
+├── main.py                       # Entry point: parses CLI flags, loads the session and starts the replay
+├── requirements.txt              # Python dependencies
+├── requirements-dev.txt          # Runtime dependencies + pytest
+├── README.md                     # Project documentation
+├── roadmap.md                    # Planned features and project vision
+├── telemetry.md                  # Telemetry stream usage and data format
+├── docs/                         # Developer guides (Insights Menu, PitWallWindow, Testing)
+├── resources/                    # Screenshots and preview images used in the docs
 ├── src/
-│   ├── f1_data.py            # Telemetry loading, processing, frame generation & SC position simulation
-│   ├── arcade_replay.py      # Visualization and UI logic
-│   └── ui_components.py      # UI components like buttons and leaderboard
-│   ├── interfaces/
-│   │   └── qualifying.py     # Qualifying session interface and telemetry visualization
-│   │   └── race_replay.py    # Race replay interface, SC rendering & telemetry visualization
-│   └── lib/
-│       └── tyres.py          # Type definitions for telemetry data structures
-│       └── time.py           # Time formatting utilities
-└── .fastf1-cache/            # FastF1 cache folder (created automatically upon first run)
-└── computed_data/            # Computed telemetry data (created automatically upon first run)
+│   ├── f1_data.py                # Telemetry loading, processing, frame generation & SC position simulation
+│   ├── run_session.py            # Starts the Arcade replay window, insights menu and telemetry viewer
+│   ├── ui_components.py          # Arcade UI components like buttons, leaderboard and HUD
+│   ├── bayesian_tyre_model.py    # Bayesian tyre degradation model
+│   ├── tyre_degradation_integration.py  # Connects the tyre model to the replay
+│   ├── interfaces/               # Arcade replay windows
+│   │   ├── race_replay.py        # Race replay interface, SC rendering & telemetry visualization
+│   │   ├── qualifying.py         # Qualifying session interface and telemetry visualization
+│   │   └── practice.py           # Practice session interface
+│   ├── gui/                      # PySide6 windows
+│   │   ├── race_selection.py     # GUI menu for choosing a season, round and session
+│   │   ├── settings_dialog.py    # Cache and data location settings
+│   │   ├── insights_menu.py      # Floating menu for launching insight windows
+│   │   ├── pit_wall_window.py    # Base class for custom telemetry windows
+│   │   └── pit_wall_window_template.py  # Starting template for a new insight window
+│   ├── insights/                 # Insight windows fed by the telemetry stream
+│   │   ├── driver_telemetry_window.py
+│   │   ├── lap_time_chart_window.py
+│   │   ├── race_control_feed_window.py
+│   │   ├── sector_times_window.py
+│   │   ├── track_position_window.py
+│   │   ├── tyre_strategy_window.py
+│   │   ├── telemetry_stream_viewer.py  # Raw telemetry stream viewer
+│   │   └── example_pit_wall_window.py  # Example PitWallWindow implementation
+│   ├── services/
+│   │   └── stream.py             # TCP telemetry stream server and client
+│   ├── cli/
+│   │   └── race_selection.py     # CLI menu (python main.py --cli)
+│   └── lib/                      # Small helpers
+│       ├── season.py             # Current season detection
+│       ├── sectors.py            # Sector time analysis helpers
+│       ├── settings.py           # Persistent application settings
+│       ├── time.py               # Time formatting utilities
+│       └── tyres.py              # Tyre compound mapping
+├── tests/                        # pytest suite (see docs/Testing.md)
+├── .fastf1-cache/                # FastF1 cache folder (created automatically upon first run)
+└── computed_data/                # Computed telemetry data (created automatically upon first run)
 ```
 
 ## Building Custom Telemetry Windows
