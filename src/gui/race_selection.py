@@ -10,6 +10,7 @@ import os
 import subprocess
 import tempfile
 import uuid
+from collections import deque
 from datetime import datetime, timezone
 from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names, load_session
 from src.gui.settings_dialog import SettingsDialog
@@ -416,11 +417,19 @@ class RaceSelectionWindow(QMainWindow):
         def _on_loaded(session_obj):
             # create a unique ready-file path and pass it to the child
             ready_path = os.path.join(tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}")
+            err_log_path = os.path.join(tempfile.gettempdir(), f"f1_err_{uuid.uuid4().hex}.log")
             cmd_with_ready = list(cmd) + ["--ready-file", ready_path]
 
             try:
-                proc = subprocess.Popen(cmd_with_ready)
+                # Popen duplicates the handle for the child. Close the parent's
+                # copy immediately, including when launching fails.
+                with open(err_log_path, "wb") as err_file:
+                    proc = subprocess.Popen(cmd_with_ready, stderr=err_file)
             except Exception as exc:
+                try:
+                    os.remove(err_log_path)
+                except OSError:
+                    pass
                 try:
                     dlg.close()
                 except Exception:
@@ -428,33 +437,56 @@ class RaceSelectionWindow(QMainWindow):
                 QMessageBox.critical(self, "Playback error", f"Failed to start playback:\n{exc}")
                 return
 
-            # Poll for ready file or child exit
+            # Continue polling after readiness so the log can be removed when
+            # playback exits and Windows releases the child's file handle.
             timer = QTimer(self)
+            playback_ready = False
+            error_reported = False
 
             def _check_ready():
-                try:
-                    if os.path.exists(ready_path):
-                        try:
-                            dlg.close()
-                        except Exception:
-                            pass
-                        timer.stop()
-                        try:
-                            os.remove(ready_path)
-                        except Exception:
-                            pass
-                        return
-                    # if process exited early, show error
-                    if proc.poll() is not None:
-                        try:
-                            dlg.close()
-                        except Exception:
-                            pass
-                        timer.stop()
-                        QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
-                except Exception:
-                    # ignore transient file-system errors
-                    pass
+                nonlocal playback_ready, error_reported
+                if not playback_ready and os.path.exists(ready_path):
+                    playback_ready = True
+                    dlg.close()
+                    try:
+                        os.remove(ready_path)
+                    except OSError:
+                        pass
+
+                if proc.poll() is None:
+                    return
+                # A modal error dialog runs a nested event loop. Pause polling
+                # so cleanup cannot re-enter while that dialog is open.
+                timer.stop()
+
+                if not playback_ready and not error_reported:
+                    error_reported = True
+                    dlg.close()
+                    err_text = ""
+                    try:
+                        with open(err_log_path, "r", encoding="utf-8", errors="replace") as ef:
+                            err_text = "".join(deque(ef, maxlen=15)).strip()
+                    except OSError:
+                        pass
+                    msg = "Playback process exited before signaling readiness"
+                    if err_text:
+                        msg += f":\n\n{err_text}"
+                    QMessageBox.critical(self, "Playback error", msg)
+
+                cleaned_up = True
+                for path in (ready_path, err_log_path):
+                    try:
+                        os.remove(path)
+                    except FileNotFoundError:
+                        pass
+                    except OSError:
+                        # A child viewer can still hold the inherited stderr
+                        # handle. Retry once it releases the file.
+                        cleaned_up = False
+                if cleaned_up:
+                    timer.deleteLater()
+                else:
+                    timer.start(200)
 
             timer.timeout.connect(_check_ready)
             timer.start(200)
