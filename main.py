@@ -202,8 +202,10 @@ if __name__ == "__main__":
 
   if "--list-rounds" in sys.argv:
     list_rounds(year)
+    sys.exit(0)
   elif "--list-sprints" in sys.argv:
     list_sprints(year)
+    sys.exit(0)
 
   if "--playback-speed" in sys.argv:
     speed_index = sys.argv.index("--playback-speed") + 1
