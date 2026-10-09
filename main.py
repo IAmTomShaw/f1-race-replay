@@ -11,6 +11,25 @@ import logging
 import re
 
 
+def _session_start_utc(session):
+    """Return the session start as a naive-UTC ISO string, or None if unknown.
+
+    Uses the schedule's ``SessionNDateUtc`` column matching ``session.name`` so
+    the time zone is unambiguous. Used by the Weather insight to pick the
+    forecast hours around the session.
+    """
+    try:
+        event = session.event
+        for number in range(1, 6):
+            if str(event.get(f"Session{number}")) == str(session.name):
+                value = event.get(f"Session{number}DateUtc")
+                if value is not None and str(value) not in ("NaT", "nan", "None", ""):
+                    return value.isoformat()
+    except Exception:
+        pass
+    return None
+
+
 def _extract_circuit_name(event_name: str) -> str:
     """
     Extract a reasonable circuit/location name from the F1 event name.
@@ -131,6 +150,8 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
         'event_name': event_name,
         'circuit_name': circuit_name,
         'country': session.event.get('Country', ''),
+        'location': session.event.get('Location', ''),
+        'session_start_utc': _session_start_utc(session),
         'year': year,
         'round': round_number,
         'date': session.event.get('EventDate', '').strftime('%B %d, %Y') if session.event.get('EventDate') else '',
