@@ -27,6 +27,13 @@ def enable_cache():
     fastf1.Cache.enable_cache(cache_path)
 
 
+def _computed_data_path(filename):
+    """Return the path for a file in the user's computed data folder, creating the folder if needed."""
+    computed_dir = get_settings().computed_data_location
+    os.makedirs(computed_dir, exist_ok=True)
+    return os.path.join(computed_dir, filename)
+
+
 FPS = 25
 DT = 1 / FPS
 
@@ -729,7 +736,7 @@ def get_race_telemetry(session, session_type="R"):
     try:
         if "--refresh-data" not in sys.argv:
             with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                _computed_data_path(f"{event_name}_{cache_suffix}_telemetry.pkl"), "rb"
             ) as f:
                 frames = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
@@ -1096,12 +1103,8 @@ def get_race_telemetry(session, session_type="R"):
     _compute_safety_car_positions(frames, formatted_track_statuses, session)
     print("completed telemetry extraction...")
     print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
-
     # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(_computed_data_path(f"{event_name}_{cache_suffix}_telemetry.pkl"), "wb") as f:
         pickle.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
@@ -1519,7 +1522,7 @@ def get_quali_telemetry(session, session_type="Q"):
     try:
         if "--refresh-data" not in sys.argv:
             with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
+                _computed_data_path(f"{event_name}_{cache_suffix}_telemetry.pkl"), "rb"
             ) as f:
                 data = pickle.load(f)
                 print(f"Loaded precomputed {cache_suffix} telemetry data.")
@@ -1563,10 +1566,7 @@ def get_quali_telemetry(session, session_type="Q"):
 
     # Save to the compute_data directory
 
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
-
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(_computed_data_path(f"{event_name}_{cache_suffix}_telemetry.pkl"), "wb") as f:
         pickle.dump(
             {
                 "results": qualifying_results,
