@@ -83,6 +83,7 @@ class QualifyingReplay(arcade.Window):
 
         self.chart_active = False
         self.show_comparison_telemetry = True
+        self.comparison_driver_code = None  # None = pole lap (Q3); set by TAB / SHIFT+TAB
 
         self.loaded_driver_code = None
         self.loaded_driver_segment = None
@@ -97,10 +98,12 @@ class QualifyingReplay(arcade.Window):
             ("R", "Restart"),
             ("D", "Toggle DRS Zones"),
             ("C", "Toggle Comparison Telemetry"),
+            ("TAB", "Next Comparison Driver"),
+            ("SHIFT+TAB", "Previous Comparison Driver"),
             ("H", "Toggle Help Popup"),
             ("ESC", "Close Window"),
         ])
-        self.controls_popup_comp.set_size(340, 250)
+        self.controls_popup_comp.set_size(340, 300)
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13)
 
         # Build the track layout from an example lap
@@ -223,10 +226,10 @@ class QualifyingReplay(arcade.Window):
         if self.chart_active and self.loaded_telemetry:
             frames = self.loaded_telemetry.get("frames") if isinstance(self.loaded_telemetry, dict) else None
             if frames:
-                fastest_driver = self.data.get("results", [])[0] if isinstance(self.data.get("results", []), list) and len(self.data.get("results", [])) > 0 else None
-                # Get comparison telemetry if available
-                comparison_data = self.data.get("telemetry", {}).get(fastest_driver.get("code")) if fastest_driver and self.show_comparison_telemetry else None
-                comparison_telemetry = comparison_data.get("Q3").get("frames", []) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                # Get comparison telemetry if available (pole lap by default, cycle with TAB)
+                comparison = self._resolve_comparison()
+                comp_driver_code, comp_segment, comparison_telemetry, comp_sector_times = comparison if comparison else (None, None, None, None)
+                fastest_driver = {"code": comp_driver_code} if comparison else None
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
@@ -315,12 +318,10 @@ class QualifyingReplay(arcade.Window):
                     comp_key_y = speed_top + 10 + (comp_key_size * 0.5)
                     comp_square_x = chart_right - comp_key_padding_right - (comp_key_size / 2)
 
-                    comp_driver_code = fastest_driver.get("code") if fastest_driver else "N/A"
-
                     comp_key_rect = arcade.XYWH(comp_square_x, comp_key_y, comp_key_size, 3)
                     arcade.draw_rect_filled(comp_key_rect, arcade.color.YELLOW)
                     arcade.Text(
-                        f"Comparison Driver: {comp_driver_code} - Q3",
+                        f"Comparison Driver: {comp_driver_code} - {comp_segment}",
                         comp_square_x + (comp_key_size * 0.5) + 6,
                         comp_key_y,
                         arcade.color.ANTI_FLASH_WHITE,
@@ -561,7 +562,7 @@ class QualifyingReplay(arcade.Window):
                 self.qualifying_lap_time_comp.x = map_left
                 self.qualifying_lap_time_comp.y = map_top
                 self.qualifying_lap_time_comp.fastest_driver = fastest_driver
-                self.qualifying_lap_time_comp.fastest_driver_sector_times = comparison_data.get("Q3").get("sector_times", {}) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                self.qualifying_lap_time_comp.fastest_driver_sector_times = comp_sector_times if comparison else None
                 self.qualifying_lap_time_comp.draw(self)
 
                 y_offset = map_top - 48
@@ -750,6 +751,54 @@ class QualifyingReplay(arcade.Window):
                 return tel[k]
         return None
 
+    def _resolve_comparison(self):
+        """Return (code, segment, frames, sector_times) for the lap to compare against, or None.
+
+        Default is the pole sitter's Q3 lap. After TAB, the chosen driver's lap in the
+        same segment as the loaded lap is preferred, falling back to Q3 -> Q2 -> Q1
+        (drivers knocked out early have no Q3 lap). The loaded lap itself is never returned.
+        """
+        if not self.show_comparison_telemetry:
+            return None
+        results = self.data.get("results", [])
+        if self.comparison_driver_code:
+            code = self.comparison_driver_code
+            segments = [self.loaded_driver_segment, "Q3", "Q2", "Q1"]
+        elif results:
+            code = results[0].get("code")
+            segments = ["Q3"]
+        else:
+            return None
+        driver_data = self.data.get("telemetry", {}).get(code) or {}
+        for segment in segments:
+            seg = driver_data.get(segment) if segment else None
+            if not isinstance(seg, dict) or not seg.get("frames"):
+                continue
+            if code == self.loaded_driver_code and segment == self.loaded_driver_segment:
+                continue
+            return code, segment, seg["frames"], seg.get("sector_times", {})
+        return None
+
+    def _cycle_comparison_driver(self, step: int):
+        """Move the comparison driver along the qualifying order (step=+1 next, -1 previous)."""
+        results = self.data.get("results", [])
+        telemetry = self.data.get("telemetry", {})
+        codes = [
+            r.get("code") for r in results
+            if any((telemetry.get(r.get("code")) or {}).get(s, {}).get("frames") for s in ("Q1", "Q2", "Q3"))
+        ]
+        if not codes:
+            return
+        previous = self.comparison_driver_code
+        current = previous or codes[0]
+        start = codes.index(current) if current in codes else 0
+        self.show_comparison_telemetry = True
+        for n in range(1, len(codes) + 1):
+            self.comparison_driver_code = codes[(start + step * n) % len(codes)]
+            if self._resolve_comparison() is not None:
+                return
+        self.comparison_driver_code = previous  # nothing usable to switch to
+
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # If the segment-selector modal is visible (a driver selected), give it first chance
         # to handle the click (so its close button can work). If it handled the click,
@@ -794,6 +843,10 @@ class QualifyingReplay(arcade.Window):
         elif symbol == arcade.key.C:
             # Toggle the ability to see the comparison driver's telemetry
             self.show_comparison_telemetry = not self.show_comparison_telemetry
+            return
+        elif symbol == arcade.key.TAB:
+            # Cycle which driver's lap is used as the comparison (SHIFT+TAB goes backwards)
+            self._cycle_comparison_driver(-1 if modifiers & arcade.key.MOD_SHIFT else 1)
             return
         elif symbol == arcade.key.D:
             # Toggle DRS zones on track map
