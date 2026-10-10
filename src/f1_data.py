@@ -351,8 +351,15 @@ def get_driver_colors(session):
     return rgb_colors
 
 def get_circuit_rotation(session):
-    circuit = session.get_circuit_info()
-    return circuit.rotation
+    # FastF1 has no circuit info for some circuits and then fails inside get_circuit_info()
+    # (AttributeError on None). The rotation only orients the track map, so fall back to none
+    # instead of crashing before the replay window opens.
+    try:
+        circuit = session.get_circuit_info()
+        return circuit.rotation
+    except Exception as e:
+        print(f"Circuit info unavailable ({type(e).__name__}: {e}); using no map rotation.")
+        return 0.0
 
 
 def _compute_safety_car_positions(frames, track_statuses, session):
