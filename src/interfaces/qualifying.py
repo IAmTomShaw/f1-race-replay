@@ -900,9 +900,11 @@ class QualifyingReplay(arcade.Window):
         # Fallback: let the leaderboard handle the click (select drivers)
         self.leaderboard.on_mouse_press(self, x, y, button, modifiers)
         
-        # Only allow race controls interaction if lap is not complete
-        if not self.is_lap_complete():
-            self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers)
+        # Only allow race controls interaction if lap is not complete; the rewind button stays
+        # active at the end so the replay can be scrubbed back
+        controls = self.race_controls_comp
+        if not self.is_lap_complete() or controls._point_in_rect(x, y, controls.rewind_rect):
+            controls.on_mouse_press(self, x, y, button, modifiers)
 
     def is_lap_complete(self):
         """Check if the current lap has finished playing."""
@@ -945,10 +947,10 @@ class QualifyingReplay(arcade.Window):
                 self.controls_popup_comp.show_over(left_pos, top_pos)
             return
         
-        # Disable other controls when lap is complete
-        if self.is_lap_complete():
+        # Disable other controls when lap is complete, except rewinding (so the replay can be scrubbed back)
+        if self.is_lap_complete() and symbol != arcade.key.LEFT:
             return
-        
+
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
@@ -1137,6 +1139,9 @@ class QualifyingReplay(arcade.Window):
         if self._times is not None and len(self._times) > 0:
             # clamp play_time into available range
             clamped = min(max(self.play_time, float(self._times[0])), float(self._times[-1]))
+            # Keep play_time itself in range too: otherwise holding forward at the end lets it
+            # run past the last frame and a later rewind appears to do nothing until it catches up
+            self.play_time = clamped
             idx = int(np.searchsorted(self._times, clamped, side="right") - 1)
             self.frame_index = max(0, min(idx, len(self._times) - 1))
 

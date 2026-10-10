@@ -119,3 +119,74 @@ def test_time_delta_axis_has_a_minimum_range_for_very_close_laps():
 def test_time_delta_is_none_when_comparison_has_no_data():
     v = _delta_viewer()
     assert QualifyingReplay._get_time_delta(v, _linear_lap(91.0), [], "VER", "Q3") is None
+
+
+# --- rewinding once the replay has finished -------------------------------------------------
+
+from unittest.mock import MagicMock
+
+import numpy as np
+import arcade
+
+
+def _replay_at_end(n=101):
+    times = np.linspace(0.0, 100.0, n)
+    v = SimpleNamespace(
+        chart_active=True, loaded_telemetry={"frames": []}, n_frames=n, frame_index=n - 1,
+        _times=times, play_time=100.0, play_start_t=0.0, paused=True, playback_speed=1.0,
+        is_rewinding=False, is_forwarding=False, was_paused_before_hold=True,
+        race_controls_comp=MagicMock(), qualifying_lap_time_comp=MagicMock(),
+        controls_popup_comp=MagicMock(), toggle_drs_zones=True,
+    )
+    v.is_lap_complete = lambda: QualifyingReplay.is_lap_complete(v)
+    return v
+
+
+def test_left_arrow_starts_rewinding_after_the_replay_has_finished():
+    v = _replay_at_end()
+    QualifyingReplay.on_key_press(v, arcade.key.LEFT, 0)
+    assert v.is_rewinding is True
+
+
+def test_other_playback_keys_stay_disabled_after_the_replay_has_finished():
+    v = _replay_at_end()
+    QualifyingReplay.on_key_press(v, arcade.key.RIGHT, 0)
+    QualifyingReplay.on_key_press(v, arcade.key.SPACE, 0)
+    assert v.is_forwarding is False
+    assert v.paused is True
+
+
+def test_rewind_button_click_still_works_after_the_replay_has_finished():
+    v = _replay_at_end()
+    v.controls_popup_comp.on_mouse_press.return_value = False
+    v.legend_comp = MagicMock(); v.legend_comp.on_mouse_press.return_value = False
+    v.leaderboard = MagicMock()
+    v.selected_driver = None
+    controls = v.race_controls_comp
+    controls._point_in_rect.return_value = True
+    QualifyingReplay.on_mouse_press(v, 10, 10, arcade.MOUSE_BUTTON_LEFT, 0)
+    controls.on_mouse_press.assert_called_once()
+
+
+def test_other_buttons_stay_inactive_after_the_replay_has_finished():
+    v = _replay_at_end()
+    v.controls_popup_comp.on_mouse_press.return_value = False
+    v.legend_comp = MagicMock(); v.legend_comp.on_mouse_press.return_value = False
+    v.leaderboard = MagicMock()
+    v.selected_driver = None
+    v.race_controls_comp._point_in_rect.return_value = False
+    QualifyingReplay.on_mouse_press(v, 10, 10, arcade.MOUSE_BUTTON_LEFT, 0)
+    v.race_controls_comp.on_mouse_press.assert_not_called()
+
+
+def test_play_time_cannot_run_past_the_end_so_rewind_responds_immediately():
+    v = _replay_at_end()
+    v.is_forwarding = True       # user held "forward" for a while at the end
+    for _ in range(100):
+        QualifyingReplay.on_update(v, 0.1)
+    assert v.play_time <= 100.0  # clamped, not 100 + 30s of overshoot
+
+    v.is_forwarding = False
+    v.is_rewinding = True        # one short rewind step must move the frame back
+    QualifyingReplay.on_update(v, 0.5)
+    assert v.frame_index < v.n_frames - 1
