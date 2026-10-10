@@ -82,3 +82,40 @@ def test_cycle_reenables_comparison():
     v.show_comparison_telemetry = False
     QualifyingReplay._cycle_comparison_driver(v, 1)
     assert v.show_comparison_telemetry is True
+
+
+def _delta_viewer():
+    return SimpleNamespace(loaded_driver_code="LEC", loaded_driver_segment="Q3", _delta_cache=None)
+
+
+def _linear_lap(lap_time, n=51):
+    return [{"t": lap_time * i / (n - 1), "telemetry": {"rel_dist": i / (n - 1)}} for i in range(n)]
+
+
+def test_time_delta_is_cached_per_lap_pair_and_axis_limit_is_stable():
+    v = _delta_viewer()
+    slow, fast = _linear_lap(91.8), _linear_lap(91.0)
+
+    first = QualifyingReplay._get_time_delta(v, slow, fast, "VER", "Q3")
+    again = QualifyingReplay._get_time_delta(v, slow, fast, "VER", "Q3")
+    assert first[1] is again[1]  # same cached array, not recomputed
+
+    rel_dist, delta, limit = first
+    assert abs(delta[-1] - 0.8) < 1e-9
+    assert limit == 0.8  # rounded up to the next 0.1 s
+
+    # a different comparison driver invalidates the cache
+    other = QualifyingReplay._get_time_delta(v, slow, _linear_lap(91.6), "HAM", "Q3")
+    assert other[1] is not first[1]
+    assert abs(other[1][-1] - 0.2) < 1e-9
+
+
+def test_time_delta_axis_has_a_minimum_range_for_very_close_laps():
+    v = _delta_viewer()
+    _, _, limit = QualifyingReplay._get_time_delta(v, _linear_lap(91.05), _linear_lap(91.0), "VER", "Q3")
+    assert limit == 0.2
+
+
+def test_time_delta_is_none_when_comparison_has_no_data():
+    v = _delta_viewer()
+    assert QualifyingReplay._get_time_delta(v, _linear_lap(91.0), [], "VER", "Q3") is None
