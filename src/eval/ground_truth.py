@@ -76,3 +76,17 @@ def build_ground_truth(laps: pd.DataFrame) -> pd.DataFrame:
 
     return out[GROUND_TRUTH_COLUMNS]
 
+
+def label_segments(df: pd.DataFrame) -> pd.Series:
+    """Give every row exactly one segment label.
+
+    Priority when a lap fits several segments: final > lap1 > pit > sc_vsc > normal.
+    Example: a pit stop under the safety car is labelled "pit".
+    """
+    labels = pd.Series("normal", index=df.index, dtype=object)
+    # Apply from lowest to highest priority so the highest one wins.
+    labels[df["is_sc_vsc"].astype(bool)] = "sc_vsc"
+    labels[df["is_pit"].astype(bool)] = "pit"
+    labels[df["is_lap1"].astype(bool)] = "lap1"
+    labels[df["is_final"].astype(bool)] = "final"
+    return labels.rename("segment")
