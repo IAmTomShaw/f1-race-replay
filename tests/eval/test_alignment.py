@@ -4,6 +4,7 @@ import pytest
 
 from src.eval.alignment import (
     build_eval_table,
+    compare_lap_times,
     find_lap_crossings,
     sample_computed_positions,
 )
@@ -203,3 +204,21 @@ def test_eval_table_rejects_duplicate_computed_rows(race):
     computed = pd.concat([computed, computed])
     with pytest.raises(pd.errors.MergeError):
         build_eval_table(gt, computed)
+
+
+# ---------- compare_lap_times ----------
+
+def test_replay_lap_times_match_official_lap_times():
+    # Crossings at frames 4 (t=2.0) and 8 (t=4.0): lap 2 lasted 2.0 s in the replay.
+    frames = make_frames({"VER": [1, 1, 1, 1, 2, 2, 2, 2, 3]})
+    laps = pd.DataFrame(
+        {
+            "Driver": ["VER", "VER", "VER"],
+            "LapNumber": [1.0, 2.0, 3.0],
+            "LapTime": pd.to_timedelta([np.nan, 2.1, np.nan], unit="s"),
+        }
+    )
+    check = compare_lap_times(frames, laps, "VER")
+    assert check["lap"].tolist() == [2]
+    assert check["replay_lap_time_s"].iloc[0] == pytest.approx(2.0)
+    assert check["diff_s"].iloc[0] == pytest.approx(-0.1)

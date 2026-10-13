@@ -143,3 +143,30 @@ def build_eval_table(ground_truth: pd.DataFrame, computed: pd.DataFrame) -> pd.D
     table["excluded_reason"] = reason
     table["error"] = table["computed_pos"] - table["official_pos"]
     return table
+
+
+def compare_lap_times(frames: list, laps: pd.DataFrame, driver: str) -> pd.DataFrame:
+    """Sanity check: replay lap time (time between crossings) vs official LapTime.
+
+    If the crossings are found at the right moments, these should agree to
+    within a fraction of a second on normal laps.
+    """
+    crossings = find_lap_crossings(frames, driver)
+    rows = []
+    for lap in sorted(crossings):
+        prev = crossings.get(lap - 1)
+        if prev is None:
+            continue
+        rows.append((lap, float(frames[crossings[lap]]["t"]) - float(frames[prev]["t"])))
+    replay = pd.DataFrame(rows, columns=["lap", "replay_lap_time_s"])
+
+    official = laps.loc[laps["Driver"] == driver, ["LapNumber", "LapTime"]].dropna(subset=["LapNumber"])
+    official = pd.DataFrame(
+        {
+            "lap": official["LapNumber"].astype(int).to_numpy(),
+            "official_lap_time_s": pd.to_timedelta(official["LapTime"]).dt.total_seconds().to_numpy(),
+        }
+    )
+    out = replay.merge(official, on="lap", how="inner")
+    out["diff_s"] = out["replay_lap_time_s"] - out["official_lap_time_s"]
+    return out
