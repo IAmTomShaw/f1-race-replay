@@ -28,9 +28,10 @@ def fake_race(n_laps=3, lap_len=10.0, dt=0.5):
     rows = []
     for pos, (code, speed) in enumerate(SPEEDS.items(), start=1):
         for lap in range(1, n_laps + 1):
-            rows.append((code, float(lap), float(pos), lap_len / speed))
-    laps = pd.DataFrame(rows, columns=["Driver", "LapNumber", "Position", "LapTime_s"])
+            rows.append((code, float(lap), float(pos), lap_len / speed, lap * lap_len / speed))
+    laps = pd.DataFrame(rows, columns=["Driver", "LapNumber", "Position", "LapTime_s", "Time_s"])
     laps["LapTime"] = pd.to_timedelta(laps.pop("LapTime_s"), unit="s")
+    laps["Time"] = pd.to_timedelta(laps.pop("Time_s"), unit="s")  # official lap end, session time
     laps["PitInTime"] = pd.to_timedelta([np.nan] * len(laps), unit="s")
     laps["PitOutTime"] = pd.to_timedelta([np.nan] * len(laps), unit="s")
     laps["TrackStatus"] = "1"
@@ -68,6 +69,9 @@ def test_evaluate_perfect_replay_scores_100_percent():
     assert overall["exact_match"] == pytest.approx(1.0)
     assert overall["mae"] == pytest.approx(0.0)
     assert overall["kendall_tau"] == pytest.approx(1.0)
+    # Crossings sit on a 0.5 s frame grid, well inside the 1 s timing tolerance.
+    assert table["timing_error_s"].notna().all()
+    assert (table["timing_error_s"].abs() < 0.5).all()
 
 
 def test_offset_sensitivity_has_one_block_per_offset():
@@ -124,14 +128,26 @@ def test_report_says_stable_when_offsets_agree():
     assert "fragile" not in report
 
 
-def test_report_lists_exclusions_and_lap_check():
+def test_report_lists_exclusions_and_sanity_checks():
     laps, frames = fake_race()
-    _, summary = bench.evaluate(laps, frames)
+    table, summary = bench.evaluate(laps, frames)
     exclusions = pd.Series({"no_crossing": 3})
     check = bench.lap_time_check(frames, laps)
-    report = bench.format_report("X", {}, summary, exclusions, lap_check=check)
+    report = bench.format_report("X", {}, summary, exclusions, lap_check=check, table=table)
     assert "`no_crossing`: 3" in report
-    assert "Lap-time sanity check" in report
+    assert "Crossing timing: replay lap end vs official lap end over 9 laps" in report
+    assert "0 laps off by more than 1 s" in report
+    assert "Lap times: replay (time between crossings)" in report
+
+
+def test_lap_check_ignores_laps_without_official_time():
+    laps, frames = fake_race()
+    _, summary = bench.evaluate(laps, frames)
+    check = pd.DataFrame({"lap": [2, 3], "replay_lap_time_s": [9.0, 9.0], "official_lap_time_s": [np.nan, np.nan],
+                          "diff_s": [np.nan, np.nan], "driver": ["VER", "VER"]})
+    report = bench.format_report("X", {}, summary, pd.Series(dtype=int), lap_check=check)
+    assert "Lap times: no laps to compare." in report
+    assert "Crossing timing: not checked" in report
 
 
 def test_safe_slug_removes_characters_windows_rejects():

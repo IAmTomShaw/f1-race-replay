@@ -20,7 +20,14 @@ from pathlib import Path
 
 import pandas as pd
 
-from src.eval.alignment import build_eval_table, compare_lap_times, driver_codes, sample_computed_positions
+from src.eval.alignment import (
+    MAX_TIMING_ERROR_S,
+    build_eval_table,
+    compare_lap_times,
+    crossing_timing_errors,
+    driver_codes,
+    sample_computed_positions,
+)
 from src.eval.ground_truth import build_ground_truth
 from src.eval.metrics import exclusion_counts, summarise
 
@@ -57,10 +64,15 @@ def parse_args(argv=None) -> argparse.Namespace:
 # ---------- pure evaluation steps (no network, unit-tested) ----------
 
 def evaluate(laps: pd.DataFrame, frames: list, offset_s: float = 1.0):
-    """Return (eval_table, summary) for one race."""
+    """Return (eval_table, summary) for one race.
+
+    Rows whose replay lap end is more than MAX_TIMING_ERROR_S from the official
+    lap end are excluded as ``crossing_mistimed`` (needs ``laps.Time``).
+    """
     ground_truth = build_ground_truth(laps)
     computed = sample_computed_positions(frames, offset_s=offset_s)
-    table = build_eval_table(ground_truth, computed)
+    timing = crossing_timing_errors(frames, computed, laps)
+    table = build_eval_table(ground_truth, computed, timing)
     return table, summarise(table)
 
 
@@ -118,7 +130,8 @@ SUMMARY_FORMATS = {"exact_match": "pct", "mae": "float2", "kendall_tau": "float3
 
 
 def format_report(event_name: str, run_info: dict, summary: pd.DataFrame, exclusions: pd.Series,
-                  lap_check: pd.DataFrame = None, sensitivity: pd.DataFrame = None) -> str:
+                  lap_check: pd.DataFrame = None, sensitivity: pd.DataFrame = None,
+                  table: pd.DataFrame = None) -> str:
     lines = [f"# Leaderboard accuracy: {event_name}", ""]
     lines += [f"- **{key}:** {value}" for key, value in run_info.items()]
     lines += ["", "## Summary", "", markdown_table(summary, SUMMARY_FORMATS), ""]
@@ -134,19 +147,29 @@ def format_report(event_name: str, run_info: dict, summary: pd.DataFrame, exclus
     else:
         lines += [f"- `{reason}`: {count}" for reason, count in exclusions.items()] + [""]
 
+    lines += ["## Sanity checks", ""]
+    timing = table["timing_error_s"].dropna().abs() if table is not None else pd.Series(dtype=float)
+    if timing.empty:
+        lines += ["- Crossing timing: not checked (no official lap end times).", ""]
+    else:
+        n_bad = int((timing > MAX_TIMING_ERROR_S).sum())
+        lines += [
+            f"- Crossing timing: replay lap end vs official lap end over {len(timing)} laps: "
+            f"median |error| = {timing.median():.3f} s; {n_bad} laps off by more than "
+            f"{MAX_TIMING_ERROR_S:g} s (excluded as `crossing_mistimed`).",
+        ]
     if lap_check is not None:
-        lines += ["## Lap-time sanity check", ""]
-        if lap_check.empty:
-            lines += ["No laps to compare.", ""]
+        diffs = lap_check["diff_s"].dropna().abs() if not lap_check.empty else pd.Series(dtype=float)
+        if diffs.empty:
+            lines += ["- Lap times: no laps to compare."]
         else:
-            abs_diff = lap_check["diff_s"].abs()
-            share_off = float((abs_diff > LAP_TIME_TOLERANCE_S).mean())
+            share_off = float((diffs > LAP_TIME_TOLERANCE_S).mean())
             lines += [
-                f"Time between replay crossings vs official `LapTime` over {len(lap_check)} laps: "
-                f"median |diff| = {abs_diff.median():.3f} s, "
-                f"{share_off * 100:.1f}% of laps off by more than {LAP_TIME_TOLERANCE_S} s.",
-                "",
+                f"- Lap times: replay (time between crossings) vs official `LapTime` over {len(diffs)} laps: "
+                f"median |diff| = {diffs.median():.3f} s; {share_off * 100:.1f}% of laps off by more than "
+                f"{LAP_TIME_TOLERANCE_S:g} s.",
             ]
+    lines += [""]
 
     if sensitivity is not None:
         spread = sensitivity_spread(sensitivity)
@@ -255,7 +278,7 @@ def main(argv=None, loader=load_race) -> int:
         "Frames": len(frames),
         "Python / pandas": f"{platform.python_version()} / {pd.__version__}",
     }
-    report = format_report(event_name, run_info, summary, exclusion_counts(table), lap_check, sensitivity)
+    report = format_report(event_name, run_info, summary, exclusion_counts(table), lap_check, sensitivity, table)
     paths = write_outputs(args.out, safe_slug(event_name), table, summary, report)
 
     print(markdown_table(summary, SUMMARY_FORMATS))
