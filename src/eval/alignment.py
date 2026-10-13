@@ -121,3 +121,25 @@ def sample_computed_positions(
     out = pd.DataFrame(rows, columns=COMPUTED_COLUMNS)
     out["computed_pos"] = pd.to_numeric(out["computed_pos"], errors="coerce")
     return out
+
+
+def build_eval_table(ground_truth: pd.DataFrame, computed: pd.DataFrame) -> pd.DataFrame:
+    """Left-join official and computed positions on (driver, lap).
+
+    Every ground-truth row is kept. Rows with no computed position get
+    ``excluded_reason="no_crossing"`` unless they were already excluded.
+    Adds the ``segment`` column.
+    """
+    table = ground_truth.merge(
+        computed[["driver", "lap", "computed_pos", "frame_idx", "method"]],
+        on=["driver", "lap"],
+        how="left",
+        validate="one_to_one",
+    )
+    table["segment"] = label_segments(table)
+    reason = table["excluded_reason"].astype(object)
+    no_computed = table["computed_pos"].isna() & reason.isna()
+    reason[no_computed] = "no_crossing"
+    table["excluded_reason"] = reason
+    table["error"] = table["computed_pos"] - table["official_pos"]
+    return table

@@ -3,9 +3,11 @@ import pandas as pd
 import pytest
 
 from src.eval.alignment import (
+    build_eval_table,
     find_lap_crossings,
     sample_computed_positions,
 )
+from src.eval.ground_truth import build_ground_truth
 
 
 def make_frames(laps_by_driver, positions_by_driver=None, dt=0.5):
@@ -152,3 +154,52 @@ def test_empty_frames_give_empty_table():
     computed = sample_computed_positions([])
     assert computed.empty
     assert list(computed.columns) == ["driver", "lap", "computed_pos", "frame_idx", "method"]
+
+
+# ---------- build_eval_table ----------
+
+def make_laps(rows):
+    """rows: (driver, lap, position)."""
+    return pd.DataFrame(
+        {
+            "Driver": [r[0] for r in rows],
+            "LapNumber": [float(r[1]) for r in rows],
+            "Position": [np.nan if r[2] is None else float(r[2]) for r in rows],
+            "PitInTime": pd.to_timedelta([np.nan] * len(rows), unit="s"),
+            "PitOutTime": pd.to_timedelta([np.nan] * len(rows), unit="s"),
+            "TrackStatus": ["1"] * len(rows),
+        }
+    )
+
+
+def test_eval_table_joins_and_marks_exclusions(race):
+    laps = make_laps(
+        [
+            ("VER", 1, 1), ("VER", 2, 2), ("VER", 3, 1),
+            ("HAM", 1, 2), ("HAM", 2, 1), ("HAM", 3, 2),
+            ("LEC", 1, 3), ("LEC", 2, None), ("LEC", 3, 3),
+            ("BOT", 1, 4),  # in the official data but not in the replay
+        ]
+    )
+    gt = build_ground_truth(laps)
+    table = build_eval_table(gt, sample_computed_positions(race, offset_s=1.0))
+
+    assert len(table) == len(gt)
+    reasons = table.set_index(["driver", "lap"])["excluded_reason"]
+    assert reasons[("BOT", 1)] == "no_crossing"
+    assert reasons[("LEC", 2)] == "official_pos_nan"  # first reason wins
+    assert reasons.notna().sum() == 2
+
+    ver2 = table[(table["driver"] == "VER") & (table["lap"] == 2)].iloc[0]
+    assert ver2["computed_pos"] == 2
+    assert ver2["error"] == 0
+    assert set(table["segment"]) <= {"final", "lap1", "pit", "sc_vsc", "normal"}
+    assert table.set_index(["driver", "lap"])["segment"][("VER", 3)] == "final"
+
+
+def test_eval_table_rejects_duplicate_computed_rows(race):
+    gt = build_ground_truth(make_laps([("VER", 1, 1)]))
+    computed = sample_computed_positions(race)
+    computed = pd.concat([computed, computed])
+    with pytest.raises(pd.errors.MergeError):
+        build_eval_table(gt, computed)
