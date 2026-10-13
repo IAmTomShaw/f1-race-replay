@@ -4,6 +4,7 @@ import pytest
 
 from src.eval.alignment import (
     find_lap_crossings,
+    sample_computed_positions,
 )
 
 
@@ -55,3 +56,99 @@ def test_unknown_driver_has_no_crossings():
 def test_lap_value_going_backwards_is_ignored():
     frames = make_frames({"VER": [1, 2, 1, 2, 3]})
     assert find_lap_crossings(frames, "VER") == {1: 1, 2: 4}
+
+
+# ---------- sample_computed_positions ----------
+
+@pytest.fixture
+def race():
+    # dt = 0.5 s, so an offset of 1.0 s is 2 frames.
+    laps = {
+        "VER": [1, 1, 2, 2, 2, 2, 3, 3, 3, 3],
+        "HAM": [1, 1, 1, 2, 2, 2, 2, 3, 3, 3],
+        "LEC": [1, 1, 1, 1, 2, 2, 2, 2, 3, 3],
+    }
+    positions = {
+        "VER": [1, 1, 1, 1, 1, 2, 2, 2, 2, 1],
+        "HAM": [2, 2, 2, 2, 2, 1, 1, 1, 1, 2],
+        "LEC": [3] * 10,
+    }
+    return make_frames(laps, positions)
+
+
+def test_zero_offset_samples_at_the_crossing(race):
+    computed = sample_computed_positions(race, offset_s=0.0)
+    row = sample(computed, "VER", 1)
+    assert row["frame_idx"] == 2
+    assert row["method"] == "crossing"
+    assert row["computed_pos"] == 1
+
+
+def test_offset_moves_sample_forward_in_time(race):
+    computed = sample_computed_positions(race, offset_s=1.0)
+    # VER crosses into lap 2 at frame 2 (t=1.0) -> sample at t=2.0 -> frame 4.
+    assert sample(computed, "VER", 1)["frame_idx"] == 4
+    # VER crosses into lap 3 at frame 6 (t=3.0) -> sample at t=4.0 -> frame 8, where VER is P2.
+    row = sample(computed, "VER", 2)
+    assert row["frame_idx"] == 8
+    assert row["computed_pos"] == 2
+
+
+def test_offset_is_clipped_to_last_frame(race):
+    computed = sample_computed_positions(race, offset_s=100.0)
+    assert sample(computed, "LEC", 2)["frame_idx"] == len(race) - 1
+
+
+def test_last_lap_uses_last_frame(race):
+    computed = sample_computed_positions(race, offset_s=1.0)
+    for driver, expected_pos in [("VER", 1), ("HAM", 2), ("LEC", 3)]:
+        row = sample(computed, driver, 3)
+        assert row["method"] == "last_frame"
+        assert row["frame_idx"] == len(race) - 1
+        assert row["computed_pos"] == expected_pos
+
+
+def test_one_row_per_driver_lap(race):
+    computed = sample_computed_positions(race)
+    assert len(computed) == 9
+    assert not computed.duplicated(["driver", "lap"]).any()
+
+
+def test_missing_driver_at_sample_frame_steps_back():
+    frames = make_frames(
+        {"VER": [1, 2, 2, None, 2], "HAM": [1, 1, 1, 1, 1]},
+        {"VER": [1, 1, 1, None, 1], "HAM": [2, 2, 2, 2, 2]},
+    )
+    computed = sample_computed_positions(frames, offset_s=1.0)
+    # Crossing at frame 1 (t=0.5) -> target t=1.5 -> frame 3, VER missing -> frame 2.
+    assert sample(computed, "VER", 1)["frame_idx"] == 2
+
+
+def test_retired_driver_last_lap_uses_last_frame_they_appear_in():
+    frames = make_frames(
+        {"VER": [1, 2, 2, 2, 2], "SAR": [1, 2, 2, None, None]},
+        {"VER": [1, 1, 1, 1, 1], "SAR": [2, 2, 2, None, None]},
+    )
+    computed = sample_computed_positions(frames, offset_s=0.0)
+    row = sample(computed, "SAR", 2)
+    assert row["method"] == "last_frame"
+    assert row["frame_idx"] == 2
+
+
+def test_custom_position_fn_is_used(race):
+    def everyone_p9(frame):
+        return {code: 9 for code in frame["drivers"]}
+
+    computed = sample_computed_positions(race, position_fn=everyone_p9)
+    assert (computed["computed_pos"] == 9).all()
+
+
+def test_negative_offset_is_rejected(race):
+    with pytest.raises(ValueError):
+        sample_computed_positions(race, offset_s=-1.0)
+
+
+def test_empty_frames_give_empty_table():
+    computed = sample_computed_positions([])
+    assert computed.empty
+    assert list(computed.columns) == ["driver", "lap", "computed_pos", "frame_idx", "method"]
