@@ -9,6 +9,7 @@ import pandas as pd
 
 from src.eval.ground_truth import SEGMENTS
 
+SUMMARY_COLUMNS = ["segment", "n_rows", "n_excluded", "n_scored", "exact_match", "mae", "kendall_tau"]
 
 
 def scored_rows(df: pd.DataFrame) -> pd.DataFrame:
@@ -78,3 +79,33 @@ def mean_kendall(df: pd.DataFrame, min_drivers: int = 3) -> float:
     """Average of ``per_lap_kendall`` over laps where it is defined. NaN if none."""
     taus = per_lap_kendall(df, min_drivers).dropna()
     return float(taus.mean()) if len(taus) else float("nan")
+
+
+def _summary_row(name: str, part: pd.DataFrame, min_drivers: int) -> dict:
+    n_excluded = int(part["excluded_reason"].notna().sum())
+    return {
+        "segment": name,
+        "n_rows": int(len(part)),
+        "n_excluded": n_excluded,
+        "n_scored": int(len(scored_rows(part))),
+        "exact_match": exact_match_rate(part),
+        "mae": mean_abs_error(part),
+        "kendall_tau": mean_kendall(part, min_drivers),
+    }
+
+
+def summarise(df: pd.DataFrame, min_drivers: int = 3) -> pd.DataFrame:
+    """One row for ``overall`` plus one per segment (segments with no rows are kept, with NaN metrics).
+
+    Note: per-segment Kendall tau only uses drivers in that segment on each
+    lap, so it is usually NaN for ``pit`` (rarely 3+ cars pit on the same lap).
+    """
+    rows = [_summary_row("overall", df, min_drivers)]
+    for segment in SEGMENTS:
+        rows.append(_summary_row(segment, df[df["segment"] == segment], min_drivers))
+    return pd.DataFrame(rows, columns=SUMMARY_COLUMNS)
+
+
+def exclusion_counts(df: pd.DataFrame) -> pd.Series:
+    """How many rows were excluded, by reason."""
+    return df["excluded_reason"].dropna().value_counts().rename("n_rows")
