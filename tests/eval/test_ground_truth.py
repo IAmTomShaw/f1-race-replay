@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from src.eval.ground_truth import build_ground_truth
+from src.eval.ground_truth import build_ground_truth, label_segments
 
 
 def make_laps(rows):
@@ -126,3 +126,46 @@ def test_duplicate_driver_lap_rows_keep_first():
 def test_missing_columns_raise_clear_error():
     with pytest.raises(ValueError, match="Position"):
         build_ground_truth(pd.DataFrame({"Driver": ["VER"], "LapNumber": [1.0]}))
+
+
+def flags(**kwargs):
+    base = {"is_final": False, "is_lap1": False, "is_pit": False, "is_sc_vsc": False}
+    base.update(kwargs)
+    return base
+
+
+@pytest.mark.parametrize(
+    ("row_flags", "expected"),
+    [
+        (flags(), "normal"),
+        (flags(is_sc_vsc=True), "sc_vsc"),
+        (flags(is_pit=True), "pit"),
+        (flags(is_pit=True, is_sc_vsc=True), "pit"),
+        (flags(is_lap1=True, is_pit=True, is_sc_vsc=True), "lap1"),
+        (flags(is_final=True, is_lap1=True, is_pit=True, is_sc_vsc=True), "final"),
+        (flags(is_final=True, is_sc_vsc=True), "final"),
+    ],
+)
+def test_label_segments_priority(row_flags, expected):
+    df = pd.DataFrame([row_flags])
+    assert label_segments(df).iloc[0] == expected
+
+
+def test_label_segments_keeps_index_and_name(three_driver_laps):
+    gt = build_ground_truth(three_driver_laps)
+    gt.index = gt.index + 100
+    labels = label_segments(gt)
+    assert labels.name == "segment"
+    assert labels.index.equals(gt.index)
+
+
+def test_label_segments_on_real_shaped_table(three_driver_laps):
+    gt = build_ground_truth(three_driver_laps)
+    gt["segment"] = label_segments(gt)
+    seg = {(d, l): s for d, l, s in gt[["driver", "lap", "segment"]].itertuples(index=False)}
+    assert seg[("VER", 1)] == "lap1"
+    assert seg[("VER", 2)] == "pit"
+    assert seg[("HAM", 2)] == "sc_vsc"
+    assert seg[("LEC", 2)] == "final"  # last classified lap beats SC
+    assert seg[("LEC", 3)] == "normal"  # crash lap: not final, excluded later
+    assert seg[("VER", 3)] == "final"
