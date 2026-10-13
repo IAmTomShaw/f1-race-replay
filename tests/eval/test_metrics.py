@@ -6,10 +6,12 @@ import pytest
 
 from src.eval.metrics import (
     exact_match_rate,
+    exclusion_counts,
     kendall_tau_b,
     mean_abs_error,
     mean_kendall,
     per_lap_kendall,
+    summarise,
 )
 
 
@@ -120,3 +122,62 @@ def test_per_lap_kendall_skips_small_laps():
 
 def test_mean_kendall_is_nan_when_no_lap_qualifies(small_eval):
     assert math.isnan(mean_kendall(small_eval, min_drivers=10))
+
+
+# ---------- summarise ----------
+
+@pytest.fixture
+def race_eval():
+    return make_eval(
+        [
+            ("A", 1, 1, 1, "lap1", None), ("B", 1, 2, 3, "lap1", None), ("C", 1, 3, 2, "lap1", None),
+            ("A", 2, 1, 1, "normal", None), ("B", 2, 2, 2, "normal", None), ("C", 2, 3, 3, "pit", None),
+            ("A", 3, 1, 1, "final", None), ("B", 3, 2, 2, "final", None), ("C", 3, np.nan, 3, "normal", "official_pos_nan"),
+        ]
+    )
+
+
+def test_summary_has_overall_and_every_segment(race_eval):
+    summary = summarise(race_eval)
+    assert summary["segment"].tolist() == ["overall", "final", "lap1", "pit", "sc_vsc", "normal"]
+    assert list(summary.columns) == [
+        "segment", "n_rows", "n_excluded", "n_scored", "exact_match", "mae", "kendall_tau",
+    ]
+
+
+def test_summary_counts_and_values(race_eval):
+    s = summarise(race_eval).set_index("segment")
+    assert s.loc["overall", "n_rows"] == 9
+    assert s.loc["overall", "n_excluded"] == 1
+    assert s.loc["overall", "n_scored"] == 8
+    # 6 of the 8 scored rows match; errors: 0,1,1,0,0,0,0,0 -> MAE 2/8
+    assert s.loc["overall", "exact_match"] == pytest.approx(6 / 8)
+    assert s.loc["overall", "mae"] == pytest.approx(2 / 8)
+    # lap 1 tau = 1/3, lap 2 tau = 1.0 (lap 3 has only 2 scored drivers)
+    assert s.loc["overall", "kendall_tau"] == pytest.approx((1 / 3 + 1.0) / 2)
+
+    assert s.loc["lap1", "exact_match"] == pytest.approx(1 / 3)
+    assert s.loc["lap1", "kendall_tau"] == pytest.approx(1 / 3)
+    assert s.loc["normal", "n_rows"] == 3  # A lap 2, B lap 2, C lap 3
+    assert s.loc["normal", "n_excluded"] == 1
+    assert s.loc["normal", "exact_match"] == pytest.approx(1.0)
+
+
+def test_summary_empty_segment_has_zero_rows_and_nan_metrics(race_eval):
+    sc = summarise(race_eval).set_index("segment").loc["sc_vsc"]
+    assert sc["n_rows"] == 0
+    assert math.isnan(sc["exact_match"])
+    assert math.isnan(sc["mae"])
+    assert math.isnan(sc["kendall_tau"])
+
+
+def test_exclusion_counts_by_reason():
+    df = make_eval(
+        [
+            ("A", 1, 1, 1, "lap1", None),
+            ("B", 1, np.nan, 2, "lap1", "official_pos_nan"),
+            ("C", 1, 3, np.nan, "lap1", "no_crossing"),
+            ("D", 1, 4, np.nan, "lap1", "no_crossing"),
+        ]
+    )
+    assert exclusion_counts(df).to_dict() == {"no_crossing": 2, "official_pos_nan": 1}
