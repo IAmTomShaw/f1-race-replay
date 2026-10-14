@@ -43,6 +43,8 @@ _ACTIVE_MARKERS = {"active", "finished"}
 
 
 def _is_active(entry: Dict[str, Any]) -> bool:
+    if not isinstance(entry, dict):
+        return False
     if "active" in entry:
         return bool(entry["active"])
     v = entry.get("validity")
@@ -158,15 +160,16 @@ def rank_frame(
     active: List[Tuple[str, float, int, float, bool, bool]] = []
     inactive: List[Tuple[str, float, int, float, bool, bool]] = []
     for code, entry in drivers.items():
+        if not isinstance(entry, dict):
+            continue
         is_act = _is_active(entry)
         lap_raw = entry.get("lap", 1)
         dist_raw = entry.get("dist", 0.0)
-        try:
-            lap = int(round(float(lap_raw)))
-        except (TypeError, ValueError):
-            lap = 1
-        dist = float(_safe_float(dist_raw) or 0.0)
-        prog = compute_progress(lap, dist, track_length)
+        lap_float = _safe_float(lap_raw)
+        lap = int(round(lap_float)) if lap_float is not None else 1
+        dist_float = _safe_float(dist_raw)
+        dist = float(dist_float) if dist_float is not None else 0.0
+        prog = compute_progress(lap_raw, dist_raw, track_length)
         in_pit = bool(entry.get("in_pit", code in pit_set))
         finished = (code in finished_set) or entry.get("validity") == "finished"
         bucket = active if is_act else inactive
@@ -175,27 +178,31 @@ def rank_frame(
     # Active drivers: highest progress first, but in-pit drivers
     # lose their position to non-in-pit drivers regardless of who
     # is *technically* further ahead (pitting loses positions in
-    # real F1).
+    # real F1). Includes (-lap, -dist) fallback when track_length <= 0.
     def _active_key(item):
         code, prog, lap, dist, in_pit, finished = item
-        # Sort key: (in_pit ASC -> non-pit first, finished ASC ->
-        # finished last, -progress, code)
         return (1 if in_pit else 0,
                 0 if finished else 1,
                 -prog,
+                -lap,
+                -dist,
                 code)
 
     active_sorted = sorted(active, key=_active_key)
 
     # Inactive drivers: keep their last-known progress, sort by
-    # progress descending.
-    inactive_sorted = sorted(inactive, key=lambda x: (-x[1], x[0]))
+    # progress descending (with lap/dist fallback).
+    inactive_sorted = sorted(
+        inactive,
+        key=lambda x: (-x[1], -x[2], -x[3], x[0]),
+    )
 
     ordered = active_sorted + inactive_sorted
+    n_active = len(active_sorted)
     entries: List[LeaderboardEntry] = []
     for pos, item in enumerate(ordered, start=1):
         code, prog, lap, dist, in_pit, finished = item
-        is_act = (item in active_sorted)
+        is_act = (pos <= n_active)
         entries.append(LeaderboardEntry(
             position=pos,
             code=code,

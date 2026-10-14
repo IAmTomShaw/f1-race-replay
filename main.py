@@ -10,8 +10,8 @@ if sys.platform == "win32":
     except Exception:
         pass
 
-from src.f1_data import get_race_telemetry, enable_cache, get_circuit_rotation, load_session, get_quali_telemetry, list_rounds, list_sprints
 from src.lib.season import get_season
+from src.lib.logging_setup import configure_logging
 # PHASE J: argparse-based CLI parser. The legacy ``main.py``
 # did manual ``if "--flag" in sys.argv`` chains; the new
 # ``parse_args`` is the single source of truth. Public
@@ -20,17 +20,25 @@ from src.lib.season import get_season
 # print report and exit) is preserved.
 from src.cli.args import parse_args, session_type as _resolve_session_type
 
+
 def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
+  from src.f1_data import (
+      get_race_telemetry,
+      enable_cache,
+      get_circuit_rotation,
+      load_session,
+      get_quali_telemetry,
+  )
   from src.interfaces.qualifying import run_qualifying_replay
   from src.run_session import run_arcade_replay, launch_insights_menu
+
+  # Enable cache for fastf1 BEFORE loading session so downloads are cached
+  enable_cache()
 
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
 
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
-
-  # Enable cache for fastf1
-  enable_cache()
 
   if session_type == 'Q' or session_type == 'SQ':
 
@@ -41,12 +49,14 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     # Run the arcade screen showing qualifying results
 
     title = f"{session.event['EventName']} - {'Sprint Qualifying' if session_type == 'SQ' else 'Qualifying Results'}"
-    
+    circuit_rotation = get_circuit_rotation(session)
+
     run_qualifying_replay(
       session=session,
       data=qualifying_session_data,
       title=title,
       ready_file=ready_file,
+      circuit_rotation=circuit_rotation,
     )
 
   else:
@@ -131,6 +141,7 @@ if __name__ == "__main__":
   # behaviour exactly.
   args = parse_args()
 
+  configure_logging(level="DEBUG" if args.verbose else "WARNING")
   if not args.verbose:
     # fastf1 logging is disabled by default
     logging.getLogger("fastf1").setLevel(logging.CRITICAL)
@@ -146,10 +157,12 @@ if __name__ == "__main__":
     cli_load()
     sys.exit(0)
   if args.list_rounds:
+    from src.f1_data import list_rounds
     yr = args.year if args.year is not None else get_season()
     list_rounds(yr)
     sys.exit(0)
   if args.list_sprints:
+    from src.f1_data import list_sprints
     yr = args.year if args.year is not None else get_season()
     list_sprints(yr)
     sys.exit(0)

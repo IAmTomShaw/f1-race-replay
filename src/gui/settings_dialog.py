@@ -112,6 +112,7 @@ class SettingsDialog(QDialog):
         self.cache_path_edit = QLineEdit()
         self.cache_path_edit.setPlaceholderText("Path to FastF1 cache folder...")
         self.cache_browse_btn = QPushButton("Browse...")
+        self.cache_browse_btn.setAccessibleName("Browse FastF1 Cache Location")
         self.cache_browse_btn.clicked.connect(self._browse_cache_location)
         cache_path_layout.addWidget(self.cache_path_edit)
         cache_path_layout.addWidget(self.cache_browse_btn)
@@ -132,6 +133,7 @@ class SettingsDialog(QDialog):
         self.computed_path_edit = QLineEdit()
         self.computed_path_edit.setPlaceholderText("Path to computed data folder...")
         self.computed_browse_btn = QPushButton("Browse...")
+        self.computed_browse_btn.setAccessibleName("Browse Computed Data Location")
         self.computed_browse_btn.clicked.connect(self._browse_computed_location)
         computed_path_layout.addWidget(self.computed_path_edit)
         computed_path_layout.addWidget(self.computed_browse_btn)
@@ -155,6 +157,7 @@ class SettingsDialog(QDialog):
         # Reset to defaults button
         reset_layout = QHBoxLayout()
         self.reset_btn = QPushButton("Reset to Defaults")
+        self.reset_btn.setAccessibleName("Reset to Defaults")
         self.reset_btn.clicked.connect(self._reset_to_defaults)
         reset_layout.addWidget(self.reset_btn)
         reset_layout.addStretch()

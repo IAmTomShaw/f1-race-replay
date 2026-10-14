@@ -209,6 +209,7 @@ class InsightsMenu(QMainWindow):
         layout.addStretch()
         
         close_btn = QPushButton("Close Menu")
+        close_btn.setAccessibleName("Close Menu")
         close_btn.setFixedWidth(110)
         close_btn.setStyleSheet("""
             QPushButton {
@@ -268,6 +269,7 @@ class InsightsMenu(QMainWindow):
     
     def create_insight_button(self, name, description, callback):
         button = QPushButton()
+        button.setAccessibleName(name)
         button.setCursor(Qt.PointingHandCursor)
         
         # Create button layout with name and description

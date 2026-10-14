@@ -48,11 +48,15 @@ _FLAG_COLOURS = {
 
 def _format_time(seconds):
     """Convert seconds to HH:MM:SS string."""
-    if seconds < 0:
-        seconds = 0
-    h = int(seconds // 3600)
-    m = int((seconds % 3600) // 60)
-    s = int(seconds % 60)
+    try:
+        sec = float(seconds)
+        if math.isnan(sec) or sec < 0:
+            sec = 0.0
+    except (TypeError, ValueError):
+        sec = 0.0
+    h = int(sec // 3600)
+    m = int((sec % 3600) // 60)
+    s = int(sec % 60)
     return f"{h:02}:{m:02}:{s:02}"
 
 
@@ -229,7 +233,9 @@ class RaceControlFeedWindow(PitWallWindow):
         # Process race control events
         events = data.get("race_control_events", [])
         for event in events:
-            event_hash = f"{event['time']}|{event['message']}"
+            if not isinstance(event, dict):
+                continue
+            event_hash = f"{event.get('time', 0)}|{event.get('message', '')}"
             if event_hash in self._seen_hashes:
                 continue
             self._seen_hashes.add(event_hash)
@@ -242,7 +248,7 @@ class RaceControlFeedWindow(PitWallWindow):
     def _add_event_item(self, event):
         """Append a formatted event to the text browser."""
         icon_color = _accent_for_event(event)
-        time_str = _format_time(event["time"])
+        time_str = _format_time(event.get("time", 0))
         message = event.get("message", "")
         sector = _clean_sector(event.get("sector", ""))
         

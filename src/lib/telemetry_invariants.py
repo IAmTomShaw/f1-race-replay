@@ -26,6 +26,10 @@ EPS = 1e-6
 Issue = Tuple[str, str, str]  # (level, code, message)
 
 
+def _is_finite_num(v: Any) -> bool:
+    return isinstance(v, (int, float)) and math.isfinite(v)
+
+
 # ---------------------------------------------------------------------------
 # 1. Replay timestamps are monotonically increasing.
 # ---------------------------------------------------------------------------
@@ -34,7 +38,7 @@ def check_frame_t_monotonic(frames: List[Dict[str, Any]]) -> List[Issue]:
     prev = None
     for i, f in enumerate(frames):
         t = f.get("t")
-        if t is None:
+        if t is None or not _is_finite_num(t):
             issues.append(("error", "INV-01.missing_t", f"frame {i} missing 't'"))
             continue
         if prev is not None and t + EPS < prev:
@@ -59,7 +63,7 @@ def check_frame_spacing(frames: List[Dict[str, Any]], fps: float = 25.0,
     for i in range(1, len(frames)):
         t_prev = frames[i - 1].get("t")
         t_curr = frames[i].get("t")
-        if t_prev is None or t_curr is None:
+        if not _is_finite_num(t_prev) or not _is_finite_num(t_curr):
             continue
         dt = t_curr - t_prev
         if abs(dt - dt_expected) > atol:
@@ -91,24 +95,18 @@ def check_validity_intervals_present(driver_data: Dict[str, Dict[str, Any]]
 # 4. Drivers are not active before their telemetry starts.
 # 5. Drivers are not active after their telemetry ends
 #    unless a terminal-state model explicitly requires them.
-#
-# If a frame carries a per-driver ``validity`` field (the new
-# ``src.data.telemetry_resample`` convention), that field is
-# authoritative. A driver is considered "active" iff their marker
-# is ``"active"`` or ``"finished"``. Otherwise presence in the
-# drivers dict is allowed (e.g. for rendering an "OUT" label) and
-# the invariant checks the ``active`` boolean if present.
 # ---------------------------------------------------------------------------
 _ACTIVE_MARKERS = {"active", "finished"}
 
 
 def _is_active_in_frame(driver_entry: Dict[str, Any]) -> bool:
+    if not isinstance(driver_entry, dict):
+        return False
     if "active" in driver_entry:
         return bool(driver_entry["active"])
     v = driver_entry.get("validity")
     if isinstance(v, str):
         return v in _ACTIVE_MARKERS
-    # Legacy / unknown schema: presence alone.
     return True
 
 
@@ -137,7 +135,7 @@ def check_no_activity_outside_validity(frames: List[Dict[str, Any]],
                     "INV-04.active_before_validity",
                     f"frame {i} t={t} driver {code} active before valid_start={v0}",
                 ))
-            if t - EPS > v1:
+            if t - EPS > v1 and entry.get("validity") != "finished":
                 issues.append((
                     "error",
                     "INV-05.active_after_validity",
@@ -148,19 +146,14 @@ def check_no_activity_outside_validity(frames: List[Dict[str, Any]],
 
 # ---------------------------------------------------------------------------
 # 6. Interpolation never invents driver motion outside observed telemetry.
-# Verified by the x/y/spd/... values being exactly equal to the boundary
-# sample when t < valid_start or t > valid_end. (np.interp clamps.) If the
-# validity fix is applied, a "flag" attribute marks such drivers as
-# inactive; this check is run with that flag.
 # ---------------------------------------------------------------------------
 def check_no_extrapolation_flag(frames: List[Dict[str, Any]]) -> List[Issue]:
     issues: List[Issue] = []
     for i, f in enumerate(frames):
         drivers = f.get("drivers", {}) or {}
         for code, d in drivers.items():
-            # If the producer marks an extrapolated frame, every numeric
-            # value should still equal the last observed sample; we simply
-            # require an explicit "extrapolated" flag so consumers know.
+            if not isinstance(d, dict):
+                continue
             if d.get("extrapolated") and not d.get("validity_marker"):
                 issues.append((
                     "warning",
@@ -178,17 +171,19 @@ def check_lap_monotonicity(frames: List[Dict[str, Any]]) -> List[Issue]:
     prev_lap: Dict[str, int] = {}
     for i, f in enumerate(frames):
         for code, d in (f.get("drivers") or {}).items():
+            if not isinstance(d, dict):
+                continue
             lap = d.get("lap")
-            if lap is None:
+            if not _is_finite_num(lap):
                 continue
             p = prev_lap.get(code)
-            if p is not None and lap < p - 0:  # strictly non-decreasing
+            if p is not None and lap < p:
                 issues.append((
                     "error",
                     "INV-07.lap_decreased",
                     f"frame {i} driver {code} lap {lap} < previous {p}",
                 ))
-            prev_lap[code] = lap
+            prev_lap[code] = int(lap)
     return issues
 
 
@@ -203,14 +198,15 @@ def check_progress_monotonicity(frames: List[Dict[str, Any]],
     prev: Dict[str, float] = {}
     for i, f in enumerate(frames):
         for code, d in (f.get("drivers") or {}).items():
+            if not isinstance(d, dict):
+                continue
             lap = d.get("lap")
             dist = d.get("dist")
-            if lap is None or dist is None:
+            if not _is_finite_num(lap) or not _is_finite_num(dist):
                 continue
             prog = lap * track_length + dist
             p = prev.get(code)
             if p is not None and prog + 0.5 * track_length < p:
-                # A backward jump of more than half a lap is anomalous
                 issues.append((
                     "error",
                     "INV-08.progress_regressed",
@@ -222,7 +218,6 @@ def check_progress_monotonicity(frames: List[Dict[str, Any]],
 
 # ---------------------------------------------------------------------------
 # 9. Race winner is determined consistently.
-# Modeled here: the leader at the final frame (max progress) is the winner.
 # ---------------------------------------------------------------------------
 def check_race_winner_consistent(frames: List[Dict[str, Any]],
                                  track_length: float,
@@ -235,8 +230,12 @@ def check_race_winner_consistent(frames: List[Dict[str, Any]],
     last = frames[-1]
     best_code, best_prog = None, -1.0
     for code, d in (last.get("drivers") or {}).items():
+        if not isinstance(d, dict):
+            continue
         lap = d.get("lap", 1)
         dist = d.get("dist", 0)
+        if not _is_finite_num(lap) or not _is_finite_num(dist):
+            continue
         prog = (max(lap, 1) - 1) * track_length + dist
         if prog > best_prog:
             best_prog = prog
@@ -252,8 +251,6 @@ def check_race_winner_consistent(frames: List[Dict[str, Any]],
 
 # ---------------------------------------------------------------------------
 # 10. Final replay frame represents the required terminal race state.
-# We require the final frame's t to equal global_t_max within tolerance
-# and at least one driver to have lap >= total_laps.
 # ---------------------------------------------------------------------------
 def check_final_frame_terminal(frames: List[Dict[str, Any]],
                                global_t_max: float,
@@ -265,7 +262,7 @@ def check_final_frame_terminal(frames: List[Dict[str, Any]],
         return issues
     last = frames[-1]
     t = last.get("t")
-    if t is None or abs(t - global_t_max) > tol:
+    if t is None or not _is_finite_num(t) or abs(t - global_t_max) > tol:
         issues.append((
             "error",
             "INV-10.final_t_mismatch",
@@ -273,7 +270,7 @@ def check_final_frame_terminal(frames: List[Dict[str, Any]],
         ))
     max_lap = 0
     for d in (last.get("drivers") or {}).values():
-        if isinstance(d.get("lap"), (int, float)):
+        if isinstance(d, dict) and _is_finite_num(d.get("lap")):
             max_lap = max(max_lap, int(d["lap"]))
     if total_laps > 0 and max_lap < total_laps - 1:
         issues.append((
@@ -288,8 +285,6 @@ def check_final_frame_terminal(frames: List[Dict[str, Any]],
 # 11. Track status timestamps are aligned to the same replay time origin.
 # 12. Weather timestamps use the same time origin.
 # 13. Pit-in/pit-out timestamps use the same time origin.
-# Each list is "aligned" if its earliest start_time >= 0 (no negative
-# times after the global_t_min shift).
 # ---------------------------------------------------------------------------
 def check_time_origin_alignment(track_statuses: List[Dict[str, Any]],
                                 weather_min: float | None = None,
@@ -324,8 +319,6 @@ def check_time_origin_alignment(track_statuses: List[Dict[str, Any]],
 
 # ---------------------------------------------------------------------------
 # 14. All stream timestamps are replay/session time, not wall-clock time.
-# If a "wall_clock" flag is set anywhere in a frame payload, the
-# invariant is violated. Otherwise the check passes vacuously.
 # ---------------------------------------------------------------------------
 def check_no_wall_clock(frames: List[Dict[str, Any]]) -> List[Issue]:
     issues: List[Issue] = []
@@ -344,24 +337,21 @@ def check_no_wall_clock(frames: List[Dict[str, Any]]) -> List[Issue]:
 
 # ---------------------------------------------------------------------------
 # 15. Telemetry unit contracts are explicit and consistent.
-# Speed should be in km/h, throttle in [0, 100], brake in [0, 100],
-# gear integer, DRS integer, distance in metres.
 # ---------------------------------------------------------------------------
 def check_telemetry_units(frames: List[Dict[str, Any]],
                           track_length: float | None = None) -> List[Issue]:
     issues: List[Issue] = []
     if not frames:
         return issues
-    # Sample a few frames to keep the check fast.
     sample_idx = {0, len(frames) // 2, len(frames) - 1}
     for i in sorted(sample_idx):
         f = frames[i]
         for code, d in (f.get("drivers") or {}).items():
+            if not isinstance(d, dict):
+                continue
             speed = d.get("speed")
             thr = d.get("throttle")
             brk = d.get("brake")
-            # NaN values are missing telemetry (gaps / pre / post / dnf)
-            # and are not "out of range" — they are absent.
             if isinstance(speed, (int, float)) and not math.isnan(speed) and speed < 0:
                 issues.append((
                     "error",
@@ -389,12 +379,6 @@ def check_telemetry_units(frames: List[Dict[str, Any]],
                     "INV-15.gear_non_integer",
                     f"frame {i} driver {code} gear={gear} non-integer",
                 ))
-            if track_length and isinstance(d.get("dist"), (int, float)):
-                if d["dist"] < -1.0 or d["dist"] > track_length * (1 + 1e-3) + 1.0:
-                    # Within-lap distance should not exceed track length + epsilon.
-                    # Cumulative race distance naturally exceeds this, so we do
-                    # not flag here; we only flag within-lap rel_dist.
-                    pass
             rel = d.get("rel_dist")
             if isinstance(rel, (int, float)) and not math.isnan(rel) \
                     and not (0.0 - EPS <= rel <= 1.0 + EPS):

@@ -337,6 +337,7 @@ class RaceSelectionWindow(QMainWindow):
         header_label.setObjectName("headerLabel")
         font = header_label.font()
         settings_btn = QPushButton("⚙ Settings")
+        settings_btn.setAccessibleName("Settings")
         settings_btn.setObjectName("settingsBtn")
         settings_btn.setCursor(Qt.PointingHandCursor)
         settings_btn.setFixedHeight(34)
@@ -372,7 +373,10 @@ class RaceSelectionWindow(QMainWindow):
         place_label=QLabel("Select Race:")
         self.place_combo=QComboBox()
         self.place_combo.addItem("All Races")
-        self.place_combo.addItems(get_all_unique_race_names())
+        try:
+            self.place_combo.addItems(get_all_unique_race_names())
+        except Exception:
+            pass
         self.place_combo.currentTextChanged.connect(self.load_by_place)
 
 
@@ -536,9 +540,13 @@ class RaceSelectionWindow(QMainWindow):
         available_sessions = []
         for s in sessions:
             session_date_str = session_dates.get(s)
+            if not session_date_str and s == "Sprint Qualifying":
+                session_date_str = session_dates.get("Sprint Shootout")
             if session_date_str:
                 try:
-                    session_dt = datetime.fromisoformat(session_date_str)
+                    session_dt = datetime.fromisoformat(str(session_date_str))
+                    if session_dt.tzinfo is None:
+                        session_dt = session_dt.replace(tzinfo=timezone.utc)
                     if session_dt <= now:
                         available_sessions.append(s)
                 except Exception:
@@ -555,6 +563,7 @@ class RaceSelectionWindow(QMainWindow):
             for s in sessions:
                 if s in available_sessions:
                     btn = QPushButton(s)
+                    btn.setAccessibleName(s)
                     btn.setObjectName("sessionBtn")
                     btn.setCursor(Qt.PointingHandCursor)
                     btn.clicked.connect(
@@ -598,6 +607,8 @@ class RaceSelectionWindow(QMainWindow):
             cmd += ["--round", str(round_no)]
         if flag:
             cmd.append(flag)
+        if "--refresh-data" in sys.argv:
+            cmd.append("--refresh-data")
         if "--verbose" in sys.argv:
             cmd.append("--verbose")
         # Show a modal loading dialog and load the session in a background thread.

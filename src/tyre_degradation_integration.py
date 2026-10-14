@@ -1,3 +1,4 @@
+import math
 import pandas as pd
 from typing import Optional, Dict, Any
 from src.bayesian_tyre_model import BayesianTyreDegradationModel
@@ -232,7 +233,10 @@ def _wrap_with_availability(health: Optional[Dict]) -> Optional[Dict]:
 
 def format_tyre_health_bar(health: int, width: int = 100, height: int = 12) -> Dict:
     """Format health bar visualization data."""
-    health = max(0, min(100, health))
+    if health is None or not isinstance(health, (int, float)) or math.isnan(health):
+        health = 0
+    else:
+        health = max(0, min(100, int(round(health))))
     fill_width = (health / 100.0) * width
     
     if health >= 75:

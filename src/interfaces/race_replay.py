@@ -82,7 +82,11 @@ class F1RaceReplayWindow(arcade.Window):
                  race_control_messages=None):
         # Set resizable to True so the user can adjust mid-sim
         super().__init__(SCREEN_WIDTH, SCREEN_HEIGHT, title, resizable=True, antialiasing=True, samples=4)
-        self.maximize()
+        if hasattr(self, "maximize"):
+            try:
+                self.maximize()
+            except Exception:
+                pass
 
         # TASK 4: live streaming uses the new transport. The
         # server owns its own broker and dispatch thread; a
@@ -144,7 +148,7 @@ class F1RaceReplayWindow(arcade.Window):
         self._clock = ReplayClock(total_seconds=_total_replay_s,
                                     fps=FPS,
                                     initial_speed=self.playback_speed)
-        self.frame_index = 0.0  # mirror of clock.frame_index (legacy)
+        self._frame_index = 0.0  # mirror of clock.frame_index (legacy)
         self.paused = False
         self.total_laps = total_laps
         self.has_weather = any("weather" in frame for frame in frames) if frames else False
@@ -319,6 +323,18 @@ class F1RaceReplayWindow(arcade.Window):
         # Broadcast initial telemetry state
         self._broadcast_telemetry_state()
 
+    @property
+    def frame_index(self) -> float:
+        return getattr(self, "_frame_index", 0.0)
+
+    @frame_index.setter
+    def frame_index(self, value: float):
+        self._frame_index = float(value)
+        if hasattr(self, "_clock") and self._clock is not None:
+            max_idx = max(0, getattr(self, "n_frames", 1) - 1)
+            clamped_f = max(0.0, min(float(value), float(max_idx)))
+            self._clock.seek(clamped_f * self._clock.dt)
+
     def _broadcast_telemetry_state(self):
         """Broadcast current telemetry state to connected clients.
 
@@ -360,7 +376,7 @@ class F1RaceReplayWindow(arcade.Window):
                         progress_m = float((max(lap, 1) - 1) * self._ref_total_length + projected_m)
                         driver_progress[code] = progress_m
                         if self._ref_total_length > 0:
-                            pos["fraction"] = progress_m / self._ref_total_length
+                            pos["fraction"] = (projected_m / self._ref_total_length) % 1.0
                         else:
                             pos["fraction"] = 0.0
 
@@ -659,6 +675,8 @@ class F1RaceReplayWindow(arcade.Window):
                                 if matched_stream_row is None:
                                     ref_idx = (drv_stream_rows["Time"] - first_time).abs().idxmin()
                                     matched_stream_row = drv_stream_rows.loc[ref_idx]
+                                if isinstance(matched_stream_row, pd.DataFrame):
+                                    matched_stream_row = matched_stream_row.iloc[0]
                                 matched_position = matched_stream_row.get("Position")
 
                                 interval_chain_reliable = False
@@ -1018,10 +1036,14 @@ class F1RaceReplayWindow(arcade.Window):
                         current = []
                     prev = entry
                     continue
+                prev_lap = prev.get("lap") if prev else None
+                entry_lap = entry.get("lap")
                 new_stint = (
                     not current
                     or prev is None
-                    or entry.get("lap") != prev.get("lap", 0) + 1
+                    or prev_lap is None
+                    or entry_lap is None
+                    or entry_lap != prev_lap + 1
                     or entry.get("tyre") != prev.get("tyre")
                     or entry.get("is_out_lap")
                     or prev.get("is_pit_entry")
@@ -1037,12 +1059,13 @@ class F1RaceReplayWindow(arcade.Window):
                 yield current
 
         for entries in result.values():
-            entries.sort(key=lambda item: item.get("lap", 0))
+            entries.sort(key=lambda item: (item.get("lap") if item.get("lap") is not None else -1))
             for stint in _iter_stints(entries):
                 known = [
                     (int(entry["lap"]), int(entry["tyre_life"]))
                     for entry in stint
-                    if isinstance(entry.get("tyre_life"), (int, float))
+                    if entry.get("lap") is not None
+                    and isinstance(entry.get("tyre_life"), (int, float))
                     and int(entry.get("tyre_life", 0)) > 0
                 ]
                 if known:
@@ -1065,7 +1088,7 @@ class F1RaceReplayWindow(arcade.Window):
                                 and int(entry.get("tyre_life", 0)) > 0:
                             continue
                         # Skip inference for ``None`` (unknown)
-                        if entry.get("tyre_life") is None:
+                        if entry.get("tyre_life") is None or entry.get("lap") is None:
                             continue
                         inferred = anchor_life + (int(entry["lap"]) - anchor_lap)
                         if inferred > 0:
@@ -1073,7 +1096,7 @@ class F1RaceReplayWindow(arcade.Window):
                     continue
 
                 first_entry = stint[0]
-                if first_entry.get("is_out_lap") or int(first_entry.get("lap", 0)) == 1:
+                if first_entry.get("is_out_lap") or first_entry.get("lap") == 1:
                     for idx, entry in enumerate(stint, start=1):
                         # TASK 4 follow-up: ``tyre_life`` may
                         # be ``None`` for entries where the
@@ -1124,7 +1147,7 @@ class F1RaceReplayWindow(arcade.Window):
 
                 if lap > prev_lap:
                     lap_time = t - lap_start_t.get(code, t)
-                    tyre = int(round(drv.get("tyre", 0)))
+                    tyre = safe_int(drv.get("tyre")) or 0
                     # TASK 4 follow-up: ``tyre_life`` may be
                     # ``None`` for frames where the driver is in
                     # the PRE/POST/DNS region or where the
@@ -1555,8 +1578,8 @@ class F1RaceReplayWindow(arcade.Window):
                 # Extract the outer track points for this DRS zone segment
                 drs_outer_points = []
                 for i in range(start_idx, min(end_idx + 1, len(self.x_outer))):
-                    x = self.x_outer.iloc[i]
-                    y = self.y_outer.iloc[i]
+                    x = self.x_outer.iloc[i] if hasattr(self.x_outer, "iloc") else self.x_outer[i]
+                    y = self.y_outer.iloc[i] if hasattr(self.y_outer, "iloc") else self.y_outer[i]
                     sx, sy = self.world_to_screen(x, y)
                     drs_outer_points.append((sx, sy))
                 
@@ -1633,6 +1656,29 @@ class F1RaceReplayWindow(arcade.Window):
         sc_x = sc_data.get("x") if isinstance(sc_data, dict) else None
         sc_y = sc_data.get("y") if isinstance(sc_data, dict) else None
         sc_source = sc_data.get("source") if isinstance(sc_data, dict) else None
+        if (isinstance(sc_data, dict)
+                and sc_source not in (None, "none")
+                and (sc_x is None or sc_y is None)
+                and getattr(self, "_ref_total_length", 0.0) > 0
+                and len(getattr(self, "_ref_cumdist", [])) > 1):
+            target_m = None
+            sc_leader = sc_data.get("leader_code")
+            offset_m = float(sc_data.get("offset_m", 150.0) or 150.0)
+            if sc_leader and sc_leader in frame.get("drivers", {}):
+                l_pos = frame["drivers"][sc_leader]
+                lx, ly = l_pos.get("x"), l_pos.get("y")
+                if _is_finite_coord(lx, ly):
+                    l_proj = self._project_to_reference(lx, ly)
+                    if l_proj is not None:
+                        target_m = (l_proj + offset_m) % self._ref_total_length
+            if target_m is None and sc_data.get("dist") is not None:
+                try:
+                    target_m = float(sc_data["dist"]) % self._ref_total_length
+                except (TypeError, ValueError):
+                    target_m = None
+            if target_m is not None and math.isfinite(target_m):
+                sc_x = float(np.interp(target_m, self._ref_cumdist, self._ref_xs))
+                sc_y = float(np.interp(target_m, self._ref_cumdist, self._ref_ys))
         if (sc_data is not None
                 and sc_source != "none"
                 and sc_x is not None and sc_y is not None
@@ -1802,7 +1848,17 @@ class F1RaceReplayWindow(arcade.Window):
                 fallback_progress = 0.0
             progress_m = driver_progress.get(code, fallback_progress)
             driver_list.append((code, color, pos, progress_m))
-        driver_list.sort(key=lambda x: x[3], reverse=True)
+        def _lb_sort_key(item):
+            _code, _col, _pos, _prog = item
+            is_retired = (
+                _pos.get("active") is False
+                or _pos.get("validity") in ("dnf", "post", "dns")
+                or _pos.get("rel_dist") == 1
+            )
+            in_pit = bool(_pos.get("in_pit", False))
+            safe_prog = _prog if (isinstance(_prog, (int, float)) and math.isfinite(_prog)) else 0.0
+            return (1 if is_retired else 0, 1 if in_pit else 0, -safe_prog, _code)
+        driver_list.sort(key=_lb_sort_key)
 
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
@@ -1838,9 +1894,11 @@ class F1RaceReplayWindow(arcade.Window):
         if self.is_rewinding:
             self.frame_index = max(0.0, self.frame_index - delta_time * FPS * seek_speed)
             self.race_controls_comp.flash_button('rewind')
+            self._broadcast_telemetry_state()
         elif self.is_forwarding:
             self.frame_index = min(self.n_frames - 1, self.frame_index + delta_time * FPS * seek_speed)
             self.race_controls_comp.flash_button('forward')
+            self._broadcast_telemetry_state()
 
         if self.paused:
             return
@@ -1853,9 +1911,10 @@ class F1RaceReplayWindow(arcade.Window):
         self._clock.set_speed(self.playback_speed)
         self._clock.tick(delta_time)
         # Clamp to the last valid frame and mirror.
-        if self._clock.frame_index > self.n_frames - 1:
-            self._clock.seek_frame(self.n_frames - 1)
-        self.frame_index = float(self._clock.frame_index)
+        if self._clock.frame_index >= self.n_frames - 1 or self._clock.at_end:
+            self._clock.seek_frame(max(0, self.n_frames - 1))
+            self.paused = True
+        self._frame_index = float(self._clock.frame_index)
 
         # Broadcast telemetry state during playback
         self._broadcast_telemetry_state()
@@ -1912,6 +1971,9 @@ class F1RaceReplayWindow(arcade.Window):
             self._broadcast_telemetry_state()
             self.race_controls_comp.flash_button('speed_increase')
         elif symbol == arcade.key.R:
+            if hasattr(self, "_clock") and self._clock is not None:
+                self._clock.restart()
+                self._clock.set_speed(1.0)
             self.frame_index = 0.0
             self.playback_speed = 1.0
             self._broadcast_telemetry_state()

@@ -209,16 +209,18 @@ class TelemetryStreamViewer(QMainWindow):
         drivers_info = []
         
         for code, driver_data in drivers_data.items():
+            if not isinstance(driver_data, dict):
+                continue
             self.drivers_seen.add(code)
             
             line = f"{code}: "
-            if 'x' in driver_data and 'y' in driver_data:
+            if driver_data.get('x') is not None and driver_data.get('y') is not None:
                 line += f"Pos({driver_data['x']:.1f}, {driver_data['y']:.1f}) "
-            if 'speed' in driver_data:
+            if driver_data.get('speed') is not None:
                 line += f"Speed({driver_data['speed']:.1f}km/h) "
-            if 'lap' in driver_data:
+            if driver_data.get('lap') is not None:
                 line += f"Lap({driver_data['lap']}) "
-            if 'dist' in driver_data:
+            if driver_data.get('dist') is not None:
                 line += f"Dist({driver_data['dist']:.1f}m)"
                 
             drivers_info.append(line)

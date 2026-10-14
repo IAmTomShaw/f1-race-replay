@@ -1405,3 +1405,501 @@ def test_wrap_with_availability_robustness():
     assert is_placeholder(None, True) is True
     legacy = wrap_legacy(None, False)
     assert legacy.available is False
+
+
+# ==========================================================================
+#  SECTION 20 — BUG FIX REGRESSIONS
+# ==========================================================================
+import subprocess
+import sys
+
+
+def test_cli_diagnostics_subcommand():
+    from src.cli.args import parse_args
+    ns1 = parse_args(["diagnostics"])
+    assert ns1._cmd == "diagnostics"
+    assert ns1.diagnostics is True
+
+    ns2 = parse_args(["--diagnostics"])
+    assert ns2._cmd == "diagnostics"
+    assert ns2.diagnostics is True
+
+    ns3 = parse_args(["replay"])
+    assert ns3._cmd == "replay"
+    assert ns3.diagnostics is False
+
+    ns4 = parse_args([])
+    assert ns4._cmd == "replay"
+    assert ns4.diagnostics is False
+
+
+def test_diagnostics_module_direct_execution():
+    res = subprocess.run(
+        [sys.executable, "-m", "src.tools.diagnostics"],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0
+    assert "F1 Race Replay diagnostics" in res.stdout
+
+
+def test_main_diagnostics_subcommand_execution():
+    res = subprocess.run(
+        [sys.executable, "main.py", "diagnostics"],
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0
+    assert "F1 Race Replay diagnostics" in res.stdout
+
+
+def test_qualifying_replay_validation_traversal():
+    from src.interfaces.qualifying import run_qualifying_replay
+    # Canonical driver-keyed schema with non-monotonic frames: must raise RuntimeError
+    bad_data = {
+        "telemetry": {
+            "VER": {
+                "Q3": {
+                    "frames": [{"t": 10.0, "x": 0, "y": 0}, {"t": 5.0, "x": 0, "y": 0}]
+                }
+            }
+        }
+    }
+    with pytest.raises(RuntimeError, match="qualifying replay aborted"):
+        run_qualifying_replay(session=None, data=bad_data)
+
+    # Inverted segment-keyed schema with non-monotonic frames: must raise RuntimeError
+    bad_seg_data = {
+        "telemetry": {
+            "Q3": {
+                "VER": {
+                    "frames": [{"t": 10.0, "x": 0, "y": 0}, {"t": 5.0, "x": 0, "y": 0}]
+                }
+            }
+        }
+    }
+    with pytest.raises(RuntimeError, match="qualifying replay aborted"):
+        run_qualifying_replay(session=None, data=bad_seg_data)
+
+
+def test_qualifying_track_layout_fallback():
+    from src.ui_components import build_track_from_example_lap
+    # 1. Fallback when example_lap is None
+    geom_none = build_track_from_example_lap(None)
+    assert len(geom_none) == 11
+    assert len(geom_none[0]) > 0  # plot_x_ref exists
+
+    # 2. Track building from dictionary of numpy arrays
+    t = np.linspace(0, 2 * np.pi, 50)
+    lap_dict = {
+        "X": np.asarray(1000.0 * np.cos(t)),
+        "Y": np.asarray(1000.0 * np.sin(t)),
+        "DRS": np.zeros(50, dtype=int),
+    }
+    geom_dict = build_track_from_example_lap(lap_dict)
+    assert len(geom_dict) == 11
+
+
+def test_format_wind_direction_nan_and_inf():
+    from src.ui_components import _format_wind_direction
+    assert _format_wind_direction(None) == "N/A"
+    assert _format_wind_direction(float("nan")) == "N/A"
+    assert _format_wind_direction(float("inf")) == "N/A"
+    assert _format_wind_direction(float("-inf")) == "N/A"
+    assert _format_wind_direction(0.0) == "N"
+    assert _format_wind_direction(180.0) == "S"
+    assert _format_wind_direction(90.0) == "E"
+
+
+def test_track_position_max_lap_none_handling():
+    drivers = {
+        "VER": {"lap": None, "dist": 100.0},
+        "HAM": {"lap": 5, "dist": 200.0},
+        "NOR": {"lap": None, "dist": 50.0},
+    }
+    max_lap = max(
+        (d.get("lap") for d in drivers.values()
+         if isinstance(d, dict) and d.get("lap") is not None and isinstance(d.get("lap"), (int, float))),
+        default=0
+    )
+    assert max_lap == 5
+
+    all_none_drivers = {
+        "VER": {"lap": None},
+        "HAM": {"lap": None},
+    }
+    max_lap_none = max(
+        (d.get("lap") for d in all_none_drivers.values()
+         if isinstance(d, dict) and d.get("lap") is not None and isinstance(d.get("lap"), (int, float))),
+        default=0
+    )
+    assert max_lap_none == 0
+
+
+def test_pit_wall_and_telemetry_stream_viewer_none_formatting():
+    driver_info = {"speed": None, "dist": None, "lap": None}
+    line_parts = ["VER:"]
+    if driver_info.get("lap") is not None:
+        line_parts.append(f"Lap {driver_info['lap']}")
+    if driver_info.get("speed") is not None:
+        line_parts.append(f"{driver_info['speed']:.0f} km/h")
+    if driver_info.get("dist") is not None:
+        line_parts.append(f"{driver_info['dist']:.0f}m")
+    assert line_parts == ["VER:"]
+
+    driver_data = {"x": None, "y": None, "speed": None, "lap": None, "dist": None}
+    line = "VER: "
+    if driver_data.get("x") is not None and driver_data.get("y") is not None:
+        line += f"Pos({driver_data['x']:.1f}, {driver_data['y']:.1f}) "
+    if driver_data.get("speed") is not None:
+        line += f"Speed({driver_data['speed']:.1f}km/h) "
+    if driver_data.get("lap") is not None:
+        line += f"Lap({driver_data['lap']}) "
+    if driver_data.get("dist") is not None:
+        line += f"Dist({driver_data['dist']:.1f}m)"
+    assert line == "VER: "
+
+
+def test_race_replay_fallback_tyre_and_stint_sorting_with_none():
+    from src.interfaces.race_replay import F1RaceReplayWindow
+    frames = [
+        {"t": 0.0, "drivers": {"VER": {"lap": 1, "tyre": None, "tyre_life": None}}},
+        {"t": 80.0, "drivers": {"VER": {"lap": 2, "tyre": None, "tyre_life": None}}},
+        {"t": 160.0, "drivers": {"VER": {"lap": 3, "tyre": None, "tyre_life": None}}},
+    ]
+    result = F1RaceReplayWindow._compute_fallback_lap_times_raw(frames, min_lap_time_s=10.0, max_lap_time_s=120.0)
+    assert "VER" in result
+    assert len(result["VER"]) == 1
+    assert result["VER"][0]["lap"] == 2
+    assert result["VER"][0]["tyre"] == 0
+    assert result["VER"][0]["tyre_life"] is None
+
+    lap_result = {
+        "VER": [
+            {"lap": None, "tyre_life": None, "is_out_lap": False, "tyre": 1},
+            {"lap": 2, "tyre_life": 5, "is_out_lap": False, "tyre": 1},
+            {"lap": 1, "tyre_life": None, "is_out_lap": False, "tyre": 1},
+        ]
+    }
+    F1RaceReplayWindow._fill_missing_official_tyre_life(lap_result)
+    laps = [e.get("lap") for e in lap_result["VER"]]
+    assert laps == [None, 1, 2]
+
+
+def test_lap_time_chart_checks_with_none():
+    code = (
+        "try:\n    import PySide6\nexcept ImportError:\n    from tests.conftest import install_full_gui_stubs; install_full_gui_stubs()\nfrom src.insights.lap_time_chart_window import ("
+        "    _entry_is_pit_affected, _entry_is_outlier, _is_clean_timed_entry\n"
+        "); "
+        "entry = {'time_s': None, 'lap': None}; "
+        "assert not _entry_is_pit_affected(entry, 100.0); "
+        "assert not _entry_is_outlier(entry, 100.0); "
+        "assert not _is_clean_timed_entry(entry, 100.0, set()); "
+        "print('OK')"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, f"Error: {res.stderr}"
+    assert "OK" in res.stdout
+
+
+def test_lap_time_chart_visible_signature_and_cutoff_with_none():
+    code = (
+        "try:\n    import PySide6\nexcept ImportError:\n    from tests.conftest import install_full_gui_stubs; install_full_gui_stubs()\nfrom src.insights.lap_time_chart_window import LapTimeChartWindow\n"
+        "w = LapTimeChartWindow.__new__(LapTimeChartWindow)\n"
+        "w._lap_times = {'VER': [{'lap': None, 'is_terminal_lap': False, 'time_s': 90.0}]}\n"
+        "w._is_normal_entry_visible = lambda e: True\n"
+        "w._is_terminal_entry_visible = lambda e, **kw: False\n"
+        "sig = w._visible_entry_signature()\n"
+        "assert sig == (('VER', -1, 'lap'),)\n"
+        "print('OK')"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, f"Error: {res.stderr}"
+    assert "OK" in res.stdout
+
+
+def test_tyre_strategy_frame_lap_none():
+    code = (
+        "try:\n    import PySide6\nexcept ImportError:\n    from tests.conftest import install_full_gui_stubs; install_full_gui_stubs()\nfrom src.insights.tyre_strategy_window import TyreStrategyWindow\n"
+        "w = TyreStrategyWindow.__new__(TyreStrategyWindow)\n"
+        "w.current_lap = 5\n"
+        "w.total_laps = 50\n"
+        "w.stints = {}\n"
+        "w.prev_tyres = {}\n"
+        "w.positions = {}\n"
+        "w.on_telemetry_data({'frame': {'lap': None, 'drivers': {}}})\n"
+        "assert w.current_lap == 5\n"
+        "print('OK')"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, f"Error: {res.stderr}"
+    assert "OK" in res.stdout
+
+
+def test_extract_race_events_dnf_detection():
+    from src.ui_components import extract_race_events, RaceProgressBarComponent
+    frames = [
+        {"drivers": {"HAM": {"active": True, "lap": 1}, "VER": {"active": True, "lap": 1}}},
+    ] + [{"drivers": {"HAM": {"active": True, "lap": 1}, "VER": {"active": True, "lap": 1}}}] * 24 + [
+        {"drivers": {"HAM": {"active": False, "lap": 1}, "VER": {"active": True, "lap": 2}}}
+    ]
+    events = extract_race_events(frames, track_statuses=[], total_laps=50)
+    dnf_events = [e for e in events if e.get("type") == RaceProgressBarComponent.EVENT_DNF]
+    assert len(dnf_events) == 1
+    assert dnf_events[0]["label"] == "HAM"
+
+
+def test_format_tyre_health_bar_robustness():
+    from src.tyre_degradation_integration import format_tyre_health_bar
+    import math
+
+    res_none = format_tyre_health_bar(None)
+    assert res_none["health"] == 0
+    assert res_none["fill_width"] == 0
+
+    res_nan = format_tyre_health_bar(float("nan"))
+    assert res_nan["health"] == 0
+    assert res_nan["fill_width"] == 0
+
+    res_valid = format_tyre_health_bar(80)
+    assert res_valid["health"] == 80
+    assert res_valid["fill_width"] == 80.0
+
+    res_clamp = format_tyre_health_bar(150)
+    assert res_clamp["health"] == 100
+
+
+def test_race_control_feed_format_time_robustness():
+    code = (
+        "try:\n    import PySide6\nexcept ImportError:\n    from tests.conftest import install_full_gui_stubs; install_full_gui_stubs()\nfrom src.insights.race_control_feed_window import _format_time\n"
+        "assert _format_time(None) == '00:00:00'\n"
+        "assert _format_time(float('nan')) == '00:00:00'\n"
+        "assert _format_time(-10) == '00:00:00'\n"
+        "assert _format_time(3665) == '01:01:05'\n"
+        "print('OK')"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, f"Error: {res.stderr}"
+    assert "OK" in res.stdout
+
+
+def test_driver_telemetry_brake_scaling_and_lap_length():
+    code = (
+        "try:\n    import PySide6\nexcept ImportError:\n    from tests.conftest import install_full_gui_stubs; install_full_gui_stubs()\nfrom src.insights.driver_telemetry_window import DriverTelemetryWindow\n"
+        "w = DriverTelemetryWindow.__new__(DriverTelemetryWindow)\n"
+        "w._time_buffers = {}\n"
+        "w._lap_buffers = {}\n"
+        "w._lap_lengths = {}\n"
+        "w._circuit_length_m = None\n"
+        "# 1. Fraction brake (0.75 -> 75%)\n"
+        "w._append_sample('VER', {'brake': 0.75, 'speed': 200, 'gear': 6, 'throttle': 0.0, 'dist': 100}, 1.0)\n"
+        "assert w._time_buffers['VER'][-1]['brake'] == 75.0\n"
+        "# 2. Canonical percent brake (100 -> 100%, not 10000%)\n"
+        "w._append_sample('VER', {'brake': 100.0, 'speed': 100, 'gear': 3, 'throttle': 0.0, 'dist': 200}, 2.0)\n"
+        "assert w._time_buffers['VER'][-1]['brake'] == 100.0\n"
+        "# 3. None / invalid brake\n"
+        "w._append_sample('VER', {'brake': None}, 3.0)\n"
+        "assert w._time_buffers['VER'][-1]['brake'] == 0.0\n"
+        "print('OK')"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, f"Error: {res.stderr}"
+    assert "OK" in res.stdout
+
+
+def test_track_position_window_non_dict_driver():
+    code = (
+        "try:\n    import PySide6\nexcept ImportError:\n    from tests.conftest import install_full_gui_stubs; install_full_gui_stubs()\nfrom src.insights.track_position_window import TrackPositionWindow\n"
+        "w = TrackPositionWindow.__new__(TrackPositionWindow)\n"
+        "w._circuit_length_m = 5000.0\n"
+        "w._geometry_received = False\n"
+        "w._driver_colors = {}\n"
+        "w._color_idx = 0\n"
+        "class DummyMap:\n"
+        "    def update_positions(self, pos, cols, leader, length):\n"
+        "        assert 'VER' in pos\n"
+        "        assert 'HAM' not in pos\n"
+        "        assert leader == 'VER'\n"
+        "w._map = DummyMap()\n"
+        "w._lap_label = type('Dummy', (), {'setText': lambda s, t: None})()\n"
+        "data = {'frame': {'drivers': {'HAM': None, 'VER': {'dist': 2500.0, 'position': 1, 'lap': 2}}}}\n"
+        "w.on_telemetry_data(data)\n"
+        "print('OK')"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, f"Error: {res.stderr}"
+    assert "OK" in res.stdout
+
+
+def test_draw_finish_line_sprint_and_qualifying():
+    from src.ui_components import draw_finish_line
+
+    class DummyReplay:
+        def __init__(self):
+            self.screen_inner_points = [(10, 10)]
+            self.screen_outer_points = [(20, 20)]
+            self.inner_pts = [(15, 15)]
+            self.outer_pts = [(25, 25)]
+
+    dummy = DummyReplay()
+    # Shouldn't raise any exceptions or fail on S and SQ
+    draw_finish_line(dummy, session_type="S")
+    draw_finish_line(dummy, session_type="SQ")
+    draw_finish_line(dummy, session_type="R")
+    draw_finish_line(dummy, session_type="Q")
+
+
+def test_race_replay_frame_index_clock_seek():
+    from src.interfaces.race_replay import F1RaceReplayWindow
+    from src.replay.clock import ReplayClock
+
+    window = F1RaceReplayWindow.__new__(F1RaceReplayWindow)
+    window._clock = ReplayClock(total_seconds=100.0, fps=25)
+    window.n_frames = 2500
+    window._frame_index = 0.0
+
+    # Test setting frame_index property
+    window.frame_index = 100.0
+    assert window.frame_index == 100.0
+    assert window._clock.frame_index == 100
+
+    # Test clamping
+    window.frame_index = 5000.0
+    assert window._clock.frame_index == 2499
+
+
+
+
+# ==========================================================================
+#  SECTION 21 — COMPREHENSIVE MULTI-DOMAIN BUG FIX REGRESSIONS
+# ==========================================================================
+
+def test_format_time_millisecond_rollover_and_nan():
+    assert format_time(59.9999) == "01:00.000"
+    assert format_time(119.9996) == "02:00.000"
+    assert format_time(float("nan")) == "N/A"
+    assert format_time(float("inf")) == "N/A"
+
+
+def test_cache_key_sanitizes_windows_reserved_chars():
+    k = CacheKey(
+        event_name='Emilia Romagna: "Imola" / Sprint*?',
+        session_type="S",
+        year=2025,
+        round_number=7,
+        suffix="sprint",
+    )
+    fname = k.to_filename()
+    for ch in '<>:"/\\|?* ':
+        assert ch not in fname
+
+
+def test_leaderboard_ranking_zero_track_length_fallback():
+    frame = {
+        "drivers": {
+            "VER": {"lap": 10, "dist": 4500.0, "active": True, "in_pit": False},
+            "ALB": {"lap": 10, "dist": 1200.0, "active": True, "in_pit": False},
+            "NOR": {"lap": 9, "dist": 4900.0, "active": True, "in_pit": False},
+        }
+    }
+    from src.analytics.leaderboard import rank_frame
+    ranked = rank_frame(frame, track_length=0.0)
+    assert [e.code for e in ranked.entries] == ["VER", "ALB", "NOR"]
+    assert [e.position for e in ranked.entries] == [1, 2, 3]
+
+
+def test_bayesian_tyre_model_fitted_pace_and_health():
+    code = (
+        "import pandas as pd\n"
+        "from src.bayesian_tyre_model import BayesianTyreDegradationModel\n"
+        "from src.tyre_degradation_integration import _wrap_with_availability\n"
+        "df = pd.DataFrame([\n"
+        "    {'Driver': 'VER', 'LapNumber': i, 'Stint': 1, 'Compound': 'MEDIUM',\n"
+        "     'LapTime': pd.to_timedelta(92.0 + 0.08 * i, unit='s'), 'TyreLife': i}\n"
+        "    for i in range(1, 10)\n"
+        "])\n"
+        "model = BayesianTyreDegradationModel()\n"
+        "model.fit(df)\n"
+        "pred_time, std_dev, info = model.predict_next_lap('VER', 9, df)\n"
+        "assert 88.0 <= info['baseline_pace'] <= 96.0\n"
+        "assert pred_time >= info['baseline_pace']\n"
+        "health = model.get_health('VER', 9, df)\n"
+        "assert health is not None and health['baseline_pace'] > 85.0\n"
+        "wrapped = _wrap_with_availability(dict(health))\n"
+        "assert wrapped['available'] is True\n"
+        "print('OK')\n"
+    )
+    res = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert res.returncode == 0, f"Error: {res.stderr}"
+    assert "OK" in res.stdout
+
+
+def test_stream_client_v2_utf8_split_across_chunks():
+    client = TelemetryStreamClientV2()
+    client.connected = True
+    client.running = True
+    payloads = []
+    client.envelope_received = types.SimpleNamespace(emit=lambda e: None)
+    client.data_received = types.SimpleNamespace(emit=payloads.append)
+
+    msg = {"event": "São Paulo Grand Prix — Pérez 🏎️"}
+    raw_bytes = (json.dumps(msg, ensure_ascii=False) + "\n").encode("utf-8")
+
+    # Split every 3 bytes so multi-byte UTF-8 sequences are split across recv() calls
+    class _SmallChunkSocket:
+        def __init__(self, data: bytes):
+            self._data = data
+            self._pos = 0
+        def recv(self, _bufsize: int) -> bytes:
+            if self._pos >= len(self._data):
+                return b""
+            chunk = self._data[self._pos:self._pos + 3]
+            self._pos += len(chunk)
+            return chunk
+        def close(self): pass
+
+    client.socket = _SmallChunkSocket(raw_bytes)
+    client._receive_data()
+    assert len(payloads) == 1
+    assert payloads[0]["event"] == "São Paulo Grand Prix — Pérez 🏎️"
+
+
+def test_simulated_sc_polyline_derivation_and_broadcast_fraction():
+    from src.interfaces.race_replay import F1RaceReplayWindow
+    window = F1RaceReplayWindow.__new__(F1RaceReplayWindow)
+    window._ref_cumdist = np.array([0.0, 1000.0, 2000.0, 3000.0, 4000.0])
+    window._ref_xs = np.array([0.0, 1000.0, 1000.0, 0.0, 0.0])
+    window._ref_ys = np.array([0.0, 0.0, 1000.0, 1000.0, 0.0])
+    window._ref_total_length = 4000.0
+    window._project_to_reference = lambda x, y: 3900.0
+    window._broker = MagicMock()
+    window.frames = [{
+        "t": 100.0,
+        "drivers": {
+            "VER": {"x": 10.0, "y": 20.0, "lap": 5, "dist": 19900.0},
+        },
+    }]
+    window._frame_index = 0.0
+    window.n_frames = 1
+    window.track_statuses = []
+    window.race_control_messages = []
+    window.driver_colors = {"VER": (0, 0, 255)}
+    window.playback_speed = 1.0
+    window.paused = True
+    window.circuit_length_m = 4000.0
+    window.total_laps = 50
+    window._precomputed_lap_times = {}
+    window._precomputed_status_laps = []
+
+    window._broadcast_telemetry_state()
+    frac = window.frames[0]["drivers"]["VER"]["fraction"]
+    assert 0.0 <= frac < 1.0
+    assert abs(frac - (3900.0 / 4000.0)) < 1e-6
+
+
+def test_a11y_audit_zero_warnings():
+    from src.lib.resource_paths import project_root
+    from src.tools.a11y_audit import scan
+    findings = scan(project_root())
+    warnings_and_errors = [f for f in findings if f.severity in ("warning", "error")]
+    assert warnings_and_errors == [], f"Unexpected a11y findings: {warnings_and_errors}"

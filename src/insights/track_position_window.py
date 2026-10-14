@@ -552,11 +552,13 @@ class TrackPositionWindow(PitWallWindow):
         self._btn_style_inactive = _btn_inactive
 
         self._btn_real = QPushButton("Real Track")
+        self._btn_real.setAccessibleName("Real Track View")
         self._btn_real.setFixedHeight(24)
         self._btn_real.setStyleSheet(_btn_inactive)
         self._btn_real.clicked.connect(lambda: self._set_view_mode("real"))
 
         self._btn_schematic = QPushButton("Circular")
+        self._btn_schematic.setAccessibleName("Circular View")
         self._btn_schematic.setFixedHeight(24)
         self._btn_schematic.setStyleSheet(_btn_active) # default active
         self._btn_schematic.clicked.connect(lambda: self._set_view_mode("schematic"))
@@ -602,7 +604,7 @@ class TrackPositionWindow(PitWallWindow):
             self._driver_colors.update(data["driver_colors"])
 
         # Ingest track geometry once
-        if not self._geometry_received and "track_geometry" in data:
+        if not getattr(self, "_geometry_received", False) and "track_geometry" in data:
             geo = data["track_geometry"]
             x_center = geo.get("x", [])
             y_center = geo.get("y", [])
@@ -625,30 +627,38 @@ class TrackPositionWindow(PitWallWindow):
             return
 
         drivers = frame["drivers"]
-        max_lap = max((d.get("lap", 0) for d in drivers.values()), default=0)
+        max_lap = max(
+            (d.get("lap") for d in drivers.values()
+             if isinstance(d, dict) and d.get("lap") is not None and isinstance(d.get("lap"), (int, float))),
+            default=0
+        )
         if max_lap:
-            self._lap_label.setText(f"Lap: {max_lap}")
+            self._lap_label.setText(f"Lap: {int(max_lap)}")
 
         if not self._circuit_length_m:
             return
 
         positions: dict[str, float] = {}
         for code, info in drivers.items():
+            if not isinstance(info, dict):
+                continue
             self._ensure_color(code)
             frac = info.get("fraction")
             if frac is not None and isinstance(frac, (int, float)) and math.isfinite(frac):
-                positions[code] = float(frac)
+                positions[code] = float(frac) % 1.0
             else:
                 dist = info.get("dist")
                 if dist is not None and isinstance(dist, (int, float)) and math.isfinite(dist):
                     positions[code] = (float(dist) % self._circuit_length_m) / self._circuit_length_m
 
         def _safe_dist(entry):
+            if not isinstance(entry, dict):
+                return 0.0
             d = entry.get("dist")
             return float(d) if (d is not None and isinstance(d, (int, float)) and math.isfinite(d)) else 0.0
 
         leader_code = next(
-            (code for code, info in drivers.items() if info.get("position") == 1),
+            (code for code, info in drivers.items() if isinstance(info, dict) and info.get("position") == 1),
             max(drivers, key=lambda c: _safe_dist(drivers[c])) if drivers else None,
         )
         self._map.update_positions(positions, self._driver_colors, leader_code, self._circuit_length_m)

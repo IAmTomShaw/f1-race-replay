@@ -148,21 +148,21 @@ def _display_safe_colour(colour, bg_colour=_BG, min_contrast=3.2):
 
 def _format_laptime(seconds, _pos=None):
     """Format lap time as M:SS.sss. Uses 1 decimal place for Y-axis labels."""
-    if seconds <= 0:
+    if seconds is None or not isinstance(seconds, (int, float)) or not np.isfinite(seconds) or seconds <= 0:
         return ""
-    m = int(seconds // 60)
-    s = seconds % 60
-    
     if _pos is not None:
-        # Y-axis ticks
-        return f"{m}:{s:04.1f}"
-    
-    # Tooltips and HUD
-    return f"{m}:{s:06.3f}"
+        total_tenths = int(round(float(seconds) * 10))
+        m, rem_tenths = divmod(total_tenths, 600)
+        return f"{m}:{rem_tenths / 10.0:04.1f}"
+    total_ms = int(round(float(seconds) * 1000))
+    m, rem_ms = divmod(total_ms, 60000)
+    return f"{m}:{rem_ms / 1000.0:06.3f}"
 
 
 def _format_delta(seconds, _pos=None):
     """Format delta time, omitting the '+' sign for exactly 0.0."""
+    if seconds is None or not isinstance(seconds, (int, float)) or not np.isfinite(seconds):
+        return ""
     if abs(seconds) < 0.0005:  # Effectively zero
         if _pos is not None:
             return "0.0"
@@ -197,7 +197,11 @@ def _entry_is_pit_affected(entry, pit_threshold):
     legacy = entry.get("is_pit")
     if legacy is not None:
         return bool(legacy)
-    return entry.get("time_s", -1) > pit_threshold and entry.get("lap", 0) > 1
+    t = entry.get("time_s")
+    lap = entry.get("lap")
+    if t is None or lap is None:
+        return False
+    return t > pit_threshold and lap > 1
 
 
 def _entry_is_out_lap(entry):
@@ -208,8 +212,11 @@ def _entry_is_outlier(entry, pit_threshold):
     explicit = entry.get("is_outlier")
     if explicit is not None:
         return bool(explicit)
+    t = entry.get("time_s")
+    if t is None:
+        return False
     return (
-        entry.get("time_s", -1) > pit_threshold
+        t > pit_threshold
         and not _entry_is_pit_affected(entry, pit_threshold)
         and not _entry_is_out_lap(entry)
     )
@@ -218,8 +225,11 @@ def _entry_is_outlier(entry, pit_threshold):
 def _is_clean_timed_entry(entry, pit_threshold, sc_vsc_laps):
     if not entry:
         return False
+    t = entry.get("time_s")
+    if t is None:
+        return False
     return (
-        0 < entry.get("time_s", -1) <= pit_threshold
+        0 < t <= pit_threshold
         and entry.get("lap") not in sc_vsc_laps
         and not _entry_is_pit_affected(entry, pit_threshold)
         and not _entry_is_out_lap(entry)
@@ -460,11 +470,13 @@ class LapTimeChartWindow(PitWallWindow):
         visible = []
         for code, entries in self._lap_times.items():
             for entry in entries:
+                lap_val = entry.get("lap")
+                lap_int = int(lap_val) if lap_val is not None else -1
                 if entry.get("is_terminal_lap"):
                     if self._is_terminal_entry_visible(entry, include_final=False):
-                        visible.append((code, int(entry.get("lap", -1)), "terminal"))
+                        visible.append((code, lap_int, "terminal"))
                 elif self._is_normal_entry_visible(entry):
-                    visible.append((code, int(entry.get("lap", -1)), "lap"))
+                    visible.append((code, lap_int, "lap"))
         return tuple(sorted(visible))
         
 
@@ -691,16 +703,19 @@ class LapTimeChartWindow(PitWallWindow):
         ctrl.addSpacing(18)
 
         self._undo_btn = QPushButton("Undo")
+        self._undo_btn.setAccessibleName("Undo View")
         self._undo_btn.setFont(QFont("Arial", 10))
         self._undo_btn.clicked.connect(self._undo_view)
         ctrl.addWidget(self._undo_btn)
 
         self._redo_btn = QPushButton("Redo")
+        self._redo_btn.setAccessibleName("Redo View")
         self._redo_btn.setFont(QFont("Arial", 10))
         self._redo_btn.clicked.connect(self._redo_view)
         ctrl.addWidget(self._redo_btn)
 
         self._reset_btn = QPushButton("Reset")
+        self._reset_btn.setAccessibleName("Reset View")
         self._reset_btn.setFont(QFont("Arial", 10))
         self._reset_btn.clicked.connect(self._reset_view)
         ctrl.addWidget(self._reset_btn)
@@ -708,6 +723,7 @@ class LapTimeChartWindow(PitWallWindow):
         ctrl.addStretch()
         
         self._help_btn = QPushButton("?")
+        self._help_btn.setAccessibleName("Help")
         self._help_btn.setFixedSize(26, 26)
         self._help_btn.setStyleSheet("""
             QPushButton {
@@ -1133,7 +1149,7 @@ class LapTimeChartWindow(PitWallWindow):
                 int(entry["lap"])
                 for entries in visible_data.values()
                 for entry in entries
-                if not entry.get("is_terminal_lap")
+                if not entry.get("is_terminal_lap") and entry.get("lap") is not None
             ),
             default=0,
         )
@@ -1176,8 +1192,15 @@ class LapTimeChartWindow(PitWallWindow):
             for l in range(sp["start_lap"], end_lap + 1):
                 sc_vsc_laps.add(l)
 
-        # Compute median for pit lap filtering (excluding SC laps for accuracy)
-        clean_times = [e["time_s"] for v in visible_data.values() for e in v if e["lap"] not in sc_vsc_laps]
+        # Compute median for pit lap filtering (excluding SC laps and invalid/terminal negative times)
+        clean_times = [
+            e["time_s"]
+            for v in visible_data.values()
+            for e in v
+            if e.get("lap") not in sc_vsc_laps
+            and e.get("time_s") is not None
+            and e["time_s"] > 0
+        ]
         if clean_times:
             clean_times.sort()
             median_time = clean_times[len(clean_times) // 2]
@@ -1195,7 +1218,7 @@ class LapTimeChartWindow(PitWallWindow):
         # lap N. Drivers behind should therefore be >= 0 unless source timing
         # data is inconsistent.
         lap_entry_lookup = {
-            code: {e["lap"]: e for e in entries if e["time_s"] > 0}
+            code: {e["lap"]: e for e in entries if e.get("time_s") is not None and e["time_s"] > 0}
             for code, entries in gap_source_data.items()
         }
         leader_refs = {}

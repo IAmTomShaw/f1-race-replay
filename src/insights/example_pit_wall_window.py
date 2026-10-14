@@ -76,15 +76,17 @@ class ExamplePitWallWindow(PitWallWindow):
             # Format driver details
             driver_lines = []
             for code, driver_info in sorted(drivers_data.items()):
+                if not isinstance(driver_info, dict):
+                    continue
                 line_parts = [f"{code}:"]
                 
-                if 'lap' in driver_info:
+                if driver_info.get('lap') is not None:
                     line_parts.append(f"Lap {driver_info['lap']}")
                 
-                if 'speed' in driver_info:
+                if driver_info.get('speed') is not None:
                     line_parts.append(f"{driver_info['speed']:.0f} km/h")
                 
-                if 'dist' in driver_info:
+                if driver_info.get('dist') is not None:
                     line_parts.append(f"{driver_info['dist']:.0f}m")
                 
                 driver_lines.append("  ".join(line_parts))

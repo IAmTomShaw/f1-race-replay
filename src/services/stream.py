@@ -1,5 +1,3 @@
-
-
 # The stream service is used to broadcast telemetry data from the primary replay process to any number of secondary processes/windows (e.g. for running data analysis or additional visualizations in parallel). It uses a simple TCP socket server to send telemetry frames as JSON-encoded messages. Secondary processes can connect to the stream server to receive real-time telemetry data for the current session.
 
 import socket
@@ -7,6 +5,8 @@ import json
 import threading
 import time
 from PySide6.QtCore import QThread, Signal
+from src.streaming.protocol import PROTOCOL_VERSION
+
 
 class TelemetryStreamServer:
 
@@ -22,6 +22,7 @@ class TelemetryStreamServer:
 
   def start(self):
     self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     self.server_socket.bind((self.host, self.port))
     self.server_socket.listen(5)
     self.running = True
@@ -84,6 +85,7 @@ class TelemetryStreamServer:
         client.close()
       self.clients = []
 
+
 class TelemetryStreamClient(QThread):
     
   # This class is used by any secondary process/window that wants to consume the telemetry stream data. It connects to the stream server, receives data, and emits signals for the UI or other components to react to.
@@ -144,41 +146,28 @@ class TelemetryStreamClient(QThread):
       raise
           
   def _receive_data(self):
-    # Receive and parse incoming telemetry data.
-    buffer = ""
+    # Receive and parse incoming telemetry data using byte buffering so
+    # multi-byte UTF-8 characters split across recv() chunks never fail.
+    buffer = b""
     
     while self.running and self.connected:
       try:
-        # Receive data in chunks
-        chunk = self.socket.recv(4096).decode('utf-8')
-        if not chunk:
+        raw_chunk = self.socket.recv(4096)
+        if not raw_chunk:
           # Server closed connection
           self.connected = False
           break
-            
-        buffer += chunk
+        if isinstance(raw_chunk, str):
+          raw_chunk = raw_chunk.encode("utf-8")
+        buffer += raw_chunk
         
         # Process complete messages (separated by newlines)
-        while '\n' in buffer:
-          line, buffer = buffer.split('\n', 1)
-          if line.strip():
+        while b'\n' in buffer:
+          line_bytes, buffer = buffer.split(b'\n', 1)
+          line = line_bytes.decode('utf-8', errors='replace').strip()
+          if line:
             try:
-              data = json.loads(line.strip())
-              # TASK 4: the wire payload is the protocol
-              # envelope directly. The legacy V1 client does
-              # not need envelope metadata; it only needs the
-              # application payload. We support three wire
-              # shapes for backward compatibility:
-              #
-              # 1. The new protocol envelope: the JSON has
-              #    ``payload``, ``type``, ``version`` etc.
-              #    We extract ``payload`` so the application
-              #    sees the same dict it always has.
-              # 2. The legacy ``{"envelope": ..., "raw": ...}``
-              #    wrapper (pre-TASK-4 producers). Unwrap
-              #    ``raw`` so existing producers still work.
-              # 3. A bare payload (no envelope at all). Pass
-              #    through unchanged.
+              data = json.loads(line)
               if isinstance(data, dict):
                 if "raw" in data and "envelope" in data:
                   self.data_received.emit(data["raw"])
@@ -216,24 +205,7 @@ class TelemetryStreamClient(QThread):
 # the raw payload together with envelope metadata.
 # ---------------------------------------------------------------------------
 class TelemetryStreamClientV2(QThread):
-  """Consumer that decodes the protocol envelope.
-
-  The publisher sends a single JSON line per frame with the
-  shape ``{"envelope": <protocol envelope>, "raw": <payload>}``.
-  The V2 client emits:
-
-  * ``envelope_received(envelope)``     -- the full envelope
-                                          (type, version, session_id,
-                                          seq, ts, payload)
-  * ``data_received(payload)``          -- the raw payload
-  * ``connection_status(str)``          -- "Connected" / "Disconnected"
-  * ``error_occurred(str)``             -- error message
-
-  The frame stream is the same TCP socket the legacy client
-  uses. The wire format is versioned; an envelope with a
-  different protocol version triggers a clean error rather
-  than a JSON decode failure.
-  """
+  """Consumer that decodes the protocol envelope."""
 
   envelope_received = Signal(dict)
   data_received = Signal(dict)
@@ -289,28 +261,32 @@ class TelemetryStreamClientV2(QThread):
       raise
 
   def _receive_data(self):
-    buffer = ""
+    buffer = b""
     while self.running and self.connected:
       try:
-        chunk = self.socket.recv(4096).decode('utf-8')
-        if not chunk:
+        raw_chunk = self.socket.recv(4096)
+        if not raw_chunk:
           self.connected = False
           break
-        buffer += chunk
-        while '\n' in buffer:
-          line, buffer = buffer.split('\n', 1)
-          if line.strip():
+        if isinstance(raw_chunk, str):
+          raw_chunk = raw_chunk.encode("utf-8")
+        buffer += raw_chunk
+        while b'\n' in buffer:
+          line_bytes, buffer = buffer.split(b'\n', 1)
+          line = line_bytes.decode('utf-8', errors='replace').strip()
+          if line:
             try:
-              envelope = json.loads(line.strip())
+              envelope = json.loads(line)
             except json.JSONDecodeError as e:
               self.error_occurred.emit(f"JSON decode error: {str(e)}")
               continue
-            # The wire is ``{"envelope": ..., "raw": ...}`` (TASK 3
-            # migration). We pull out the envelope and the raw
-            # payload, emit them, and let consumers subscribe
-            # to whichever they need.
             if isinstance(envelope, dict):
               if "payload" in envelope and "type" in envelope and "version" in envelope:
+                if envelope.get("version") != PROTOCOL_VERSION:
+                  self.error_occurred.emit(
+                      f"Protocol version mismatch: {envelope.get('version')} != {PROTOCOL_VERSION}"
+                  )
+                  continue
                 # Direct protocol envelope (src.streaming.transport wire format)
                 self.envelope_received.emit(envelope)
                 payload = envelope.get("payload", {})

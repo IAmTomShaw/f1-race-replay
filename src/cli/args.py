@@ -105,9 +105,14 @@ def parse_args(argv: Optional[Sequence[str]] = None
         argv = sys.argv[1:]
     argv = list(argv)
     # Strip a leading legacy subcommand token.
+    is_diag = False
     if argv and argv[0] in ("replay", "diagnostics") and not argv[0].startswith("-"):
+        if argv[0] == "diagnostics":
+            is_diag = True
         argv = argv[1:]
     ns = parser.parse_args(argv)
+    if is_diag:
+        ns.diagnostics = True
     ns._cmd = "diagnostics" if getattr(ns, "diagnostics", False) else "replay"
     return ns
 

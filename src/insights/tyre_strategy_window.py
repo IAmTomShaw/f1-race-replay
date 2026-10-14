@@ -163,7 +163,7 @@ class LapAxisWidget(QWidget):
     def paintEvent(self, event):
         painter = QPainter(self)
         W = self.width()
-        NAME_W = 80
+        NAME_W = 86
         BAR_PAD = 6
         bar_x = NAME_W + BAR_PAD
         bar_w = W - bar_x - BAR_PAD
@@ -372,19 +372,52 @@ class TyreStrategyWindow(PitWallWindow):
                 self.positions  = {}
             self.total_laps = new_total
 
-        self.current_lap = int(frame.get("lap", self.current_lap))
+        import math
+        frame_lap = frame.get("lap")
+        if frame_lap is None and isinstance(sess, dict):
+            frame_lap = sess.get("lap")
+        if frame_lap is not None:
+            try:
+                fl_val = float(frame_lap)
+                if math.isfinite(fl_val) and fl_val >= 1:
+                    new_cur_lap = int(fl_val)
+                    if new_cur_lap < self.current_lap:
+                        # Replay rewound: trim future stints beyond new_cur_lap
+                        for d_code in list(self.stints.keys()):
+                            trimmed = []
+                            for st in self.stints[d_code]:
+                                if st["start_lap"] <= new_cur_lap:
+                                    if st["end_lap"] is not None and st["end_lap"] >= new_cur_lap:
+                                        st = dict(st, end_lap=None)
+                                    trimmed.append(st)
+                            if trimmed:
+                                self.stints[d_code] = trimmed
+                                self.prev_tyres[d_code] = trimmed[-1]["tyre"]
+                            else:
+                                del self.stints[d_code]
+                                self.prev_tyres.pop(d_code, None)
+                    self.current_lap = new_cur_lap
+            except (ValueError, TypeError):
+                pass
 
         for code, driver in drivers.items():
+            if not isinstance(driver, dict):
+                continue
             tyre = driver.get("tyre")
             lap  = driver.get("lap")
             pos  = driver.get("position")
 
-            if pos is not None:
+            if pos is not None and isinstance(pos, (int, float)) and math.isfinite(pos):
                 self.positions[code] = int(pos)
 
-            if tyre is not None and isinstance(tyre, (int, float)):
-                tyre = TYRE_REMAP.get(round(float(tyre)), tyre)
-            if tyre is None or lap is None or not isinstance(tyre, (int, float)) or tyre == 0.0:
+            if (tyre is not None and isinstance(tyre, (int, float))
+                    and math.isfinite(tyre)):
+                r_tyre = round(float(tyre))
+                tyre = 0.0 if r_tyre < 0 else float(TYRE_REMAP.get(r_tyre, tyre))
+            else:
+                continue
+            if (lap is None or not isinstance(lap, (int, float))
+                    or not math.isfinite(lap) or tyre <= 0.0):
                 continue
 
             lap = int(lap)
@@ -392,7 +425,7 @@ class TyreStrategyWindow(PitWallWindow):
                 self.stints[code]     = [{"tyre": tyre, "start_lap": lap, "end_lap": None}]
                 self.prev_tyres[code] = tyre
             elif tyre != self.prev_tyres[code]:
-                self.stints[code][-1]["end_lap"] = lap - 1
+                self.stints[code][-1]["end_lap"] = max(self.stints[code][-1]["start_lap"], lap - 1)
                 self.stints[code].append({"tyre": tyre, "start_lap": lap, "end_lap": None})
                 self.prev_tyres[code] = tyre
 

@@ -77,15 +77,6 @@ class BayesianTyreDegradationModel:
         
     Observation equation:
         y_t = α_t + γ * fuel_t + δ_mismatch + ε_t
-        
-    Where:
-        α_t = latent tire pace (true lap time capability)
-        ν = degradation rate (compound-specific, seconds per lap)
-        A_track = track abrasion factor (track-specific, dimensionless)
-        γ = fuel effect (seconds per kg)
-        δ_mismatch = condition-tyre mismatch penalty
-        I_pit = indicator for pit stop
-        α_reset = pace reset after pit stop
     """
     
     def __init__(self, config: Optional[StateSpaceConfig] = None):
@@ -153,11 +144,12 @@ class BayesianTyreDegradationModel:
         
         self._latent_states = {}
         self._latent_uncertainty = {}
+        self._stint_baselines = {}
+        self._driver_lap_states = {}
         self._fitted = False
         
     def estimate_track_abrasion(self, laps_df: pd.DataFrame) -> float:
         baseline = self._abrasion_baseline
-        
         abrasion_samples = []
         
         for compound, base_rate in baseline.items():
@@ -231,22 +223,33 @@ class BayesianTyreDegradationModel:
         
         self._fitted = True
         
+    @staticmethod
+    def _extract_lap_time_seconds(series: pd.Series) -> pd.Series:
+        if hasattr(series, "dt"):
+            try:
+                return series.dt.total_seconds()
+            except Exception:
+                pass
+        return pd.to_numeric(series, errors="coerce")
+
     def _prepare_data(self, laps_df: pd.DataFrame) -> pd.DataFrame:
         """Clean and validate lap data."""
         laps = laps_df.copy()
         
         if 'TrackCondition' not in laps.columns:
-            print("Warning: TrackCondition column missing, assuming DRY conditions")
+            if self.config.debug_logging:
+                print("Warning: TrackCondition column missing, assuming DRY conditions")
             laps['TrackCondition'] = 'DRY'
         
         valid_conditions = {'DRY', 'DAMP', 'WET'}
         invalid_conditions = set(laps['TrackCondition'].unique()) - valid_conditions
         if invalid_conditions:
-            print(f"Warning: Invalid track conditions found: {invalid_conditions}, setting to DRY")
+            if self.config.debug_logging:
+                print(f"Warning: Invalid track conditions found: {invalid_conditions}, setting to DRY")
             laps.loc[~laps['TrackCondition'].isin(valid_conditions), 'TrackCondition'] = 'DRY'
         
-        is_pit_out = laps["PitOutTime"].notna()
-        is_pit_in = laps["PitInTime"].notna()
+        is_pit_out = laps["PitOutTime"].notna() if "PitOutTime" in laps.columns else pd.Series(False, index=laps.index)
+        is_pit_in = laps["PitInTime"].notna() if "PitInTime" in laps.columns else pd.Series(False, index=laps.index)
         
         laps = laps[
             (laps["LapNumber"] > 1) &
@@ -254,9 +257,13 @@ class BayesianTyreDegradationModel:
             ~is_pit_out &
             laps["LapTime"].notna() &
             laps["Compound"].notna()
-        ]
+        ].copy()
         
-        laps["LapTimeSeconds"] = laps["LapTime"].dt.total_seconds()
+        if laps.empty:
+            return laps
+
+        laps["LapTimeSeconds"] = self._extract_lap_time_seconds(laps["LapTime"])
+        laps = laps[laps["LapTimeSeconds"].notna() & (laps["LapTimeSeconds"] > 0)].copy()
         
         laps["FuelMass"] = (
             self.config.starting_fuel -
@@ -415,6 +422,8 @@ class BayesianTyreDegradationModel:
     def _compute_latent_states(self, laps_df: pd.DataFrame):
         self._latent_states = {}
         self._latent_uncertainty = {}
+        self._stint_baselines = {}
+        self._driver_lap_states = {}
         
         obs_var = self.sigma_epsilon ** 2
         proc_var = self.sigma_eta ** 2
@@ -438,6 +447,7 @@ class BayesianTyreDegradationModel:
                 lap_time = lap["LapTimeSeconds"]
                 fuel = lap["FuelMass"]
                 stint = lap["Stint"]
+                lap_num = int(lap["LapNumber"])
                 track_condition = lap.get("TrackCondition", "DRY")
                 
                 if compound not in self.tyre_profiles:
@@ -445,6 +455,7 @@ class BayesianTyreDegradationModel:
                     if mu_alpha is not None:
                         states.append(mu_alpha)
                         variances.append(var_alpha)
+                        self._driver_lap_states[(driver, lap_num)] = (mu_alpha, var_alpha)
                     continue
                 
                 tyre = self.tyre_profiles[compound]
@@ -463,15 +474,26 @@ class BayesianTyreDegradationModel:
                     prev_condition_category != condition_category
                 )
                 
+                mismatch_penalty = self._compute_mismatch_penalty(
+                    compound,
+                    track_condition
+                )
+                
                 if mu_alpha is None or stint != prev_stint or condition_changed:
                     if condition_changed and self.config.debug_logging:
                         old_category = prev_condition_category
                         print(f"  {driver}: Track transition {old_category}→{condition_category}, resetting pace")
                     
-                    mu_alpha = tyre.reset_pace
+                    warmup_pen = self._compute_warmup_penalty(tyre, 1)
+                    obs_alpha = lap_time - self.fuel_effect * fuel - mismatch_penalty - warmup_pen
+                    if np.isfinite(obs_alpha) and obs_alpha > 0:
+                        mu_alpha = float(obs_alpha)
+                    else:
+                        mu_alpha = tyre.reset_pace
                     var_alpha = proc_var
                     prev_stint = stint
                     prev_condition_category = condition_category
+                    self._stint_baselines[(driver, stint)] = mu_alpha
                 else:
                     abrasion_factor = self.track_abrasion
                     if tyre.category == TyreCategory.WET:
@@ -479,20 +501,15 @@ class BayesianTyreDegradationModel:
                     
                     nu = tyre.degradation_rate * abrasion_factor
                     
-                    mismatch_penalty = self._compute_mismatch_penalty(
-                        compound,
-                        track_condition
-                    )
-                    
                     if mismatch_penalty > 0.5:
                         degradation_multiplier = 1.0 + (mismatch_penalty / 10.0)
                         nu = nu * degradation_multiplier
                     
-                    mu_pred_temp = mu_alpha + nu
+                    mu_pred = mu_alpha + nu
                     var_pred = var_alpha + proc_var
                     
                     expected_lap = (
-                        mu_pred_temp +
+                        mu_pred +
                         self.fuel_effect * fuel +
                         mismatch_penalty
                     )
@@ -501,14 +518,12 @@ class BayesianTyreDegradationModel:
                     innovation_var = var_pred + obs_var
                     kalman_gain = var_pred / innovation_var
                     
-                    effective_nu = nu * (1 - kalman_gain)
-                    mu_pred = mu_alpha + effective_nu
-                    
                     mu_alpha = mu_pred + kalman_gain * innovation
                     var_alpha = (1.0 - kalman_gain) * var_pred
                 
                 states.append(mu_alpha)
                 variances.append(var_alpha)
+                self._driver_lap_states[(driver, lap_num)] = (mu_alpha, var_alpha)
             
             self._latent_states[driver] = states
             self._latent_uncertainty[driver] = variances
@@ -562,6 +577,13 @@ class BayesianTyreDegradationModel:
         
         stint_laps = driver_laps[driver_laps['Stint'] == stint]
         laps_on_tyre = len(stint_laps)
+        if 'TyreLife' in last_lap and pd.notna(last_lap['TyreLife']):
+            try:
+                tl_val = int(float(last_lap['TyreLife']))
+                if tl_val > 0:
+                    laps_on_tyre = max(laps_on_tyre, tl_val)
+            except (ValueError, TypeError):
+                pass
         
         abrasion_factor = self.track_abrasion
         if tyre.category == TyreCategory.WET:
@@ -569,33 +591,65 @@ class BayesianTyreDegradationModel:
         
         effective_degradation = tyre.degradation_rate * abrasion_factor
         
-        if laps_on_tyre == 1:
-            alpha_t = tyre.reset_pace
+        if track_condition is None:
+            track_condition = last_lap.get('TrackCondition', 'DRY') if hasattr(last_lap, 'get') else 'DRY'
+            if pd.isna(track_condition):
+                track_condition = 'DRY'
+        
+        mismatch_penalty = self._compute_mismatch_penalty(compound, track_condition)
+        
+        # Extract clean timed laps in the current stint to ground baseline and actual_delta
+        stint_clean = stint_laps.copy()
+        if "PitInTime" in stint_clean.columns:
+            stint_clean = stint_clean[stint_clean["PitInTime"].isna()]
+        if "PitOutTime" in stint_clean.columns:
+            stint_clean = stint_clean[stint_clean["PitOutTime"].isna()]
+        if "LapNumber" in stint_clean.columns:
+            stint_clean = stint_clean[stint_clean["LapNumber"] > 1]
+        if "LapTime" in stint_clean.columns:
+            stint_clean = stint_clean[stint_clean["LapTime"].notna()].copy()
+            if not stint_clean.empty:
+                stint_clean["LapTimeSeconds"] = self._extract_lap_time_seconds(stint_clean["LapTime"])
+                stint_clean = stint_clean[stint_clean["LapTimeSeconds"].notna() & (stint_clean["LapTimeSeconds"] > 0)]
         else:
-            alpha_t = tyre.reset_pace + (laps_on_tyre - 1) * effective_degradation
+            stint_clean = pd.DataFrame()
+
+        base_alpha = self._stint_baselines.get((driver, stint))
+        if base_alpha is None and not stint_clean.empty:
+            first_row = stint_clean.iloc[0]
+            first_fuel = max(0.0, self.config.starting_fuel - (int(first_row["LapNumber"]) - 1) * self.config.fuel_burn_rate)
+            first_warmup = self._compute_warmup_penalty(tyre, 1)
+            cand_alpha = float(first_row["LapTimeSeconds"]) - self.fuel_effect * first_fuel - mismatch_penalty - first_warmup
+            if np.isfinite(cand_alpha) and cand_alpha > 0:
+                base_alpha = cand_alpha
+        if base_alpha is None:
+            base_alpha = tyre.reset_pace
+
+        if laps_on_tyre <= 1:
+            alpha_t = base_alpha
+        else:
+            alpha_t = base_alpha + (laps_on_tyre - 1) * effective_degradation
         
         warmup_penalty = self._compute_warmup_penalty(tyre, laps_on_tyre)
         alpha_t = alpha_t + warmup_penalty
         
         next_lap = current_lap + 1
         fuel_next = max(
-            0,
+            0.0,
             self.config.starting_fuel - (next_lap - 1) * self.config.fuel_burn_rate
         )
         
-        if track_condition is None:
-            track_condition = last_lap.get('TrackCondition', 'DRY')
+        baseline_pace = float(base_alpha + self.fuel_effect * fuel_next + mismatch_penalty)
+        predicted_time = float(alpha_t + self.fuel_effect * fuel_next + mismatch_penalty)
         
-        mismatch_penalty = self._compute_mismatch_penalty(compound, track_condition)
-        
-        predicted_time = alpha_t + self.fuel_effect * fuel_next + mismatch_penalty
-        
-        if driver in self._latent_uncertainty and self._latent_uncertainty[driver]:
+        if (driver, int(current_lap)) in self._driver_lap_states:
+            _, var_alpha = self._driver_lap_states[(driver, int(current_lap))]
+        elif driver in self._latent_uncertainty and self._latent_uncertainty[driver]:
             var_alpha = self._latent_uncertainty[driver][-1]
         else:
             var_alpha = self.sigma_eta ** 2
         
-        std_dev = np.sqrt(var_alpha + self.sigma_epsilon ** 2)
+        std_dev = float(np.sqrt(var_alpha + self.sigma_epsilon ** 2))
         
         max_laps = tyre.max_degradation / max(effective_degradation, 0.001)
         
@@ -605,9 +659,33 @@ class BayesianTyreDegradationModel:
             effective_laps = laps_on_tyre
         
         health = max(0, min(100, 100 * (1 - effective_laps / max_laps)))
+
+        expected_delta = float(effective_degradation * laps_on_tyre)
+        actual_delta = None
+        overdriving = None
+        if not stint_clean.empty:
+            last_clean = stint_clean.iloc[-1]
+            last_clean_lap = int(last_clean["LapNumber"])
+            last_clean_fuel = max(
+                0.0,
+                self.config.starting_fuel - (last_clean_lap - 1) * self.config.fuel_burn_rate,
+            )
+            last_fc_alpha = float(last_clean["LapTimeSeconds"]) - self.fuel_effect * last_clean_fuel - mismatch_penalty
+            raw_deg_delta = float(last_fc_alpha - base_alpha)
+            if abs(raw_deg_delta) < 1e-6:
+                actual_delta = expected_delta if expected_delta > 0 else 1e-3
+            else:
+                actual_delta = raw_deg_delta
+            # Driver is overdriving if pushing significantly below expected degraded pace
+            # or experiencing excess degradation beyond 1 standard deviation
+            overdriving = bool(
+                (last_fc_alpha < alpha_t - 0.5 * std_dev)
+                or (actual_delta > expected_delta + std_dev)
+            )
         
         info = {
             'latent_pace': alpha_t,
+            'baseline_pace': baseline_pace,
             'predicted_time': predicted_time,
             'std_dev': std_dev,
             'health': int(health),
@@ -616,6 +694,9 @@ class BayesianTyreDegradationModel:
             'category': tyre.category.value,
             'degradation_rate': tyre.degradation_rate,
             'effective_degradation': effective_degradation,  
+            'expected_delta': expected_delta,
+            'actual_delta': actual_delta,
+            'overdriving': overdriving,
             'track_abrasion': self.track_abrasion,  
             'mismatch_penalty': mismatch_penalty,
             'track_condition': track_condition,
@@ -651,14 +732,19 @@ class BayesianTyreDegradationModel:
         if not info:
             return None
         
+        conf_low, conf_high = info.get('confidence_95', (None, None))
         return {
             'compound': info['compound'],
             'category': info['category'],
             'laps_on_tyre': info['laps_on_tyre'],
             'health': info['health'],
-            'expected_delta': info['effective_degradation'] * info['laps_on_tyre'],
-            'actual_delta': 0.0,
-            'overdriving': False,
+            'baseline_pace': info.get('baseline_pace'),
+            'expected_pace': info.get('predicted_time'),
+            'expected_delta': info['expected_delta'],
+            'actual_delta': info.get('actual_delta'),
+            'credible_low': conf_low,
+            'credible_high': conf_high,
+            'overdriving': info.get('overdriving'),
             'uncertainty': info['std_dev'],
             'latent_pace': info['latent_pace'],
             'mismatch_penalty': info['mismatch_penalty'],

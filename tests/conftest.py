@@ -314,3 +314,44 @@ def _install_optional_deps():
 
 
 _install_optional_deps()
+
+
+def install_full_gui_stubs():
+    """Install comprehensive Qt and matplotlib backend stubs for headless unit tests."""
+    p6, qc, qw = _make_pyside6()
+    qg = p6.QtGui
+    stub_cls = qw.QMainWindow
+    for name in (
+        "QComboBox", "QCheckBox", "QSizePolicy", "QTreeWidget", "QTreeWidgetItem",
+        "QMessageBox", "QProgressDialog", "QDialog", "QDialogButtonBox", "QFileDialog",
+        "QFormLayout", "QGroupBox", "QLineEdit", "QHeaderView", "QTextBrowser",
+    ):
+        setattr(qw, name, stub_cls)
+    for name in (
+        "QTimer", "QRect", "QRectF", "QPoint", "QPointF", "QEvent", "QSize",
+    ):
+        setattr(qc, name, stub_cls)
+    for name in (
+        "QFont", "QFontMetrics", "QCursor", "QPainter", "QColor", "QPen",
+        "QBrush", "QLinearGradient", "QPolygonF", "QPainterPath", "QPixmap",
+    ):
+        setattr(qg, name, stub_cls)
+    sys.modules["PySide6"] = p6
+    sys.modules["PySide6.QtCore"] = qc
+    sys.modules["PySide6.QtWidgets"] = qw
+    sys.modules["PySide6.QtGui"] = qg
+
+    mpl = sys.modules.get("matplotlib") or _make_matplotlib()
+    mpl.__path__ = []
+    sys.modules["matplotlib"] = mpl
+    sys.modules["matplotlib.pyplot"] = mpl.pyplot
+    for sub in ("lines", "gridspec", "ticker", "backends", "backends.backend_qtagg", "backends.backend_bases", "backend_bases"):
+        mod_name = f"matplotlib.{sub}"
+        if mod_name not in sys.modules:
+            sys.modules[mod_name] = types.ModuleType(mod_name)
+    sys.modules["matplotlib.backends.backend_qtagg"].FigureCanvasQTAgg = stub_cls
+    sys.modules["matplotlib.backends.backend_bases"].MouseEvent = stub_cls
+    sys.modules["matplotlib.backend_bases"].MouseEvent = stub_cls
+    sys.modules["matplotlib.gridspec"].GridSpec = stub_cls
+    sys.modules["matplotlib.ticker"].FormatStrFormatter = stub_cls
+    sys.modules["matplotlib.ticker"].FuncFormatter = stub_cls

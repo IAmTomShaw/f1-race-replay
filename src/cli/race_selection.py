@@ -44,7 +44,7 @@ def cli_load():
     sessions = ["Qualifying", "Race"]
     for row in data:
         if row['round_number'] == round_number:
-            if row['type'].find('sprint') != -1:
+            if "sprint" in str(row.get('type', '')).lower():
                 sessions.insert(0, "Sprint Qualifying")
                 sessions.insert(1, "Sprint")
     session = select("Choose a session", choices=sessions, qmark="🏁", style=style).ask()
@@ -77,6 +77,8 @@ def cli_load():
         cmd.append(flag)
     if not hud:
         cmd.append("--no-hud")
+    if "--refresh-data" in sys.argv:
+        cmd.append("--refresh-data")
     if "--verbose" in sys.argv:
         cmd.append("--verbose")
     subprocess.run(cmd)

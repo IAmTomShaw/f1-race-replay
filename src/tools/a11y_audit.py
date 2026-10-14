@@ -64,7 +64,7 @@ def _scan_file(path: Path) -> Iterable[A11yFinding]:
             # setText or accessibleName.
             window = text.splitlines()[max(0, lineno - 1): lineno + 5]
             joined = "\n".join(window)
-            if "setText" not in joined and "accessibleName" not in joined:
+            if "setText" not in joined and "accessibleName" not in joined and "setAccessibleName" not in joined:
                 yield A11yFinding(
                     file=str(path), line=lineno, severity="warning",
                     code="A11Y-001",

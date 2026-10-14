@@ -2,6 +2,7 @@ import arcade
 from typing import List, Tuple, Optional
 from src.lib.time import format_time
 from src.lib.arcade_compat import ensure_arcade_compat
+from src.lib.resource_paths import images_dir
 import math
 import numpy as np
 import pandas as pd
@@ -21,7 +22,7 @@ _STYLE_SENTINEL = object()
 
 
 def _format_wind_direction(degrees: Optional[float]) -> str:
-    if degrees is None:
+    if degrees is None or not isinstance(degrees, (int, float)) or not math.isfinite(degrees):
         return "N/A"
     deg_norm = degrees % 360
     dirs = [
@@ -47,7 +48,7 @@ class LegendComponent(BaseComponent):
         self._control_icons_textures = {}
         self._visible = visible
         # Load control icons from images/icons folder (all files)
-        icons_folder = os.path.join("images", "controls")
+        icons_folder = os.path.join(str(images_dir()), "controls")
         if os.path.exists(icons_folder):
             for filename in os.listdir(icons_folder):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
@@ -171,7 +172,7 @@ class WeatherComponent(BaseComponent):
         self._weather_icon_textures = {}
         self._visible: bool = visible
         # Load weather icons from images/weather folder (all files)
-        weather_folder = os.path.join("images", "weather")
+        weather_folder = os.path.join(str(images_dir()), "weather")
         if os.path.exists(weather_folder):
             for filename in os.listdir(weather_folder):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
@@ -372,14 +373,16 @@ class LeaderboardComponent(BaseComponent):
         self._tyre_textures = {}
         self._visible: bool = visible
         # Import the tyre textures from the images/tyres folder (all files)
-        tyres_folder = os.path.join("images", "tyres")
+        tyres_folder = os.path.join(str(images_dir()), "tyres")
         if os.path.exists(tyres_folder):
             for filename in os.listdir(tyres_folder):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(tyres_folder, filename)
-                    self._tyre_textures[texture_name] = arcade.load_texture(
-                        texture_path)
+                    tex = arcade.load_texture(texture_path)
+                    self._tyre_textures[texture_name.upper()] = tex
+                    if texture_name.endswith(".0"):
+                        self._tyre_textures[texture_name[:-2]] = tex
         self._composite_tyre_cache = {}
         self.computed_gaps = {}
         self.computed_neighbor_gaps = {}
@@ -729,17 +732,24 @@ class LeaderboardComponent(BaseComponent):
         """
         self._visible = True
 
+    def _lookup_tyre_texture(self, tyre_val):
+        if tyre_val is None:
+            return None
+        key = str(tyre_val).upper()
+        tex = self._tyre_textures.get(key)
+        if tex is None:
+            try:
+                tex = self._tyre_textures.get(f"{int(float(tyre_val))}.0")
+            except (TypeError, ValueError, OverflowError):
+                tex = None
+        return tex
+
     def set_entries(self, entries: List[Tuple[str, Tuple[int, int, int], dict, float]]):
         # entries sorted as expected
-        self.entries = entries
-        # TASK 4: pre-compute the tyre texture reference per row
-        # to avoid the repeated dict lookup + str(tyre_val).upper()
-        # call inside draw(). The draw() loop runs 20+ times per
-        # second; the lookup is a constant-time dict access but
-        # the string allocation is not free.
+        self.entries = list(entries) if entries else []
         self._row_tyre_textures = [
-            self._tyre_textures.get(str(e[2].get("tyre", "?")).upper())
-            for e in entries
+            self._lookup_tyre_texture(e[2].get("tyre", "?"))
+            for e in self.entries
         ]
         self._calculate_gaps()
 
@@ -910,17 +920,7 @@ class LeaderboardComponent(BaseComponent):
         # Sort entries by lap number an distance progressed
         # If any of the entries have lap > 1, then sort
 
-        if any((e[2].get("lap", 0) or 0) > 1 for e in self.entries):
-            new_entries = sorted(
-                self.entries,
-                key=lambda e: (
-                    -(e[2].get("lap", 0) or 0),  # Descending lap number
-                    # Descending distance progressed
-                    -(e[2].get("dist", 0) or 0)
-                )
-            )
-        else:
-            new_entries = self.entries
+        new_entries = self.entries
 
         # TASK 4: pre-clear the per-row text pools for rows that
         # are beyond the current entry count. The per-row loop
@@ -971,7 +971,12 @@ class LeaderboardComponent(BaseComponent):
                 text_color = color
 
             text = f"{current_pos}. {code}"
-            if pos.get("rel_dist", 0) != 1:
+            is_out = (
+                pos.get("rel_dist", 0) == 1
+                or pos.get("active") is False
+                or pos.get("validity") in ("dnf", "post", "dns")
+            )
+            if not is_out:
                 out_text = ""
             else:
                 out_text = "  OUT"
@@ -1181,7 +1186,7 @@ class LeaderboardComponent(BaseComponent):
                     tyre_val = "?"
             else:
                 tyre_val = pos.get("tyre", "?")
-                tyre_texture = self._tyre_textures.get(str(tyre_val).upper())
+                tyre_texture = self._lookup_tyre_texture(tyre_val)
             if tyre_texture:
                 # position tyre icon inside the leaderboard area so it doesn't collide with track
                 tyre_icon_x = left_x + self.width - 10
@@ -1192,7 +1197,7 @@ class LeaderboardComponent(BaseComponent):
 
                 current_life = pos.get("tyre_life", 0) or 0
                 tyre_health_ratio = 1.0
-                if window.degradation_integrator:
+                if getattr(window, "degradation_integrator", None):
                     idx = min(int(window.frame_index), len(window.frames) - 1)
                     health_data = window.degradation_integrator.get_health_for_frame(
                         code, window.frames[idx])
@@ -1201,8 +1206,8 @@ class LeaderboardComponent(BaseComponent):
                 else:
                     max_tyre_life = getattr(window, "max_tyre_life", {})
                     try:
-                        tyre_key = int(tyre_val)
-                    except (TypeError, ValueError):
+                        tyre_key = int(float(tyre_val))
+                    except (TypeError, ValueError, OverflowError):
                         max_life = 30
                     else:
                         max_life = max_tyre_life.get(tyre_key, 30)
@@ -1265,7 +1270,11 @@ class LeaderboardComponent(BaseComponent):
                 # DRS Indicator
                 drs_val = pos.get("drs", 0)
                 # DRS is active if value >= 10
-                is_drs_on = drs_val and int(drs_val) >= 10
+                is_drs_on = (
+                    isinstance(drs_val, (int, float))
+                    and math.isfinite(drs_val)
+                    and int(drs_val) >= 10
+                )
                 drs_color = arcade.color.GREEN if is_drs_on else arcade.color.GRAY
 
                 # Position dot to the left of the tyre icon
@@ -1388,10 +1397,21 @@ class LapTimeLeaderboardComponent(BaseComponent):
                         20, bold=True, anchor_x="left", anchor_y="top").draw()
         self.rects = []
         for i, entry in enumerate(self.entries):
-            pos = entry.get('pos', i + 1)
+            pos = entry.get('pos', entry.get('position', i + 1))
             code = entry.get('code', '')
             color = entry.get('color', arcade.color.WHITE)
             time_str = entry.get('time', '')
+            if not time_str:
+                for seg_k in ('Q3', 'Q2', 'Q1', 'SQ3', 'SQ2', 'SQ1'):
+                    raw_t = entry.get(seg_k)
+                    if raw_t is not None:
+                        try:
+                            t_f = float(raw_t)
+                            if math.isfinite(t_f) and t_f > 0:
+                                time_str = format_time(t_f)
+                                break
+                        except (TypeError, ValueError):
+                            pass
             current_pos = i + 1
             top_y = leaderboard_y - 30 - ((current_pos - 1) * self.row_height)
             bottom_y = top_y - self.row_height
@@ -1454,9 +1474,11 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
             return
 
         code = window.selected_driver
-        results = window.data['results']
+        results = window.data.get('results', []) if isinstance(getattr(window, 'data', None), dict) else []
         driver_result = next(
-            (res for res in results if res['code'] == code), None)
+            (res for res in results if isinstance(res, dict) and res.get('code') == code), None)
+        if not driver_result:
+            return
         # Calculate modal position (centered)
         center_x = window.width // 2
         center_y = window.height // 2
@@ -1514,7 +1536,12 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
 
             # Draw segment info
             segment_text = f"{segment.upper()}"
-            time_text = format_time(float(data.get('time', 'No Time')))
+            raw_time = data.get('time')
+            try:
+                time_val = float(raw_time) if raw_time is not None else -1.0
+                time_text = format_time(time_val) if time_val >= 0 else "No Time"
+            except (ValueError, TypeError):
+                time_text = "No Time"
 
             arcade.Text(segment_text, left + 30, segment_top - 20,
                         text_color, 16, bold=True, anchor_x="left", anchor_y="center").draw()
@@ -1554,9 +1581,9 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
 
         # Check segment clicks
         code = window.selected_driver
-        results = window.data['results']
+        results = window.data.get('results', []) if isinstance(getattr(window, 'data', None), dict) else []
         driver_result = next(
-            (res for res in results if res['code'] == code), None)
+            (res for res in results if isinstance(res, dict) and res.get('code') == code), None)
 
         if driver_result:
             segments = []
@@ -1761,9 +1788,11 @@ class DriverInfoComponent(BaseComponent):
                 print(f"Error displaying driver info: {e}")
 
         # Graphs
-        thr, brk = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
-        t_r, b_r = max(0.0, min(1.0, thr / 100.0)), max(0.0,
-                                                        min(1.0, brk / 100.0 if brk > 1.0 else brk))
+        thr_raw, brk_raw = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
+        thr = float(thr_raw) if isinstance(thr_raw, (int, float)) and math.isfinite(thr_raw) else 0.0
+        brk = float(brk_raw) if isinstance(brk_raw, (int, float)) and math.isfinite(brk_raw) else 0.0
+        t_r = max(0.0, min(1.0, thr / 100.0))
+        b_r = max(0.0, min(1.0, brk / 100.0 if brk > 1.0 else brk))
         bar_w, bar_h, b_y = 20, 80, bottom + 35
         r_center = right - 50
 
@@ -1798,7 +1827,7 @@ class ControlsPopupComponent(BaseComponent):
     def __init__(
         self,
         width: int = 430,
-        height: int = 260,
+        height: int = 310,
         header_font_size: int = 18,
         body_font_size: int = 16,
         lines: Optional[list[str]] = None,
@@ -1829,8 +1858,10 @@ class ControlsPopupComponent(BaseComponent):
             ("R", "Restart"),
             ("D", "Toggle DRS Zones"),
             ("B", "Toggle Progress Bar"),
+            ("I", "Toggle Session Banner"),
             ("L", "Toggle Driver Labels"),
             ("H", "Toggle Help Popup"),
+            ("ESC", "Close Window"),
         ]
 
     def set_lines(self, lines: Optional[list[str]]):
@@ -2713,6 +2744,8 @@ class RaceProgressBarComponent(BaseComponent):
             if hasattr(window, 'frame_index'):
                 window.frame_index = float(
                     max(0, min(target_frame, self._total_frames - 1)))
+                if hasattr(window, '_broadcast_telemetry_state'):
+                    window._broadcast_telemetry_state()
             return True
         return False
 
@@ -2755,7 +2788,7 @@ class RaceControlsComponent(BaseComponent):
         self._flash_timer = 0.0
         self._flash_duration = 0.3  # seconds
 
-        _controls_folder = os.path.join("images", "controls")
+        _controls_folder = os.path.join(str(images_dir()), "controls")
         if os.path.exists(_controls_folder):
             for filename in os.listdir(_controls_folder):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
@@ -2988,6 +3021,8 @@ class RaceControlsComponent(BaseComponent):
         elif self._point_in_rect(x, y, self.play_pause_rect):
             if hasattr(window, 'paused'):
                 window.paused = not window.paused
+                if hasattr(window, '_broadcast_telemetry_state'):
+                    window._broadcast_telemetry_state()
             return True
         elif self._point_in_rect(x, y, self.forward_rect):
             # Update: Support hold-to-forward
@@ -2998,6 +3033,8 @@ class RaceControlsComponent(BaseComponent):
             elif hasattr(window, 'frame_index') and hasattr(window, 'n_frames'):
                 window.frame_index = int(
                     min(window.n_frames - 1, window.frame_index + 10))
+                if hasattr(window, '_broadcast_telemetry_state'):
+                    window._broadcast_telemetry_state()
             return True
         elif self._point_in_rect(x, y, self.speed_increase_rect):
             if hasattr(window, 'playback_speed'):
@@ -3009,6 +3046,8 @@ class RaceControlsComponent(BaseComponent):
                 if idx < len(self.PLAYBACK_SPEEDS) - 1:
                     window.playback_speed = self.PLAYBACK_SPEEDS[idx + 1]
                     self.flash_button('speed_increase')
+                    if hasattr(window, '_broadcast_telemetry_state'):
+                        window._broadcast_telemetry_state()
             return True
         elif self._point_in_rect(x, y, self.speed_decrease_rect):
             if hasattr(window, 'playback_speed'):
@@ -3020,6 +3059,8 @@ class RaceControlsComponent(BaseComponent):
                 if idx > 0:
                     window.playback_speed = self.PLAYBACK_SPEEDS[idx - 1]
                     self.flash_button('speed_decrease')
+                    if hasattr(window, '_broadcast_telemetry_state'):
+                        window._broadcast_telemetry_state()
             return True
         return False
 
@@ -3046,14 +3087,16 @@ class QualifyingLapTimeComponent(BaseComponent):
         self._delta_sector = None
         self._last_completed_sector = -1
         # Import the tyre textures from the images/tyres folder (all files)
-        tyres_folder = os.path.join("images", "tyres")
+        tyres_folder = os.path.join(str(images_dir()), "tyres")
         if os.path.exists(tyres_folder):
             for filename in os.listdir(tyres_folder):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(tyres_folder, filename)
-                    self._tyre_textures[texture_name] = arcade.load_texture(
-                        texture_path)
+                    tex = arcade.load_texture(texture_path)
+                    self._tyre_textures[texture_name.upper()] = tex
+                    if texture_name.endswith(".0"):
+                        self._tyre_textures[texture_name[:-2]] = tex
 
     def on_update(self, delta_time: float):
         """
@@ -3105,7 +3148,8 @@ class QualifyingLapTimeComponent(BaseComponent):
             window.loaded_telemetry, dict) else None
         if not frames:
             return
-        current_frame = frames[window.frame_index]
+        idx = min(max(0, int(getattr(window, 'frame_index', 0))), len(frames) - 1)
+        current_frame = frames[idx]
         current_t = current_frame.get("t", 0.0)
         formatted_time = format_time(current_t)
 
@@ -3276,7 +3320,18 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
     for i in range(0, n_frames, sample_rate):
         frame = frames[i]
         drivers_data = frame.get("drivers", {})
-        current_drivers = set(drivers_data.keys())
+        current_drivers = set()
+        for k, v in drivers_data.items():
+            if not isinstance(v, dict):
+                continue
+            if "active" in v:
+                if v["active"]:
+                    current_drivers.add(k)
+            elif "validity" in v:
+                if v["validity"] in ("active", "finished"):
+                    current_drivers.add(k)
+            else:
+                current_drivers.add(k)
 
         # Detect DNFs (drivers who disappeared)
         if prev_drivers:
@@ -3344,9 +3399,17 @@ def extract_race_events(frames: List[dict], track_statuses: List[dict], total_la
 
 
 def build_track_from_example_lap(example_lap, track_width=200):
+    if example_lap is None or not hasattr(example_lap, "__getitem__"):
+        t = np.linspace(0, 2 * np.pi, 200)
+        example_lap = {
+            "X": np.asarray(1000.0 * np.cos(t)),
+            "Y": np.asarray(1000.0 * np.sin(t)),
+            "DRS": np.zeros(200, dtype=int),
+        }
+
     drs_zones = plotDRSzones(example_lap)
-    plot_x_ref = example_lap["X"]
-    plot_y_ref = example_lap["Y"]
+    plot_x_ref = np.asarray(example_lap["X"])
+    plot_y_ref = np.asarray(example_lap["Y"])
 
     # compute tangents
     dx = np.gradient(plot_x_ref)
@@ -3378,11 +3441,18 @@ def build_track_from_example_lap(example_lap, track_width=200):
 
 
 def plotDRSzones(example_lap):
-    if "DRS" not in example_lap:
+    if example_lap is None or not hasattr(example_lap, "__getitem__"):
+        return []
+    try:
+        if "DRS" not in example_lap:
+            return []
+    except (TypeError, Exception):
         return []
 
     x_val = example_lap["X"]
     y_val = example_lap["Y"]
+    x_get = getattr(x_val, "iloc", x_val)
+    y_get = getattr(y_val, "iloc", y_val)
     drs_zones = []
     drs_start = None
 
@@ -3394,8 +3464,8 @@ def plotDRSzones(example_lap):
             if drs_start is not None:
                 drs_end = i - 1
                 zone = {
-                    "start": {"x": x_val.iloc[drs_start], "y": y_val.iloc[drs_start], "index": drs_start},
-                    "end": {"x": x_val.iloc[drs_end], "y": y_val.iloc[drs_end], "index": drs_end}
+                    "start": {"x": x_get[drs_start], "y": y_get[drs_start], "index": drs_start},
+                    "end": {"x": x_get[drs_end], "y": y_get[drs_end], "index": drs_end}
                 }
                 drs_zones.append(zone)
                 drs_start = None
@@ -3404,8 +3474,8 @@ def plotDRSzones(example_lap):
     if drs_start is not None:
         drs_end = len(example_lap["DRS"]) - 1
         zone = {
-            "start": {"x": x_val.iloc[drs_start], "y": y_val.iloc[drs_start], "index": drs_start},
-            "end": {"x": x_val.iloc[drs_end], "y": y_val.iloc[drs_end], "index": drs_end}
+            "start": {"x": x_get[drs_start], "y": y_get[drs_start], "index": drs_start},
+            "end": {"x": x_get[drs_end], "y": y_get[drs_end], "index": drs_end}
         }
         drs_zones.append(zone)
 
@@ -3413,19 +3483,25 @@ def plotDRSzones(example_lap):
 
 
 def draw_finish_line(self, session_type='R'):
-    if (session_type not in ['R', 'Q']):
+    if session_type not in ['R', 'Q', 'S', 'SQ']:
         print("Invalid session type for finish line drawing...")
         return
 
     start_inner = None
     start_outer = None
 
-    if (session_type == 'Q' and len(self.inner_pts) > 0 and len(self.outer_pts) > 0):
-        start_inner = self.inner_pts[0]
-        start_outer = self.outer_pts[0]
-    elif (session_type == 'R' and len(self.screen_inner_points) > 0 and len(self.screen_outer_points) > 0):
-        start_inner = self.screen_inner_points[0]
-        start_outer = self.screen_outer_points[0]
+    if session_type in ['Q', 'SQ']:
+        inner = getattr(self, "inner_pts", None) or getattr(self, "screen_inner_points", None)
+        outer = getattr(self, "outer_pts", None) or getattr(self, "screen_outer_points", None)
+        if inner and outer and len(inner) > 0 and len(outer) > 0:
+            start_inner = inner[0]
+            start_outer = outer[0]
+    elif session_type in ['R', 'S']:
+        inner = getattr(self, "screen_inner_points", None)
+        outer = getattr(self, "screen_outer_points", None)
+        if inner and outer and len(inner) > 0 and len(outer) > 0:
+            start_inner = inner[0]
+            start_outer = outer[0]
     else:
         return
 

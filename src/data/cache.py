@@ -38,6 +38,7 @@ from __future__ import annotations
 import logging
 import os
 import pickle
+import re
 import tempfile
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
@@ -198,7 +199,7 @@ class CacheKey:
     suffix: str = "race"
 
     def to_filename(self) -> str:
-        safe_event = self.event_name.replace(" ", "_")
+        safe_event = re.sub(r'[<>:"/\\|?* ]', "_", self.event_name)
         return f"{safe_event}_{self.suffix}_telemetry.pkl"
 
 

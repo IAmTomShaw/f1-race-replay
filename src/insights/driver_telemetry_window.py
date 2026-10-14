@@ -155,17 +155,39 @@ class DriverTelemetryWindow(PitWallWindow):
             self._lap_buffers[code] = {"lap": None, "start_dist": 0.0, "samples": []}
 
     def _append_sample(self, code: str, driver: dict, session_t: float):
+        if not isinstance(driver, dict):
+            return
+        import math
         self._ensure_buffers(code)
 
-        speed    = float(driver.get("speed")    or 0)
-        gear     = int(driver.get("gear")       or 0)
-        throttle = float(driver.get("throttle") or 0)
-        brake    = float(driver.get("brake")    or 0) * 100 # Convert to percentage as brake is 0-1 in the stream but we want 0-100 on the chart
-        dist     = float(driver.get("dist")     or 0)
-        lap      = driver.get("lap")
+        def _finite_float(val, default=0.0):
+            try:
+                f = float(val if val is not None else default)
+                return f if math.isfinite(f) else default
+            except (ValueError, TypeError):
+                return default
 
-        # ── time buffer: prune samples older than _TIME_WINDOW ──
+        speed = _finite_float(driver.get("speed"), 0.0)
+        gear_f = _finite_float(driver.get("gear"), 0.0)
+        gear = int(gear_f)
+        throttle = _finite_float(driver.get("throttle"), 0.0)
+        raw_brake_val = driver.get("brake")
+        if isinstance(raw_brake_val, bool):
+            brake = 100.0 if raw_brake_val else 0.0
+        else:
+            raw_brake = _finite_float(raw_brake_val, 0.0)
+            if 0.0 < raw_brake <= 1.0:
+                brake = raw_brake * 100.0
+            else:
+                brake = min(100.0, max(0.0, raw_brake))
+        dist = _finite_float(driver.get("dist"), 0.0)
+        lap_raw = driver.get("lap")
+        lap = int(_finite_float(lap_raw, 0.0)) if lap_raw is not None and math.isfinite(_finite_float(lap_raw, float("nan"))) else None
+
+        # ── time buffer: prune future samples on rewind, then prune older than _TIME_WINDOW ──
         tb = self._time_buffers[code]
+        while tb and tb[-1]["t"] > session_t:
+            tb.pop()
         tb.append({"t": session_t, "speed": speed, "gear": gear,
                    "throttle": throttle, "brake": brake})
         cutoff = session_t - _TIME_WINDOW
@@ -181,7 +203,9 @@ class DriverTelemetryWindow(PitWallWindow):
             lb["lap"] = lap
             lb["start_dist"] = dist
             lb["samples"] = []
-        lap_dist = dist - lb["start_dist"]
+        lap_dist = max(0.0, dist - lb["start_dist"])
+        while lb["samples"] and lb["samples"][-1]["dist"] > lap_dist + 5.0:
+            lb["samples"].pop()
         lb["samples"].append({"dist": lap_dist, "speed": speed, "gear": gear,
                                "throttle": throttle, "brake": brake})
 
@@ -258,10 +282,9 @@ class DriverTelemetryWindow(PitWallWindow):
         # X-axis: prefer the authoritative circuit length from the session.
         # Fall back to the most recently completed lap's distance, then the
         # current max distance (grows during the very first lap only).
-        lap_length = (
-            self._circuit_length_m
-            or self._lap_lengths.get(code)
-            or max(xs)
+        lap_length = max(
+            float(self._circuit_length_m or self._lap_lengths.get(code) or (max(xs) if xs else 1000.0)),
+            100.0
         )
         for ax in (self._ax_speed, self._ax_gear, self._ax_ctrl):
             ax.set_xlim(0, lap_length)

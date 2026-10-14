@@ -1,13 +1,18 @@
+import math
 import re
 from typing import Optional
 
 # convert time in seconds to a MM:SS.sss format
 
 def format_time(seconds: float) -> str:
-  if seconds is None or seconds < 0:
+  if seconds is None or not isinstance(seconds, (int, float)):
     return "N/A"
-  minutes = int(seconds // 60)
-  secs = seconds % 60
+  if math.isnan(seconds) or math.isinf(seconds) or seconds < 0:
+    return "N/A"
+  total_ms = int(round(float(seconds) * 1000))
+  minutes = total_ms // 60000
+  rem_ms = total_ms % 60000
+  secs = rem_ms / 1000.0
   return f"{minutes:02}:{secs:06.3f}"
 
 def parse_time_string(time_str: str) -> Optional[float]:
@@ -22,13 +27,17 @@ def parse_time_string(time_str: str) -> Optional[float]:
   if time_str is None:
     return None
 
+  raw = str(time_str).strip()
+  if not raw:
+    return None
+
   # Handle timedelta format like "0 days 00:01:27.060000"
-  if "days" in str(time_str):
-    time_str = str(time_str).split(" ", 2)[-1]  # Take the time part after "X days "
+  if "days" in raw:
+    raw = raw.split(" ", 2)[-1]  # Take the time part after "X days "
   else:
-    time_str = str(time_str).split(" ")[0]  # Remove any trailing text after space
+    raw = raw.split(" ")[0]  # Remove any trailing text after space
   
-  s = str(time_str).strip()
+  s = raw.strip()
   if s == "":
     return None
 
