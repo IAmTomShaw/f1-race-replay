@@ -11,9 +11,9 @@ import subprocess
 import tempfile
 import uuid
 from datetime import datetime, timezone
-from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names, load_session
 from src.gui.settings_dialog import SettingsDialog
 from src.lib.season import get_season
+
 
 # Worker thread to fetch schedule without blocking UI
 class FetchScheduleWorker(QThread):
@@ -24,15 +24,47 @@ class FetchScheduleWorker(QThread):
         super().__init__(parent)
         self.year = year
 
-    def run(self): #check
+    def run(self):
         try:
-            # enable cache if available in project
+            from src.f1_data import enable_cache, get_race_weekends_by_year
             try:
-                from src.f1_data import enable_cache
                 enable_cache()
             except Exception:
                 pass
             events = get_race_weekends_by_year(self.year)
+            self.result.emit(events)
+        except Exception as e:
+            self.error.emit(str(e))
+
+
+class FetchRaceNamesWorker(QThread):
+    result = Signal(object)
+
+    def __init__(self, end_year=None, parent=None):
+        super().__init__(parent)
+        self.end_year = end_year
+
+    def run(self):
+        try:
+            from src.f1_data import get_all_unique_race_names
+            names = get_all_unique_race_names(end_year=self.end_year)
+            self.result.emit(names)
+        except Exception:
+            self.result.emit([])
+
+
+class FetchPlaceScheduleWorker(QThread):
+    result = Signal(object)
+    error = Signal(str)
+
+    def __init__(self, place, parent=None):
+        super().__init__(parent)
+        self.place = place
+
+    def run(self):
+        try:
+            from src.f1_data import get_race_weekends_by_place
+            events = get_race_weekends_by_place(self.place)
             self.result.emit(events)
         except Exception as e:
             self.error.emit(str(e))
@@ -368,16 +400,15 @@ class RaceSelectionWindow(QMainWindow):
         year_layout.addWidget(self.year_combo)
         main_layout.addLayout(year_layout)
 
-        #Race Selection
+        #Race Selection (populated asynchronously so window opens immediately)
         place_layout=QHBoxLayout()
         place_label=QLabel("Select Race:")
         self.place_combo=QComboBox()
         self.place_combo.addItem("All Races")
-        try:
-            self.place_combo.addItems(get_all_unique_race_names())
-        except Exception:
-            pass
         self.place_combo.currentTextChanged.connect(self.load_by_place)
+        self._race_names_worker = FetchRaceNamesWorker(end_year=self.current_year, parent=self)
+        self._race_names_worker.result.connect(self._on_race_names_loaded)
+        self._race_names_worker.start()
 
 
         place_layout.addWidget(place_label)
@@ -474,6 +505,16 @@ class RaceSelectionWindow(QMainWindow):
         self.selected_year=int(year_text)
         self.load_schedule(year=self.selected_year)
 
+    def _on_race_names_loaded(self, names):
+        if not names:
+            return
+        self.place_combo.blockSignals(True)
+        existing = {self.place_combo.itemText(i) for i in range(self.place_combo.count())}
+        for name in names:
+            if name not in existing:
+                self.place_combo.addItem(name)
+        self.place_combo.blockSignals(False)
+
     def load_by_place(self,race_name):
         if race_name=="All Races":
             if self.selected_year is not None:
@@ -487,9 +528,16 @@ class RaceSelectionWindow(QMainWindow):
         self.selected_year=None
 
         self.schedule_tree.clear()
-        
-        events=get_race_weekends_by_place(race_name)
-        self.load_schedule(events=events)
+        try:
+            self.session_panel.hide()
+        except Exception:
+            pass
+
+        self.loading_session = True
+        self._place_worker = FetchPlaceScheduleWorker(race_name, parent=self)
+        self._place_worker.result.connect(self.populate_schedule)
+        self._place_worker.error.connect(self.show_error)
+        self._place_worker.start()
 
     def populate_schedule(self, events):
         for event in events:
@@ -611,109 +659,81 @@ class RaceSelectionWindow(QMainWindow):
             cmd.append("--refresh-data")
         if "--verbose" in sys.argv:
             cmd.append("--verbose")
-        # Show a modal loading dialog and load the session in a background thread.
-        dlg = QProgressDialog("Loading session data...", None, 0, 0, self)
-        dlg.setWindowTitle("Loading")
+        # Spawn the viewer child process immediately (eliminates the redundant
+        # parent-process load_session() that previously doubled launch time).
+        ready_path = os.path.join(tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}")
+        cmd_with_ready = list(cmd) + ["--ready-file", ready_path]
+
+        dlg = QProgressDialog("Loading session & telemetry...", "Cancel", 0, 0, self)
+        dlg.setWindowTitle("Launching Replay")
         dlg.setWindowModality(Qt.ApplicationModal)
-        dlg.setCancelButton(None)
         dlg.setMinimumDuration(0)
         dlg.setRange(0, 0)
         dlg.show()
         QApplication.processEvents()
 
-        # Map label -> fastf1 session type code
-        session_code = 'R'
-        if session_label == "Qualifying":
-            session_code = 'Q'
-        elif session_label == "Sprint Qualifying":
-            session_code = 'SQ'
-        elif session_label == "Sprint":
-            session_code = 'S'
-
-        class FetchSessionWorker(QThread):
-            result = Signal(object)
-            error = Signal(str)
-
-            def __init__(self, year, round_no, session_type, parent=None):
-                super().__init__(parent)
-                self.year = year
-                self.round_no = round_no
-                self.session_type = session_type
-
-            def run(self):
-                try:
-                    try:
-                        from src.f1_data import enable_cache
-                        enable_cache()
-                    except Exception:
-                        pass
-                    sess = load_session(self.year, self.round_no, self.session_type)
-                    self.result.emit(sess)
-                except Exception as e:
-                    self.error.emit(str(e))
-
-        def _on_loaded(session_obj):
-            # create a unique ready-file path and pass it to the child
-            ready_path = os.path.join(tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}")
-            cmd_with_ready = list(cmd) + ["--ready-file", ready_path]
-
-            try:
-                proc = subprocess.Popen(cmd_with_ready)
-            except Exception as exc:
-                try:
-                    dlg.close()
-                except Exception:
-                    pass
-                QMessageBox.critical(self, "Playback error", f"Failed to start playback:\n{exc}")
-                return
-
-            # Poll for ready file or child exit
-            timer = QTimer(self)
-
-            def _check_ready():
-                try:
-                    if os.path.exists(ready_path):
-                        try:
-                            dlg.close()
-                        except Exception:
-                            pass
-                        timer.stop()
-                        try:
-                            os.remove(ready_path)
-                        except Exception:
-                            pass
-                        return
-                    # if process exited early, show error
-                    if proc.poll() is not None:
-                        try:
-                            dlg.close()
-                        except Exception:
-                            pass
-                        timer.stop()
-                        QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
-                except Exception:
-                    # ignore transient file-system errors
-                    pass
-
-            timer.timeout.connect(_check_ready)
-            timer.start(200)
-            # keep references
-            self._play_proc = proc
-            self._ready_timer = timer
-
-        def _on_error(msg):
+        try:
+            proc = subprocess.Popen(cmd_with_ready)
+        except Exception as exc:
             try:
                 dlg.close()
             except Exception:
                 pass
-            QMessageBox.critical(self, "Load error", f"Failed to load session data:\n{msg}")
+            QMessageBox.critical(self, "Playback error", f"Failed to start playback:\n{exc}")
+            return
 
-        worker = FetchSessionWorker(year, round_no, session_code)
-        worker.result.connect(_on_loaded)
-        worker.error.connect(_on_error)
-        # Keep a reference so it doesn't get GC'd
-        self._session_worker = worker
-        worker.start()
+        timer = QTimer(self)
+
+        def _cancel_launch():
+            timer.stop()
+            if proc.poll() is None:
+                try:
+                    proc.terminate()
+                except Exception:
+                    pass
+            try:
+                if os.path.exists(ready_path):
+                    os.remove(ready_path)
+            except Exception:
+                pass
+
+        dlg.canceled.connect(_cancel_launch)
+
+        def _check_ready():
+            try:
+                if os.path.exists(ready_path):
+                    timer.stop()
+                    try:
+                        dlg.canceled.disconnect(_cancel_launch)
+                    except Exception:
+                        pass
+                    try:
+                        dlg.close()
+                    except Exception:
+                        pass
+                    try:
+                        os.remove(ready_path)
+                    except Exception:
+                        pass
+                    return
+                if proc.poll() is not None:
+                    timer.stop()
+                    try:
+                        dlg.canceled.disconnect(_cancel_launch)
+                    except Exception:
+                        pass
+                    try:
+                        dlg.close()
+                    except Exception:
+                        pass
+                    QMessageBox.critical(self, "Playback error", "Playback process exited before signaling readiness")
+            except Exception:
+                pass
+
+        timer.timeout.connect(_check_ready)
+        timer.start(80)
+        self._play_proc = proc
+        self._ready_timer = timer
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False

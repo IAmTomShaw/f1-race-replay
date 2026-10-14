@@ -16,7 +16,7 @@ from src.ui_components import (
 )
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
-from src.interfaces.race_replay import _is_finite_coord
+from src.lib.geometry import _is_finite_coord, is_finite_coord
 
 # Enable DPI awareness on Windows for crisp rendering on high-DPI displays
 if sys.platform == "win32":
@@ -120,10 +120,39 @@ class QualifyingReplay(arcade.Window):
         self.controls_popup_comp.set_size(340, 250)
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13)
 
-        # Build the track layout from an example lap
+        # Build the track layout from precomputed telemetry frames first (instant, zero FastF1 load),
+        # then fall back to session.laps if needed.
+        telemetry = None
+        tel_store = self.data.get("telemetry") if isinstance(self.data, dict) else None
+        if isinstance(tel_store, dict):
+            for res in self.data.get("results", []):
+                code = res.get("code") if isinstance(res, dict) else None
+                drv_block = tel_store.get(code) if code else None
+                if not isinstance(drv_block, dict):
+                    continue
+                for seg_name in ("Q3", "Q2", "Q1"):
+                    seg_obj = drv_block.get(seg_name)
+                    seg_frames = seg_obj.get("frames") if isinstance(seg_obj, dict) else None
+                    if seg_frames and len(seg_frames) >= 20:
+                        xs_q, ys_q, drs_q = [], [], []
+                        for fr in seg_frames:
+                            ft = fr.get("telemetry") if isinstance(fr, dict) else None
+                            if isinstance(ft, dict) and _is_finite_coord(ft.get("x"), ft.get("y")):
+                                xs_q.append(float(ft["x"]))
+                                ys_q.append(float(ft["y"]))
+                                drs_q.append(int(ft.get("drs") or 0))
+                        if len(xs_q) >= 20:
+                            telemetry = {
+                                "X": np.asarray(xs_q, dtype=float),
+                                "Y": np.asarray(ys_q, dtype=float),
+                                "DRS": np.asarray(drs_q, dtype=int),
+                            }
+                            break
+                if telemetry is not None:
+                    break
 
         example_lap = None
-        for res in self.data.get('results', []):
+        for res in (self.data.get('results', []) if telemetry is None else []):
             code = res.get('code')
             if not code:
                 continue
@@ -142,7 +171,7 @@ class QualifyingReplay(arcade.Window):
             if example_lap is not None:
                 break
 
-        if example_lap is None:
+        if telemetry is None and example_lap is None:
             try:
                 lap = self.session.laps.pick_fastest()
                 if lap is not None and hasattr(lap, "get_telemetry"):
@@ -152,7 +181,7 @@ class QualifyingReplay(arcade.Window):
             except Exception:
                 pass
 
-        if example_lap is None:
+        if telemetry is None and example_lap is None:
             try:
                 for _, lap in self.session.laps.iterlaps():
                     if hasattr(lap, "get_telemetry"):
@@ -166,8 +195,7 @@ class QualifyingReplay(arcade.Window):
             except Exception:
                 pass
 
-        telemetry = None
-        if example_lap is not None:
+        if telemetry is None and example_lap is not None:
             try:
                 telemetry = example_lap.get_telemetry()
             except Exception:
@@ -886,8 +914,8 @@ class QualifyingReplay(arcade.Window):
             # Toggle the ability to see the comparison driver's telemetry
             self.show_comparison_telemetry = not self.show_comparison_telemetry
             return
-        elif symbol == arcade.key.D:
-            # Toggle DRS zones on track map
+        elif symbol in (arcade.key.D, arcade.key.B):
+            # Toggle DRS zones on track map (accept both D and B)
             self.toggle_drs_zones = not self.toggle_drs_zones
             return
         elif symbol == arcade.key.H:

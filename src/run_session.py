@@ -93,41 +93,41 @@ def _launch_child(name: str, module: str, *, readiness_timeout: float = 10.0) ->
 
 
 def launch_telemetry_viewer():
-  # PHASE I: the launcher thread no longer sleeps before
-  # starting the child. The ManagedProcess returns
-  # immediately after fork; readiness is a separate explicit
-  # signal (not yet wired on the consumer side, since
-  # telemetry_stream_viewer does not currently call
-  # readiness.set()). The timeout below bounds the parent's
-  # wait for that signal; if no signal arrives the child is
-  # still running and the parent moves on.
-  def start_viewer():
-    try:
-      mp = _launch_child("telemetry_viewer",
-                          "src.insights.telemetry_stream_viewer")
-      # Best-effort wait; do not block startup if no signal.
-      mp.wait_ready(timeout=readiness_timeout_for("telemetry_viewer"))
-    except Exception as e:
-      print(f"Failed to launch telemetry viewer: {e}")
+    # PHASE I: the launcher thread no longer sleeps before
+    # starting the child. The ManagedProcess returns
+    # immediately after fork; readiness is a separate explicit
+    # signal (not yet wired on the consumer side, since
+    # telemetry_stream_viewer does not currently call
+    # readiness.set()). The timeout below bounds the parent's
+    # wait for that signal; if no signal arrives the child is
+    # still running and the parent moves on.
+    def start_viewer():
+        try:
+            mp = _launch_child("telemetry_viewer",
+                                "src.insights.telemetry_stream_viewer")
+            # Best-effort wait; do not block startup if no signal.
+            mp.wait_ready(timeout=readiness_timeout_for("telemetry_viewer"))
+        except Exception as e:
+            print(f"Failed to launch telemetry viewer: {e}")
 
-  viewer_thread = threading.Thread(target=start_viewer, daemon=True)
-  viewer_thread.start()
+    viewer_thread = threading.Thread(target=start_viewer, daemon=True)
+    viewer_thread.start()
 
 
 def launch_insights_menu():
-  def start_menu():
-    try:
-      mp = _launch_child("insights_menu", "src.gui.insights_menu")
-      mp.wait_ready(timeout=readiness_timeout_for("insights_menu"))
-    except Exception as e:
-      print(f"Failed to launch insights menu: {e}")
+    def start_menu():
+        try:
+            mp = _launch_child("insights_menu", "src.gui.insights_menu")
+            mp.wait_ready(timeout=readiness_timeout_for("insights_menu"))
+        except Exception as e:
+            print(f"Failed to launch insights menu: {e}")
 
-  menu_thread = threading.Thread(target=start_menu, daemon=True)
-  menu_thread.start()
+    menu_thread = threading.Thread(target=start_menu, daemon=True)
+    menu_thread.start()
 
 
-# Configurable per-child readiness timeout. Lives in module
-# scope so tests can monkey-patch it.
+    # Configurable per-child readiness timeout. Lives in module
+    # scope so tests can monkey-patch it.
 _READINESS_TIMEOUTS: dict = {
     "telemetry_viewer": 3.0,
     "insights_menu": 1.0,

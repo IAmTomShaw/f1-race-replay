@@ -75,186 +75,27 @@ _YMODE_TIME = "absolute"
 _YMODE_GAP = "gap"
 
 
-def _hex_to_rgb01(colour):
-    colour = str(colour or "").strip()
-    if not colour.startswith("#") or len(colour) != 7:
-        return None
-    try:
-        return tuple(int(colour[i:i + 2], 16) / 255.0 for i in (1, 3, 5))
-    except ValueError:
-        return None
-
-
-def _rgb01_to_hex(rgb):
-    return "#{:02X}{:02X}{:02X}".format(
-        int(max(0.0, min(1.0, rgb[0])) * 255.0),
-        int(max(0.0, min(1.0, rgb[1])) * 255.0),
-        int(max(0.0, min(1.0, rgb[2])) * 255.0),
-    )
-
-
-def _srgb_to_linear(channel):
-    if channel <= 0.04045:
-        return channel / 12.92
-    return ((channel + 0.055) / 1.055) ** 2.4
-
-
-def _relative_luminance(rgb):
-    r, g, b = (_srgb_to_linear(c) for c in rgb)
-    return 0.2126 * r + 0.7152 * g + 0.0722 * b
-
-
-def _contrast_ratio(fg_hex, bg_hex):
-    fg_rgb = _hex_to_rgb01(fg_hex)
-    bg_rgb = _hex_to_rgb01(bg_hex)
-    if fg_rgb is None or bg_rgb is None:
-        return 1.0
-    fg_l = _relative_luminance(fg_rgb)
-    bg_l = _relative_luminance(bg_rgb)
-    lighter = max(fg_l, bg_l)
-    darker = min(fg_l, bg_l)
-    return (lighter + 0.05) / (darker + 0.05)
-
-
-def _mix_rgb(rgb_a, rgb_b, amount):
-    return tuple(
-        (1.0 - amount) * a + amount * b
-        for a, b in zip(rgb_a, rgb_b)
-    )
-
-
-def _display_safe_colour(colour, bg_colour=_BG, min_contrast=3.2):
-    if _contrast_ratio(colour, bg_colour) >= min_contrast:
-        return colour
-
-    rgb = _hex_to_rgb01(colour)
-    if rgb is None:
-        return colour
-
-    white = (1.0, 1.0, 1.0)
-    lo, hi = 0.0, 1.0
-    best = white
-    for _ in range(16):
-        mid = (lo + hi) / 2.0
-        candidate = _mix_rgb(rgb, white, mid)
-        candidate_hex = _rgb01_to_hex(candidate)
-        if _contrast_ratio(candidate_hex, bg_colour) >= min_contrast:
-            best = candidate
-            hi = mid
-        else:
-            lo = mid
-    return _rgb01_to_hex(best)
-
-
-def _format_laptime(seconds, _pos=None):
-    """Format lap time as M:SS.sss. Uses 1 decimal place for Y-axis labels."""
-    if seconds is None or not isinstance(seconds, (int, float)) or not np.isfinite(seconds) or seconds <= 0:
-        return ""
-    if _pos is not None:
-        total_tenths = int(round(float(seconds) * 10))
-        m, rem_tenths = divmod(total_tenths, 600)
-        return f"{m}:{rem_tenths / 10.0:04.1f}"
-    total_ms = int(round(float(seconds) * 1000))
-    m, rem_ms = divmod(total_ms, 60000)
-    return f"{m}:{rem_ms / 1000.0:06.3f}"
-
-
-def _format_delta(seconds, _pos=None):
-    """Format delta time, omitting the '+' sign for exactly 0.0."""
-    if seconds is None or not isinstance(seconds, (int, float)) or not np.isfinite(seconds):
-        return ""
-    if abs(seconds) < 0.0005:  # Effectively zero
-        if _pos is not None:
-            return "0.0"
-        return "0.000s"
-    if _pos is not None:
-        return f"{seconds:+.1f}"
-    return f"{seconds:+.3f}s"
-
-
-def _moving_average(values, window):
-    """Compute a simple moving average, returning same-length array with NaN padding."""
-    if len(values) < window:
-        return values[:]
-    result = []
-    for i in range(len(values)):
-        if i < window - 1:
-            result.append(None)
-        else:
-            avg = sum(values[i - window + 1:i + 1]) / window
-            result.append(avg)
-    return result
-
-
-def _entry_is_pit_entry(entry):
-    return bool(entry.get("is_pit_entry"))
-
-
-def _entry_is_pit_affected(entry, pit_threshold):
-    explicit = entry.get("is_pit_affected")
-    if explicit is not None:
-        return bool(explicit)
-    legacy = entry.get("is_pit")
-    if legacy is not None:
-        return bool(legacy)
-    t = entry.get("time_s")
-    lap = entry.get("lap")
-    if t is None or lap is None:
-        return False
-    return t > pit_threshold and lap > 1
-
-
-def _entry_is_out_lap(entry):
-    return bool(entry.get("is_out_lap"))
-
-
-def _entry_is_outlier(entry, pit_threshold):
-    explicit = entry.get("is_outlier")
-    if explicit is not None:
-        return bool(explicit)
-    t = entry.get("time_s")
-    if t is None:
-        return False
-    return (
-        t > pit_threshold
-        and not _entry_is_pit_affected(entry, pit_threshold)
-        and not _entry_is_out_lap(entry)
-    )
-
-
-def _is_clean_timed_entry(entry, pit_threshold, sc_vsc_laps):
-    if not entry:
-        return False
-    t = entry.get("time_s")
-    if t is None:
-        return False
-    return (
-        0 < t <= pit_threshold
-        and entry.get("lap") not in sc_vsc_laps
-        and not _entry_is_pit_affected(entry, pit_threshold)
-        and not _entry_is_out_lap(entry)
-        and not _entry_is_outlier(entry, pit_threshold)
-    )
-
-
-def _entry_has_gap_discontinuity(entry, pit_threshold, sc_vsc_laps):
-    if not entry:
-        return False
-    lap = entry.get("lap")
-    return (
-        _entry_is_pit_affected(entry, pit_threshold)
-        or _entry_is_out_lap(entry)
-        or _entry_is_outlier(entry, pit_threshold)
-        or (lap in sc_vsc_laps if lap is not None else False)
-    )
-
-
-def _terminal_status_display_text(status):
-    status_text = str(status or "").strip()
-    if not status_text or status_text.lower() == "retired":
-        return "Retired (DNF)"
-    return status_text
-
+from src.lib.color_utils import (
+    _hex_to_rgb01,
+    _rgb01_to_hex,
+    _srgb_to_linear,
+    _relative_luminance,
+    _contrast_ratio,
+    _mix_rgb,
+    _display_safe_colour,
+)
+from src.analytics.lap_time_analyzer import (
+    _format_laptime,
+    _format_delta,
+    _moving_average,
+    _entry_is_pit_entry,
+    _entry_is_pit_affected,
+    _entry_is_out_lap,
+    _entry_is_outlier,
+    _is_clean_timed_entry,
+    _entry_has_gap_discontinuity,
+    _terminal_status_display_text,
+)
 
 class _OverlayBlitManager:
     """Manage a tiny animated overlay layer for hover crosshair and tooltip."""

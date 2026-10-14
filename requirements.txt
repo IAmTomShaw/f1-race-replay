@@ -3,8 +3,11 @@ pandas
 matplotlib
 numpy
 scipy
-arcade==2.6.17
-pyglet==2.0.dev23
+arcade==2.6.17; python_version < "3.12"
+pyglet==2.0.dev23; python_version < "3.12"
+arcade>=3.0.0; python_version >= "3.12"
+pyglet>=2.0.18; python_version >= "3.12"
+pillow>=10.4.0; python_version >= "3.12"
 pyside6
 questionary
 rich

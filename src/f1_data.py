@@ -96,13 +96,13 @@ def _map_driver_work(worker, args, label):
         print(f"Processing {len(args)} {label} sequentially...")
         return [worker(arg) for arg in args]
 
-    if os.name == "nt":
-        print(f"Processing {len(args)} {label} with {worker_count} threads...")
-        with ThreadPool(processes=worker_count) as pool:
+    if os.environ.get("F1_REPLAY_USE_PROCESS_POOL") == "1" and os.name != "nt":
+        print(f"Processing {len(args)} {label} with {worker_count} processes...")
+        with Pool(processes=worker_count) as pool:
             return pool.map(worker, args)
 
-    print(f"Processing {len(args)} {label} with {worker_count} processes...")
-    with Pool(processes=worker_count) as pool:
+    print(f"Processing {len(args)} {label} with {worker_count} threads...")
+    with ThreadPool(processes=worker_count) as pool:
         return pool.map(worker, args)
 
 
@@ -235,90 +235,39 @@ def _process_single_driver(args):
     }
 
 
-def load_session(year, round_number, session_type="R"):
+def has_cached_telemetry_payload(session, session_type="R"):
+    if "--refresh-data" in sys.argv or session is None:
+        return None
+    event_name = str(session).replace(" ", "_")
+    if session_type in ("Q", "SQ"):
+        cache_suffix = "sprintquali" if session_type == "SQ" else "quali"
+    else:
+        cache_suffix = "sprint" if session_type == "S" else "race"
+    cache_file = _computed_data_file(event_name, cache_suffix)
+    try:
+        return read_cache(cache_file)
+    except Exception:
+        return None
+
+
+from src.data.track_drs_service import (
+    enrich_example_lap_drs_from_frames,
+    extract_example_lap_telemetry,
+    get_driver_colors,
+    get_circuit_rotation,
+    resolve_track_length as _resolve_track_length,
+    resolve_driver_terminal_flags as _resolve_driver_terminal_flags,
+)
+
+
+def load_session(year, round_number, session_type="R", load_telemetry=True, load_weather=True, load_messages=True):
     # session_type: 'R' (Race), 'S' (Sprint) etc.
     session = fastf1.get_session(year, round_number, session_type)
-    session.load(telemetry=True, weather=True)
+    if load_telemetry and load_weather and load_messages:
+        session.load(telemetry=True, weather=True)
+    else:
+        session.load(telemetry=load_telemetry, weather=load_weather, messages=load_messages)
     return session
-
-
-def get_driver_colors(session):
-    color_mapping = fastf1.plotting.get_driver_color_mapping(session)
-
-    # Convert hex colors to RGB tuples
-    rgb_colors = {}
-    for driver, hex_color in color_mapping.items():
-        hex_color = hex_color.lstrip("#")
-        rgb = tuple(int(hex_color[i : i + 2], 16) for i in (0, 2, 4))
-        rgb_colors[driver] = rgb
-    return rgb_colors
-
-
-def get_circuit_rotation(session):
-    circuit = session.get_circuit_info()
-    return circuit.rotation
-
-
-def _resolve_track_length(session, fallback_max_lap_dist=0.0):
-    try:
-        tl = float(getattr(session.get_circuit_info(), "length", 0.0) or 0.0)
-        if tl > 0:
-            return tl
-    except Exception:
-        pass
-    if fallback_max_lap_dist and fallback_max_lap_dist > 0:
-        return float(fallback_max_lap_dist)
-    try:
-        fastest = session.laps.pick_fastest()
-        if fastest is not None:
-            tel = fastest.get_telemetry()
-            if tel is not None and not tel.empty and "Distance" in tel:
-                d_max = float(tel["Distance"].max())
-                if math.isfinite(d_max) and d_max > 0:
-                    return d_max
-    except Exception:
-        pass
-    return 0.0
-
-
-def _resolve_driver_terminal_flags(session, driver_max_lags, driver_t_max, max_lap_number, global_t_max):
-    """Determine (finished, retired) per driver from session.results or telemetry bounds."""
-    finished_codes = set()
-    retired_codes = set()
-    try:
-        results_df = getattr(session, "results", None)
-        if results_df is not None and not results_df.empty:
-            for _, row in results_df.iterrows():
-                code = str(row.get("Abbreviation", "")).strip()
-                if not code:
-                    continue
-                status = str(row.get("Status", "")).strip()
-                c_pos = str(row.get("ClassifiedPosition", "")).strip().upper()
-                if status == "Finished" or status.startswith("+") or status == "Lapped":
-                    finished_codes.add(code)
-                elif c_pos in ("R", "D", "E", "W", "F", "N") or "retire" in status.lower() or "accident" in status.lower() or "collision" in status.lower() or "engine" in status.lower() or "gearbox" in status.lower() or "brakes" in status.lower() or "hydraulics" in status.lower() or "electrical" in status.lower() or "power unit" in status.lower():
-                    retired_codes.add(code)
-    except Exception:
-        pass
-
-    flags = {}
-    for code, d_max_lap in driver_max_lags.items():
-        if code in finished_codes:
-            flags[code] = (True, False)
-        elif code in retired_codes:
-            flags[code] = (False, True)
-        else:
-            d_tmax = driver_t_max.get(code, 0.0)
-            if max_lap_number > 0 and d_max_lap >= max_lap_number:
-                flags[code] = (True, False)
-            elif max_lap_number > 0 and d_max_lap < max_lap_number - 1 and (global_t_max - d_tmax) > 45.0:
-                flags[code] = (False, True)
-            elif (global_t_max - d_tmax) <= 120.0 and d_max_lap >= max(1, max_lap_number - 2):
-                flags[code] = (True, False)
-            else:
-                flags[code] = (False, False)
-    return flags
-
 
 def _compute_safety_car_positions(frames, track_statuses, session):
     """
@@ -852,128 +801,176 @@ def get_race_telemetry(session, session_type="R"):
     
     print("PIT WINDOWS: ", pit_windows)
 
-    # 5. Build the frames + LIVE LEADERBOARD
+    # 5. Build the frames + LIVE LEADERBOARD (Vectorized pre-conversion)
     frames = []
     num_frames = len(timeline)
+    driver_codes = sorted(resampled_data.keys())
+    n_drv = len(driver_codes)
 
-    driver_codes = list(resampled_data.keys())
-    driver_arrays = {code: resampled_data[code] for code in driver_codes}
+    def _vec_float_list(arr, round_digits=None, clamp_min=None, clamp_max=None, scale_01_to_100=False):
+        a = np.asarray(arr, dtype=float)
+        finite = np.isfinite(a)
+        if scale_01_to_100 or clamp_min is not None or clamp_max is not None or round_digits is not None:
+            a = a.copy()
+            if scale_01_to_100:
+                mask_01 = finite & (a > 0.0) & (a <= 1.0)
+                a[mask_01] *= 100.0
+            if clamp_min is not None or clamp_max is not None:
+                a[finite] = np.clip(a[finite], clamp_min, clamp_max)
+            if round_digits is not None:
+                a[finite] = np.round(a[finite], round_digits)
+        if np.all(finite):
+            return a.tolist()
+        return np.where(finite, a, None).tolist()
 
-    for i in range(num_frames):
-        t = timeline[i]
-        snapshot = []
-        for code in driver_codes:
-            d = driver_arrays[code]
-            snapshot.append({
-                "code": code,
-                "dist": safe_float(d["dist"][i]),
-                "x": safe_float(d["x"][i]),
-                "y": safe_float(d["y"][i]),
-                "lap": safe_int(d["lap"][i]),
-                "rel_dist": safe_float(d["rel_dist"][i]),
-                "tyre": safe_float(d["tyre"][i]),
-                "tyre_life": safe_float(d["tyre_life"][i]),
-                "speed": safe_float(d['speed'][i]),
-                "gear": safe_int(d['gear'][i]),
-                "drs": safe_int(d['drs'][i]),
-                "throttle": safe_float(d['throttle'][i]),
-                "brake": safe_float(d['brake'][i]),
-                "validity": (d["validity"][i].value
-                              if isinstance(d["validity"][i], Validity)
-                              else str(d["validity"][i])),
-                "active": d["validity"][i] in (Validity.ACTIVE,
-                                                 Validity.FINISHED),
-            })
+    def _vec_int_list(arr):
+        a = np.asarray(arr, dtype=float)
+        finite = np.isfinite(a)
+        if np.all(finite):
+            return np.rint(a).astype(np.int64).tolist()
+        safe_a = np.where(finite, a, 0.0)
+        return np.where(finite, np.rint(safe_a).astype(np.int64), None).tolist()
 
-        if not snapshot:
-            continue
+    if n_drv > 0 and num_frames > 0:
+        active_mat = np.zeros((n_drv, num_frames), dtype=np.int8)
+        pit_mat = np.zeros((n_drv, num_frames), dtype=np.int8)
+        prog_mat = np.zeros((n_drv, num_frames), dtype=float)
+        lap_key_mat = np.zeros((n_drv, num_frames), dtype=float)
+        dist_key_mat = np.zeros((n_drv, num_frames), dtype=float)
+        code_idx_mat = np.broadcast_to(np.arange(n_drv)[:, None], (n_drv, num_frames))
 
-        _pit_codes = {c["code"] for c in snapshot
-                       if any(start <= t <= end
-                              for start, end in
-                              pit_windows_shifted.get(c["code"], []))}
-        _drivers_for_board = {c["code"]: c for c in snapshot}
-        board = _rank_frame(
-            {"t": float(t), "drivers": _drivers_for_board},
-            _INTEGRATION_TRACK_LENGTH,
-            pit_codes=_pit_codes,
-            frame_index=i,
+        pre_cols = []
+        tl_val = float(_INTEGRATION_TRACK_LENGTH or 0.0)
+
+        for d_idx, code in enumerate(driver_codes):
+            d = resampled_data[code]
+            pit_mask = np.zeros(num_frames, dtype=bool)
+            for start, end in pit_windows_shifted.get(code, []):
+                pit_mask |= (timeline >= start) & (timeline <= end)
+
+            val_list = [
+                v.value if isinstance(v, Validity) else str(v)
+                for v in d["validity"]
+            ]
+            act_arr = np.array(
+                [v in ("active", "finished") for v in val_list],
+                dtype=bool,
+            )
+            lap_arr = np.asarray(d["lap"], dtype=float)
+            dist_arr = np.asarray(d["dist"], dtype=float)
+            valid_prog = act_arr & np.isfinite(lap_arr) & np.isfinite(dist_arr)
+            safe_lap = np.where(valid_prog, np.maximum(np.rint(lap_arr), 1.0), 0.0)
+            safe_dist = np.where(valid_prog, np.maximum(dist_arr, 0.0), 0.0)
+            if tl_val > 0.0:
+                prog = np.where(
+                    valid_prog,
+                    (safe_lap - 1.0) * tl_val + (safe_dist % tl_val),
+                    0.0,
+                )
+            else:
+                prog = np.zeros(num_frames, dtype=float)
+
+            active_mat[d_idx] = np.where(act_arr, 0, 1)
+            pit_mat[d_idx] = np.where(act_arr & pit_mask, 1, 0)
+            prog_mat[d_idx] = -prog
+            lap_key_mat[d_idx] = -safe_lap
+            dist_key_mat[d_idx] = -safe_dist
+
+            pre_cols.append((
+                code,
+                _vec_float_list(d["x"]),
+                _vec_float_list(d["y"]),
+                _vec_float_list(d["dist"]),
+                _vec_int_list(d["lap"]),
+                _vec_float_list(d["rel_dist"], round_digits=4),
+                _vec_float_list(d["tyre"]),
+                _vec_float_list(d["tyre_life"]),
+                None,  # placeholder for positions list
+                _vec_float_list(d["speed"]),
+                _vec_int_list(d["gear"]),
+                _vec_int_list(d["drs"]),
+                _vec_float_list(d["throttle"], clamp_min=0.0, clamp_max=100.0),
+                _vec_float_list(d["brake"], clamp_min=0.0, clamp_max=100.0, scale_01_to_100=True),
+                pit_mask.tolist(),
+                val_list,
+                act_arr.tolist(),
+            ))
+
+        order = np.lexsort(
+            (code_idx_mat, dist_key_mat, lap_key_mat, prog_mat, pit_mat, active_mat),
+            axis=0,
         )
-        pos_by_code = {e.code: e.position for e in board.entries}
-        snapshot.sort(key=lambda r: pos_by_code.get(r["code"], 99))
-        for car in snapshot:
-            car["position"] = pos_by_code.get(car["code"], 99)
+        positions_mat = np.empty_like(order)
+        positions_mat[order, np.arange(num_frames)[None, :]] = np.arange(1, n_drv + 1)[:, None]
 
-        leader = snapshot[0]
-        leader_lap = leader["lap"]
+        pre_cols = [
+            col[:8] + (positions_mat[d_idx].tolist(),) + col[9:]
+            for d_idx, col in enumerate(pre_cols)
+        ]
+        leader_drv_idx = order[0]
+        laps_by_drv = [c[4] for c in pre_cols]
+        leader_laps = [laps_by_drv[leader_drv_idx[i]][i] for i in range(num_frames)]
+        t_list = np.round(timeline, 3).tolist()
 
-        # 5c. Prepare frame data
-        frame_data = {}
-
-        for idx, car in enumerate(snapshot):
-            code = car["code"]
-            position = car["position"]
-            in_pit = code in _pit_codes
-
-            frame_data[code] = {
-                "x": car["x"],
-                "y": car["y"],
-                "dist": car["dist"],
-                "lap": car["lap"],
-                "rel_dist": (round(car["rel_dist"], 4)
-                             if car["rel_dist"] is not None else None),
-                "tyre": car["tyre"],
-                "tyre_life": car["tyre_life"],
-                "position": position,
-                "speed": car["speed"],
-                "gear": car["gear"],
-                "drs": car["drs"],
-                "throttle": car["throttle"],
-                "brake": car["brake"],
-                "in_pit": in_pit,
-                "validity": car["validity"],
-                "active": car["active"],
-            }
-
-        weather_snapshot = {}
+        weather_snapshots = None
         if weather_resampled:
-            try:
-                wt = weather_resampled
-                rain_val = (wt["rainfall"][i]
-                            if wt.get("rainfall") is not None
-                            and np.isfinite(wt["rainfall"][i])
-                            else 0.0)
-                weather_snapshot = {
-                    "track_temp": safe_float(wt["track_temp"][i])
-                    if wt.get("track_temp") is not None
-                    else None,
-                    "air_temp": safe_float(wt["air_temp"][i])
-                    if wt.get("air_temp") is not None
-                    else None,
-                    "humidity": safe_float(wt["humidity"][i])
-                    if wt.get("humidity") is not None
-                    else None,
-                    "wind_speed": safe_float(wt["wind_speed"][i])
-                    if wt.get("wind_speed") is not None
-                    else None,
-                    "wind_direction": safe_float(wt["wind_direction"][i])
-                    if wt.get("wind_direction") is not None
-                    else None,
-                    "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
+            wt = weather_resampled
+            tt_list = _vec_float_list(wt["track_temp"]) if wt.get("track_temp") is not None else [None] * num_frames
+            at_list = _vec_float_list(wt["air_temp"]) if wt.get("air_temp") is not None else [None] * num_frames
+            hu_list = _vec_float_list(wt["humidity"]) if wt.get("humidity") is not None else [None] * num_frames
+            ws_list = _vec_float_list(wt["wind_speed"]) if wt.get("wind_speed") is not None else [None] * num_frames
+            wd_list = _vec_float_list(wt["wind_direction"]) if wt.get("wind_direction") is not None else [None] * num_frames
+            rf_arr = wt.get("rainfall")
+            if rf_arr is not None:
+                rf_np = np.asarray(rf_arr, dtype=float)
+                rain_states = ["RAINING" if (np.isfinite(v) and v >= 0.5) else "DRY" for v in rf_np]
+            else:
+                rain_states = ["DRY"] * num_frames
+            weather_snapshots = [
+                {
+                    "track_temp": tt_list[i],
+                    "air_temp": at_list[i],
+                    "humidity": hu_list[i],
+                    "wind_speed": ws_list[i],
+                    "wind_direction": wd_list[i],
+                    "rain_state": rain_states[i],
                 }
-            except Exception as e:
-                print(f"Failed to attach weather data to frame {i}: {e}")
+                for i in range(num_frames)
+            ]
 
-        frame_payload = {
-            "t": round(t, 3),
-            "lap": leader_lap,
-            "drivers": frame_data,
-        }
-        if weather_snapshot:
-            frame_payload["weather"] = weather_snapshot
-
-        frame_payload = normalize_frame(frame_payload)
-        frames.append(frame_payload)
+        for i in range(num_frames):
+            frame_data = {
+                code: {
+                    "x": xs[i],
+                    "y": ys[i],
+                    "dist": dists[i],
+                    "lap": laps[i],
+                    "rel_dist": rds[i],
+                    "tyre": tyres[i],
+                    "tyre_life": tls[i],
+                    "position": pos_list[i],
+                    "speed": spds[i],
+                    "gear": grs[i],
+                    "drs": drss[i],
+                    "throttle": thrs[i],
+                    "brake": brks[i],
+                    "in_pit": pits[i],
+                    "validity": vals[i],
+                    "active": acts[i],
+                }
+                for (
+                    code, xs, ys, dists, laps, rds, tyres, tls,
+                    pos_list, spds, grs, drss, thrs, brks, pits, vals, acts
+                ) in pre_cols
+            }
+            frame_payload = {
+                "t": t_list[i],
+                "lap": leader_laps[i],
+                "drivers": frame_data,
+            }
+            if weather_snapshots is not None:
+                frame_payload["weather"] = weather_snapshots[i]
+            frames.append(frame_payload)
 
     # 5d. PHASE F: delegate Safety Car processing to src.replay.safety_car
     sc_periods = close_open_periods(
@@ -986,13 +983,23 @@ def get_race_telemetry(session, session_type="R"):
     print("Saving to cache file...")
     _ensure_parent_dir(cache_file)
 
+    drv_colors = get_driver_colors(session)
+    cached_example_lap = extract_example_lap_telemetry(session, frames=frames)
+    try:
+        cached_rotation = get_circuit_rotation(session)
+    except Exception:
+        cached_rotation = 0.0
+
     cache_payload = {
         "frames": frames,
-        "driver_colors": get_driver_colors(session),
+        "driver_colors": drv_colors,
         "track_statuses": formatted_track_statuses,
         "race_control_messages": formatted_rc_messages,
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
+        "example_lap": cached_example_lap,
+        "circuit_rotation": cached_rotation,
+        "drivers": list(drivers),
     }
     write_cache_atomic(
         cache_file, cache_payload,
@@ -1009,19 +1016,13 @@ def get_race_telemetry(session, session_type="R"):
 
     print("Saved Successfully!")
     print("The replay should begin in a new window shortly")
-    return {
-        "frames": frames,
-        "driver_colors": get_driver_colors(session),
-        "track_statuses": formatted_track_statuses,
-        "race_control_messages": formatted_rc_messages,
-        "total_laps": int(max_lap_number),
-        "max_tyre_life": max_tyre_life_map,
-    }
+    return cache_payload
 
 
 def get_qualifying_results(session):
     results = session.results
     qualifying_data = []
+    driver_colors = get_driver_colors(session)
 
     for _, row in results.iterrows():
         driver_code = row["Abbreviation"]
@@ -1043,7 +1044,7 @@ def get_qualifying_results(session):
                 "code": driver_code,
                 "full_name": full_name,
                 "position": position,
-                "color": get_driver_colors(session).get(driver_code, (128, 128, 128)),
+                "color": driver_colors.get(driver_code, (128, 128, 128)),
                 "Q1": convert_time_to_seconds(q1_time),
                 "Q2": convert_time_to_seconds(q2_time),
                 "Q3": convert_time_to_seconds(q3_time),
@@ -1053,7 +1054,14 @@ def get_qualifying_results(session):
 
 
 def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
-    q1, q2, q3 = session.laps.split_qualifying_sessions()
+    cached_splits = getattr(session, "_cached_quali_splits", None)
+    if cached_splits is None:
+        cached_splits = session.laps.split_qualifying_sessions()
+        try:
+            setattr(session, "_cached_quali_splits", cached_splits)
+        except Exception:
+            pass
+    q1, q2, q3 = cached_splits
 
     segments = {"Q1": q1, "Q2": q2, "Q3": q3}
 
@@ -1455,105 +1463,14 @@ def get_quali_telemetry(session, session_type="Q"):
     }
 
 
-def get_race_weekends_by_year(year):
-    """Returns a list of race weekends for a given year."""
-    enable_cache()
-    schedule = fastf1.get_event_schedule(year)
-    weekends = []
-    for _, event in schedule.iterrows():
-        if event.is_testing():
-            continue
-
-        session_dates = {}
-        for i in range(1, 6):
-            session_name = event.get(f"Session{i}")
-            session_date = event.get(f"Session{i}Date")
-            if session_name and pd.notna(session_date):
-                session_dates[str(session_name)] = session_date.isoformat()
-
-        weekends.append(
-            {
-                "round_number": event["RoundNumber"],
-                "event_name": event["EventName"],
-                "date": str(event["EventDate"].date()),
-                "country": event["Country"],
-                "type": event["EventFormat"],
-                "session_dates": session_dates,
-            }
-        )
-    return weekends
-
-def get_race_weekends_by_place(place):
-    """Returns a list of past n race weekends for a given place."""
-    enable_cache()
-    place = place.lower().strip()
-    weekends = []
-    current_year = date.today().year
-
-    for year in range(2018, current_year + 1):
-        try:
-            schedule = fastf1.get_event_schedule(year)
-        except Exception:
-            continue
-
-        for _, event in schedule.iterrows():
-            if event.is_testing():
-                continue
-
-            event_name = str(event["EventName"]).strip().lower()
-            
-            if place == event_name:
-                weekends.append({
-                    "round_number": event["RoundNumber"],
-                    "event_name": event["EventName"],
-                    "date": str(event["EventDate"].date()),
-                    "country": event["Country"],
-                    "year": int(event["EventDate"].date().year),
-                    "type": event["EventFormat"],
-                })
-    return weekends
-
-def get_all_unique_race_names(start_year=2018, end_year=None):
-    "Return a list of all unique race locations"
-    enable_cache()
-    if end_year is None:
-        end_year = date.today().year
-    race_names = set()
-    
-    for year in range(start_year, end_year + 1):
-        try:
-            schedule = fastf1.get_event_schedule(year)
-        except Exception:
-            continue
-
-        for _, event in schedule.iterrows():
-            if event.is_testing():
-                continue
-
-            name = str(event["EventName"]).strip()
-            race_names.add(name)
-
-    return sorted(race_names)
-
-def list_rounds(year):
-    """Lists all rounds for a given year."""
-    enable_cache()
-    print(f"F1 Schedule {year}")
-    schedule = fastf1.get_event_schedule(year)
-    for _, event in schedule.iterrows():
-        print(f"{event['RoundNumber']}: {event['EventName']}")
-
-
-def list_sprints(year):
-    """Lists all sprint rounds for a given year."""
-    enable_cache()
-    print(f"F1 Sprint Races {year}")
-    schedule = fastf1.get_event_schedule(year)
-    sprints = schedule[
-        schedule["EventFormat"].astype(str).str.lower().str.contains("sprint", na=False)
-    ]
-    if sprints.empty:
-        print(f"No sprint races found for {year}.")
-    else:
-        for _, event in sprints.iterrows():
-            print(f"{event['RoundNumber']}: {event['EventName']}")
+from src.data.schedule_service import (
+    _SCHEDULE_MEM_CACHE,
+    _schedule_cache_file,
+    _load_disk_schedule_cache,
+    _save_disk_schedule_cache,
+    get_race_weekends_by_year,
+    get_race_weekends_by_place,
+    get_all_unique_race_names,
+    list_rounds,
+    list_sprints,
+)

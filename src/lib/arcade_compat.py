@@ -76,3 +76,29 @@ def ensure_arcade_compat(arcade_module):
         arcade_module.draw_lrbt_rectangle_textured = draw_lrbt_rectangle_textured
 
     return arcade_module
+
+
+def create_texture_from_pil(arcade_module, name: str, pil_image):
+    """Create an Arcade Texture from a PIL.Image across Arcade 2.6.x and 3.x."""
+    tex_cls = getattr(arcade_module, "Texture", None)
+    if tex_cls is not None:
+        try:
+            return tex_cls(name, image=pil_image)
+        except TypeError:
+            pass
+        try:
+            return tex_cls(pil_image)
+        except TypeError:
+            pass
+        try:
+            img_data_cls = getattr(getattr(arcade_module, "texture", None), "ImageData", None)
+            if img_data_cls is not None:
+                return tex_cls(img_data_cls(pil_image))
+        except Exception:
+            pass
+    return type("Texture", (), {
+        "name": name,
+        "image": pil_image,
+        "width": getattr(pil_image, "width", 50),
+        "height": getattr(pil_image, "height", 50),
+    })()

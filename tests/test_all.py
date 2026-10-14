@@ -1903,3 +1903,356 @@ def test_a11y_audit_zero_warnings():
     findings = scan(project_root())
     warnings_and_errors = [f for f in findings if f.severity in ("warning", "error")]
     assert warnings_and_errors == [], f"Unexpected a11y findings: {warnings_and_errors}"
+
+
+def test_shared_texture_cache_and_fast_controls_loading():
+    from src.ui_components import _SHARED_TEXTURE_CACHE, _load_cached_texture, RaceControlsComponent
+    import arcade
+    _SHARED_TEXTURE_CACHE.clear()
+    calls = []
+    orig_load = arcade.load_texture
+    try:
+        arcade.load_texture = lambda path, *a, **kw: (calls.append(path) or f"tex:{path}")
+        t1 = _load_cached_texture("dummy_path.png")
+        t2 = _load_cached_texture("dummy_path.png")
+        assert t1 == t2 == "tex:dummy_path.png"
+        assert len(calls) == 1
+        _SHARED_TEXTURE_CACHE.clear()
+        rc1 = RaceControlsComponent()
+        count_after_first = len(calls)
+        rc2 = RaceControlsComponent()
+        assert len(calls) == count_after_first
+        # Verify unused arrow-* icons are not loaded by RaceControlsComponent
+        assert not any("arrow-" in p for p in calls)
+    finally:
+        arcade.load_texture = orig_load
+        _SHARED_TEXTURE_CACHE.clear()
+
+
+def test_load_session_lightweight_telemetry_flag(monkeypatch):
+    import src.f1_data as fd
+    recorded = []
+    class _DummySession:
+        def load(self, **kw):
+            recorded.append(kw)
+    monkeypatch.setattr(fd.fastf1, "get_session", lambda y, r, st: _DummySession())
+    fd.load_session(2024, 1, "R")
+    assert recorded[-1] == {"telemetry": True, "weather": True}
+    fd.load_session(2024, 1, "R", load_telemetry=False, load_weather=False, load_messages=False)
+    assert recorded[-1] == {"telemetry": False, "weather": False, "messages": False}
+
+
+def test_drs_zone_enrichment_from_race_frames_and_geometry_fallback():
+    from src.f1_data import enrich_example_lap_drs_from_frames
+    from src.ui_components import plotDRSzones
+
+    # 1. Clean-air race example_lap with all-zero DRS is enriched from race frames where cars used DRS
+    xs = np.linspace(0.0, 1000.0, 100)
+    ys = np.zeros(100)
+    clean_air_lap = {
+        "X": xs.copy(),
+        "Y": ys.copy(),
+        "Distance": xs.copy(),
+        "DRS": np.zeros(100, dtype=int),
+    }
+    frames = [
+        {"t": float(i), "drivers": {"VER": {"x": 200.0 + i * 10.0, "y": 0.0, "drs": 12}}}
+        for i in range(15)
+    ]
+    enriched = enrich_example_lap_drs_from_frames(clean_air_lap, frames)
+    zones = plotDRSzones(enriched)
+    assert len(zones) >= 1
+    assert zones[0]["start"]["index"] <= 25
+    assert zones[0]["end"]["index"] >= 30
+
+    # 2. Geometric straight-line fallback when a real (non-circular) track has DRS == 0 everywhere
+    theta = np.linspace(0, 2 * np.pi, 200)
+    # Rounded rectangle / oval track (high curvature at corners, near-zero curvature on straights)
+    oval_x = 1200.0 * np.cos(theta)
+    oval_y = 300.0 * np.sin(theta) ** 3
+    zero_drs_oval = {
+        "X": oval_x,
+        "Y": oval_y,
+        "DRS": np.zeros(200, dtype=int),
+    }
+    fallback_zones = plotDRSzones(zero_drs_oval)
+    assert len(fallback_zones) >= 1
+
+
+def test_extract_race_events_ignores_mid_race_telemetry_gaps():
+    from src.ui_components import extract_race_events, RaceProgressBarComponent
+
+    # Build 200 frames (8 seconds at 25 FPS) over a 50-lap race:
+    # - PER has temporary telemetry dropouts (active=False / validity='gap') at frames 25, 75, 125
+    #   but resumes racing and is active at frame 199 (Lap 40) -> MUST NOT have any DNF X markers!
+    # - VET permanently retires after frame 50 on Lap 18 -> MUST have exactly ONE DNF X marker!
+    frames = []
+    for i in range(200):
+        per_gap = i in range(25, 35) or i in range(75, 85) or i in range(125, 135)
+        vet_retired = i >= 50
+        frames.append({
+            "t": i * 0.04,
+            "drivers": {
+                "VER": {"active": True, "validity": "active", "lap": 10 + i // 5},
+                "PER": {
+                    "active": not per_gap,
+                    "validity": "gap" if per_gap else "active",
+                    "lap": 10 + i // 5,
+                },
+                "VET": {
+                    "active": not vet_retired,
+                    "validity": "dnf" if vet_retired else "active",
+                    "lap": 18,
+                },
+            },
+        })
+
+    events = extract_race_events(frames, track_statuses=[], total_laps=50)
+    dnf_events = [e for e in events if e.get("type") == RaceProgressBarComponent.EVENT_DNF]
+    assert len(dnf_events) == 1, f"Expected 1 DNF event, got {dnf_events}"
+    assert dnf_events[0]["label"] == "VET"
+    assert dnf_events[0]["lap"] == 18
+
+
+def test_driver_info_box_no_thr_brk_overlap_with_degradation_text():
+    from src.ui_components import DriverInfoComponent
+    import arcade
+
+    text_draws = []
+    orig_text = arcade.Text
+
+    class _SpyText:
+        def __init__(self, text="", x=0, y=0, *a, **kw):
+            self.text = text
+            self.x = x
+            self.y = y
+        def draw(self):
+            text_draws.append((self.text, self.x, self.y))
+
+    comp = DriverInfoComponent(left=20, width=300)
+    class _DummyDegradation:
+        def get_health_for_frame(self, code, frame):
+            return {
+                "compound": "INTERMEDIATE",
+                "laps_on_tyre": 35,
+                "health": 75,
+                "expected_delta": 0.6,
+                "uncertainty": 0.34,
+                "available": True,
+            }
+    comp.degradation_integrator = _DummyDegradation()
+
+    class _DummyWindow:
+        width = 1920
+        height = 1080
+        frame_index = 0.0
+        n_frames = 1
+        selected_drivers = ["PER"]
+        driver_colors = {"PER": (0, 50, 220)}
+        frames = [{
+            "t": 100.0,
+            "drivers": {
+                "PER": {"speed": 229.0, "gear": 5, "drs": 0, "throttle": 100.0, "brake": 0.0},
+            },
+        }]
+        leaderboard_comp = type("LB", (), {
+            "entries": [
+                ("PER", (0, 50, 220), {}, 50000.0),
+                ("SAI", (220, 0, 0), {}, 38487.0),
+            ]
+        })()
+
+    try:
+        arcade.Text = _SpyText
+        comp.draw(_DummyWindow())
+    finally:
+        arcade.Text = orig_text
+
+    by_label = {txt: (x, y) for txt, x, y in text_draws}
+    assert "THR" in by_label and "BRK" in by_label
+    tyre_lines = [y for txt, _, y in text_draws if "INTERMEDIATE" in txt]
+    behind_lines = [y for txt, _, y in text_draws if "Behind" in txt]
+    assert len(tyre_lines) == 1 and len(behind_lines) == 1
+    thr_y = by_label["THR"][1]
+    # Verify THR/BRK labels sit well above both the Behind line and the INTERMEDIATE degradation text
+    assert thr_y > behind_lines[0] + 10
+    assert thr_y > tyre_lines[0] + 40
+
+
+# ==========================================================================
+#  SECTION 21 — ARCHITECTURE: HIGH COHESION, LOW COUPLING & MODULARITY
+# ==========================================================================
+
+
+def test_architecture_layer_decoupling_no_upward_or_circular_imports():
+    """Verify domain layers have zero upward or circular imports into GUI/interface layers."""
+    import ast
+    from pathlib import Path
+
+    # 1. Pure domain libraries (src/lib/) must never import from interfaces, insights, gui, or ui_components
+    forbidden_for_lib = {"src.interfaces", "src.insights", "src.gui", "src.ui_components"}
+    for py_file in Path("src/lib").glob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                for bad in forbidden_for_lib:
+                    assert not node.module.startswith(bad), (
+                        f"{py_file} has forbidden upward import from {node.module}"
+                    )
+
+    # 2. Pure analytics modules (src/analytics/) must never import from interfaces, insights, gui, or arcade/PySide6
+    forbidden_for_analytics = {
+        "src.interfaces",
+        "src.insights",
+        "src.gui",
+        "src.ui_components",
+        "arcade",
+        "PySide6",
+    }
+    for py_file in Path("src/analytics").glob("*.py"):
+        tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom) and node.module:
+                for bad in forbidden_for_analytics:
+                    assert not node.module.startswith(bad), (
+                        f"{py_file} has forbidden GUI/interface import from {node.module}"
+                    )
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    for bad in forbidden_for_analytics:
+                        assert not alias.name.startswith(bad), (
+                            f"{py_file} has forbidden GUI/interface import {alias.name}"
+                        )
+
+    # 3. src/ui_components.py must NOT import from src.interfaces (eliminated circular dependency)
+    ui_tree = ast.parse(Path("src/ui_components.py").read_text(encoding="utf-8"))
+    for node in ast.walk(ui_tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            assert not node.module.startswith("src.interfaces"), (
+                f"src/ui_components.py must not import from {node.module}"
+            )
+
+    # 4. src/interfaces/qualifying.py must NOT import from src.interfaces.race_replay
+    q_tree = ast.parse(Path("src/interfaces/qualifying.py").read_text(encoding="utf-8"))
+    for node in ast.walk(q_tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            assert node.module != "src.interfaces.race_replay", (
+                "src/interfaces/qualifying.py must not couple to src.interfaces.race_replay"
+            )
+
+
+def test_extracted_cohesive_modules_standalone_and_shared_contracts():
+    """Verify extracted geometry, color_utils, lap_time_analyzer, race_events, schedule_service, track_drs_service, and text_cache modules."""
+    from src.lib.geometry import (
+        is_finite_coord,
+        format_wind_direction,
+        interpolate_points,
+        plotDRSzones,
+        build_track_from_example_lap,
+    )
+    from src.lib.color_utils import (
+        hex_to_rgb01,
+        rgb01_to_hex,
+        contrast_ratio,
+        display_safe_colour,
+    )
+    from src.analytics.lap_time_analyzer import (
+        format_laptime,
+        format_delta,
+        moving_average,
+        compute_fallback_lap_times_raw,
+        classify_lap_entries,
+        compute_status_laps,
+    )
+    from src.analytics.race_events import extract_race_events, EVENT_DNF
+    from src.data.schedule_service import get_race_weekends_by_year
+    from src.data.track_drs_service import (
+        enrich_example_lap_drs_from_frames,
+        resolve_track_length,
+        resolve_driver_terminal_flags,
+    )
+    from src.ui.text_cache import TEXT_CACHE, set_text_if_changed, clear_text_cache
+    from src.interfaces.race_replay import F1RaceReplayWindow
+
+    # Geometry checks
+    assert is_finite_coord(0.0, -15.2) is True
+    assert is_finite_coord(float("nan"), 1.0) is False
+    assert format_wind_direction(90.0) == "E"
+    pts = interpolate_points([0.0, 10.0], [0.0, 20.0], interp_points=5)
+    assert len(pts) == 5 and pts[0] == (0.0, 0.0) and pts[-1] == (10.0, 20.0)
+    track_tuple = build_track_from_example_lap(None)
+    assert len(track_tuple) == 11
+
+    # Color contrast checks
+    rgb = hex_to_rgb01("#1E2028")
+    assert rgb is not None and rgb01_to_hex(rgb) == "#1E2028"
+    safe_hex = display_safe_colour("#101010", bg_colour="#282828", min_contrast=3.2)
+    assert contrast_ratio(safe_hex, "#282828") >= 3.2
+
+    # Lap time analyzer checks
+    assert format_laptime(83.456) == "1:23.456"
+    assert format_delta(0.0) == "0.000s"
+    assert moving_average([10.0, 20.0, 30.0], 2) == [None, 15.0, 25.0]
+    raw_laps = compute_fallback_lap_times_raw([
+        {"t": 0.0, "drivers": {"VER": {"lap": 2, "tyre": 1, "tyre_life": 1}}},
+        {"t": 85.0, "drivers": {"VER": {"lap": 3, "tyre": 1, "tyre_life": 2}}},
+    ])
+    classified = classify_lap_entries(raw_laps)
+    assert len(classified["VER"]) == 1 and classified["VER"][0]["lap"] == 2
+    status_laps = compute_status_laps(
+        [{"t": 0.0, "lap": 1}, {"t": 100.0, "lap": 2}],
+        [{"status": "4", "start_time": 10.0, "end_time": 90.0}],
+    )
+    assert status_laps == [{"status": "4", "start_lap": 1, "end_lap": 1}]
+
+    # Race events & terminal flags checks
+    assert callable(get_race_weekends_by_year)
+    assert callable(enrich_example_lap_drs_from_frames)
+    assert resolve_track_length(None, fallback_max_lap_dist=5412.0) == 5412.0
+    flags = resolve_driver_terminal_flags(None, {"VER": 50, "PER": 10}, {"VER": 4000.0, "PER": 800.0}, 50, 4000.0)
+    assert flags["VER"] == (True, False) and flags["PER"] == (False, True)
+
+    # Shared text cache identity with F1RaceReplayWindow._text_cache
+    assert F1RaceReplayWindow._text_cache is TEXT_CACHE
+    dummy_txt = type("DummyText", (), {"text": ""})()
+    clear_text_cache()
+    set_text_if_changed(dummy_txt, "GAP +1.2s")
+    assert dummy_txt.text == "GAP +1.2s"
+    assert id(dummy_txt) in F1RaceReplayWindow._text_cache
+    clear_text_cache()
+
+
+def test_requirements_txt_python_312_wheel_compatibility_and_pep508_markers():
+    """Verify requirements.txt avoids Pillow 9.3.0 source builds on Python 3.12+ and parses cleanly."""
+    from pathlib import Path
+    from src.tools.dependency_audit import audit_requirements_file, PinKind
+    from src.lib.arcade_compat import create_texture_from_pil
+
+    req_path = Path("requirements.txt")
+    raw_text = req_path.read_text(encoding="utf-8")
+    # Ensure arcade==2.6.17 (which pulls pillow~=9.3.0 without cp312 wheels) is gated to <3.12
+    assert 'arcade==2.6.17; python_version < "3.12"' in raw_text
+    assert 'arcade>=3.0.0; python_version >= "3.12"' in raw_text
+    assert 'pillow>=10.4.0; python_version >= "3.12"' in raw_text
+
+    report = audit_requirements_file(req_path)
+    unknown = [e for e in report.entries if e.kind == PinKind.UNKNOWN]
+    assert unknown == [], f"Unexpected unparsed requirements entries: {unknown}"
+
+    # Verify create_texture_from_pil handles both Arcade 2.6 (name, image=...) and Arcade 3.x (image)
+    class _Arcade26:
+        class Texture:
+            def __init__(self, name, image=None):
+                self.name = name
+                self.image = image
+
+    class _Arcade30:
+        class Texture:
+            def __init__(self, image):
+                self.image = image
+
+    dummy_img = type("Img", (), {"width": 16, "height": 16})()
+    t26 = create_texture_from_pil(_Arcade26, "soft", dummy_img)
+    assert t26.image is dummy_img
+    t30 = create_texture_from_pil(_Arcade30, "soft", dummy_img)
+    assert t30.image is dummy_img

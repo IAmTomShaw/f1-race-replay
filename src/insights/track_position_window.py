@@ -62,6 +62,8 @@ class _TrackMapWidget(QWidget):
         self._outer_ys: list[float] = []
         # Cumulative fractional distances along center line [0.0 ... 1.0]
         self._cum_fracs: list[float] = []
+        self.drs_zones: list[dict] = []
+        self.show_drs_zones: bool = True
 
     # -- public API -------------------------------------------------------
 
@@ -74,6 +76,7 @@ class _TrackMapWidget(QWidget):
         x_outer: list[float],
         y_outer: list[float],
         rotation_deg: float = 0.0,
+        drs_zones: list[dict] | None = None,
     ) -> None:
         """Set track outline from FastF1 reference-lap coordinates."""
         if len(x_center) < 3:
@@ -109,6 +112,19 @@ class _TrackMapWidget(QWidget):
             cum.append(cum[-1] + seg)
         total = cum[-1] if cum[-1] > 0 else 1.0
         self._cum_fracs = [d / total for d in cum]
+
+        if drs_zones:
+            self.drs_zones = list(drs_zones)
+        else:
+            try:
+                from src.ui_components import plotDRSzones
+                self.drs_zones = plotDRSzones({
+                    "X": self._center_xs,
+                    "Y": self._center_ys,
+                    "DRS": [0] * len(self._center_xs),
+                })
+            except Exception:
+                self.drs_zones = []
 
         self.has_real_track = True
         self.update()
@@ -209,6 +225,28 @@ class _TrackMapWidget(QWidget):
             outer_path.lineTo(sx, sy)
         outer_path.closeSubpath()
         painter.drawPath(outer_path)
+
+        # -- Draw DRS zones along outer track edge ------------------------
+        if self.show_drs_zones and self.drs_zones and len(self._outer_xs) > 1:
+            drs_pen = QPen(QColor("#00FF50"), 4)
+            drs_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(drs_pen)
+            n_outer = len(self._outer_xs)
+            for dz in self.drs_zones:
+                s_idx = dz.get("start", {}).get("index") if isinstance(dz, dict) else None
+                e_idx = dz.get("end", {}).get("index") if isinstance(dz, dict) else None
+                if s_idx is None or e_idx is None:
+                    continue
+                s_i = max(0, min(int(s_idx), n_outer - 1))
+                e_i = max(0, min(int(e_idx), n_outer - 1))
+                if e_i > s_i:
+                    drs_path = QPainterPath()
+                    dx0, dy0 = to_widget(self._outer_xs[s_i], self._outer_ys[s_i])
+                    drs_path.moveTo(dx0, dy0)
+                    for k in range(s_i + 1, e_i + 1):
+                        dxk, dyk = to_widget(self._outer_xs[k], self._outer_ys[k])
+                        drs_path.lineTo(dxk, dyk)
+                    painter.drawPath(drs_path)
 
         # -- Centre line (dashed, faint) ----------------------------------
         centre_pen = QPen(_TRACK_CENTRE, 1, Qt.DashLine)
@@ -381,6 +419,31 @@ class _TrackMapWidget(QWidget):
         painter.drawEllipse(QPointF(cx, cy), radius, radius)
 
         sf_angle = -math.pi / 2
+        if self.show_drs_zones and self.drs_zones:
+            drs_pen = QPen(QColor("#00FF50"), 5)
+            drs_pen.setCapStyle(Qt.RoundCap)
+            painter.setPen(drs_pen)
+            n_pts = max(1, len(self._center_xs) - 1) if self._center_xs else 500
+            for dz in self.drs_zones:
+                s_idx = dz.get("start", {}).get("index") if isinstance(dz, dict) else None
+                e_idx = dz.get("end", {}).get("index") if isinstance(dz, dict) else None
+                if s_idx is None or e_idx is None or e_idx <= s_idx:
+                    continue
+                f_start = max(0.0, min(1.0, float(s_idx) / n_pts))
+                f_end = max(0.0, min(1.0, float(e_idx) / n_pts))
+                drs_path = QPainterPath()
+                steps = max(4, int((f_end - f_start) * 120))
+                for step_i in range(steps + 1):
+                    frac_i = f_start + (f_end - f_start) * (step_i / steps)
+                    ang = sf_angle + frac_i * 2 * math.pi
+                    px = cx + (radius + 11) * math.cos(ang)
+                    py = cy + (radius + 11) * math.sin(ang)
+                    if step_i == 0:
+                        drs_path.moveTo(px, py)
+                    else:
+                        drs_path.lineTo(px, py)
+                painter.drawPath(drs_path)
+
         self._draw_sf_line(painter, cx, cy, radius, sf_angle)
         self._draw_distance_markers(painter, cx, cy, radius, sf_angle)
 
@@ -563,10 +626,17 @@ class TrackPositionWindow(PitWallWindow):
         self._btn_schematic.setStyleSheet(_btn_active) # default active
         self._btn_schematic.clicked.connect(lambda: self._set_view_mode("schematic"))
 
+        self._btn_drs = QPushButton("DRS Zones")
+        self._btn_drs.setAccessibleName("Toggle DRS Zones")
+        self._btn_drs.setFixedHeight(24)
+        self._btn_drs.setStyleSheet(_btn_active)
+        self._btn_drs.clicked.connect(self._toggle_drs_zones)
+
         toggle_row = QHBoxLayout()
         toggle_row.setSpacing(0)
         toggle_row.addWidget(self._btn_schematic)
         toggle_row.addWidget(self._btn_real)
+        toggle_row.addWidget(self._btn_drs)
 
         status_row.addWidget(self._lap_label)
         status_row.addStretch()
@@ -579,6 +649,24 @@ class TrackPositionWindow(PitWallWindow):
 
         self._map = _TrackMapWidget()
         root.addWidget(self._map, stretch=1)
+
+    def _toggle_drs_zones(self):
+        self._map.show_drs_zones = not getattr(self._map, "show_drs_zones", True)
+        if hasattr(self, "_btn_drs"):
+            self._btn_drs.setStyleSheet(
+                self._btn_style_active if self._map.show_drs_zones else self._btn_style_inactive
+            )
+        self._map.update()
+
+    def keyPressEvent(self, event):  # noqa: N802
+        try:
+            key = event.key()
+            if key in (Qt.Key_B, Qt.Key_D):
+                self._toggle_drs_zones()
+                return
+        except Exception:
+            pass
+        super().keyPressEvent(event)
 
     def _set_view_mode(self, mode: str):
         """Toggle between Real Track and Schematic circle views."""
@@ -619,6 +707,7 @@ class TrackPositionWindow(PitWallWindow):
                     x_inner, y_inner,
                     x_outer, y_outer,
                     rotation,
+                    drs_zones=geo.get("drs_zones"),
                 )
                 self._geometry_received = True
 

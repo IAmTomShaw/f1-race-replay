@@ -1,7 +1,7 @@
 import arcade
 from typing import List, Tuple, Optional
 from src.lib.time import format_time
-from src.lib.arcade_compat import ensure_arcade_compat
+from src.lib.arcade_compat import ensure_arcade_compat, create_texture_from_pil
 from src.lib.resource_paths import images_dir
 import math
 import numpy as np
@@ -19,18 +19,28 @@ ensure_arcade_compat(arcade)
 # of _STYLE_SENTINEL means "not yet initialized" and forces the
 # next assignment to fire (preserving first-draw initialization).
 _STYLE_SENTINEL = object()
+_SHARED_TEXTURE_CACHE: dict[str, object] = {}
 
 
-def _format_wind_direction(degrees: Optional[float]) -> str:
-    if degrees is None or not isinstance(degrees, (int, float)) or not math.isfinite(degrees):
-        return "N/A"
-    deg_norm = degrees % 360
-    dirs = [
-        "N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE",
-        "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW",
-    ]
-    idx = int((deg_norm / 22.5) + 0.5) % len(dirs)
-    return dirs[idx]
+def _load_cached_texture(texture_path: str):
+    cached = _SHARED_TEXTURE_CACHE.get(texture_path)
+    if cached is not None:
+        return cached
+    tex = arcade.load_texture(texture_path)
+    if tex is not None:
+        _SHARED_TEXTURE_CACHE[texture_path] = tex
+    return tex
+
+
+from src.lib.geometry import (
+    _format_wind_direction,
+    format_wind_direction,
+    _extract_zones_from_mask,
+    plotDRSzones,
+    build_track_from_example_lap,
+)
+from src.analytics.race_events import extract_race_events
+from src.ui.text_cache import set_text_if_changed
 
 
 class BaseComponent:
@@ -54,8 +64,7 @@ class LegendComponent(BaseComponent):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(icons_folder, filename)
-                    self._control_icons_textures[texture_name] = arcade.load_texture(
-                        texture_path)
+                    self._control_icons_textures[texture_name] = _load_cached_texture(texture_path)
         self.lines = ["Help (Click or 'H')"]
 
         self.controls_text_offset = 180
@@ -178,8 +187,7 @@ class WeatherComponent(BaseComponent):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                     texture_name = os.path.splitext(filename)[0]
                     texture_path = os.path.join(weather_folder, filename)
-                    self._weather_icon_textures[texture_name] = arcade.load_texture(
-                        texture_path)
+                    self._weather_icon_textures[texture_name] = _load_cached_texture(texture_path)
 
         # Persistent text object for the 5 weather lines. The
         # object is reused across draws; only its properties are
@@ -695,15 +703,9 @@ class LeaderboardComponent(BaseComponent):
             # Dim top region with alpha * 80 / 255
             arr[:split_row, :, 3] *= (80.0 / 255.0)
             comp_pil = Image.fromarray(arr.astype(np.uint8), mode="RGBA")
-            if hasattr(arcade, "Texture"):
-                comp_tex = arcade.Texture(f"tyre_comp_{tyre_key}_{bright_height}", image=comp_pil)
-            else:
-                comp_tex = type("Texture", (), {
-                    "name": f"tyre_comp_{tyre_key}_{bright_height}",
-                    "image": comp_pil,
-                    "width": w,
-                    "height": h,
-                })()
+            comp_tex = create_texture_from_pil(
+                arcade, f"tyre_comp_{tyre_key}_{bright_height}", comp_pil
+            )
             # Enforce bounded cache size (at most 100 entries)
             if len(self._composite_tyre_cache) < 100:
                 self._composite_tyre_cache[key] = comp_tex
@@ -971,10 +973,11 @@ class LeaderboardComponent(BaseComponent):
                 text_color = color
 
             text = f"{current_pos}. {code}"
+            val_state = pos.get("validity")
             is_out = (
                 pos.get("rel_dist", 0) == 1
-                or pos.get("active") is False
-                or pos.get("validity") in ("dnf", "post", "dns")
+                or val_state in ("dnf", "post", "dns")
+                or (val_state is None and pos.get("active") is False)
             )
             if not is_out:
                 out_text = ""
@@ -1152,8 +1155,7 @@ class LeaderboardComponent(BaseComponent):
                     # TASK 4: the _gap_text is already persistent; use
                     # the same _set_text_if_changed guard as the time
                     # display to avoid redundant re-layouts.
-                    from src.interfaces.race_replay import F1RaceReplayWindow
-                    F1RaceReplayWindow._set_text_if_changed(
+                    set_text_if_changed(
                         self._gap_text, gap_text,
                     )
                     self._gap_text.x = gap_x
@@ -1616,7 +1618,7 @@ class QualifyingSegmentSelectorComponent(BaseComponent):
 
 
 class DriverInfoComponent(BaseComponent):
-    def __init__(self, left=20, width=220, min_top=220):
+    def __init__(self, left=20, width=300, min_top=220):
         self.left = left
         self.width = width
         self.min_top = min_top
@@ -1636,7 +1638,7 @@ class DriverInfoComponent(BaseComponent):
         idx = min(int(window.frame_index), window.n_frames - 1)
         frame = window.frames[idx]
 
-        box_width, box_height, gap = self.width, 220, 10
+        box_width, box_height, gap = max(self.width, 280), 232, 10
         weather_bottom = getattr(window, "weather_bottom", None)
         current_top = weather_bottom - 20 if weather_bottom else window.height - 200
 
@@ -1676,21 +1678,21 @@ class DriverInfoComponent(BaseComponent):
         arcade.Text(f"{code}", left + 12, header_cy, arcade.color.WHITE, 15, anchor_y="center",
                     bold=True).draw()
 
-        cursor_y, row_gap = top - header_height - 25, 25
-        left_text_x = left + 15
+        cursor_y, row_gap = top - header_height - 20, 22
+        left_text_x = left + 14
 
-        # Telemetry Text
+        # Telemetry Text (top-left column; THR/BRK bars sit beside these 3 rows in top-right)
         speed = driver_pos.get('speed')
         if speed is not None and isinstance(speed, (int, float)) and math.isfinite(speed):
             speed_str = f"Speed: {speed:.0f} km/h"
         else:
             speed_str = "Speed: N/A"
-        arcade.Text(speed_str, left + 15, cursor_y,
+        arcade.Text(speed_str, left_text_x, cursor_y,
                     arcade.color.WHITE, 12, anchor_y="center").draw()
         cursor_y -= row_gap
         gear_val = driver_pos.get('gear')
         gear_str = str(gear_val) if gear_val is not None else "-"
-        arcade.Text(f"Gear: {gear_str}", left + 15, cursor_y, arcade.color.WHITE, 12,
+        arcade.Text(f"Gear: {gear_str}", left_text_x, cursor_y, arcade.color.WHITE, 12,
                     anchor_y="center").draw()
         cursor_y -= row_gap
 
@@ -1698,11 +1700,11 @@ class DriverInfoComponent(BaseComponent):
         drs_str, drs_color = ("DRS: ON", arcade.color.GREEN) if drs_val in [10, 12, 14] else \
             ("DRS: AVAIL", arcade.color.YELLOW) if drs_val == 8 else (
                 "DRS: OFF", arcade.color.GRAY)
-        arcade.Text(drs_str, left + 15, cursor_y, drs_color,
+        arcade.Text(drs_str, left_text_x, cursor_y, drs_color,
                     12, anchor_y="center", bold=True).draw()
-        cursor_y -= row_gap
+        cursor_y -= (row_gap + 8)
 
-        # Gaps (Calculated from Leaderboard)
+        # Gaps (full width below the THR/BRK bars so long gap strings never collide)
         gap_ahead, gap_behind = "Ahead: N/A", "Behind: N/A"
         lb = getattr(window, "leaderboard", None) or \
             getattr(window, "leaderboard_ui", None) or \
@@ -1735,7 +1737,7 @@ class DriverInfoComponent(BaseComponent):
 
         arcade.Text(gap_ahead, left_text_x, cursor_y,
                     arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
-        cursor_y -= 22
+        cursor_y -= 20
         arcade.Text(gap_behind, left_text_x, cursor_y,
                     arcade.color.LIGHT_GRAY, 11, anchor_y="center").draw()
 
@@ -1747,12 +1749,13 @@ class DriverInfoComponent(BaseComponent):
                     code, frame)
 
                 if health_data:
-                    cursor_y -= 28  # Space before health bar
+                    cursor_y -= 22  # Space before health bar
 
-                    # Draw tyre health bar
+                    # Draw tyre health bar across the full lower panel width
+                    bar_w_full = max(180, int(box_width - 28))
                     bar_params = format_tyre_health_bar(
-                        health_data['health'], width=180, height=14)
-                    bar_x = left + 15
+                        health_data['health'], width=bar_w_full, height=12)
+                    bar_x = left_text_x
                     bar_y = cursor_y
 
                     # Background bar (dark gray)
@@ -1779,7 +1782,7 @@ class DriverInfoComponent(BaseComponent):
 
                     cursor_y -= 18
 
-                    # Tyre info text
+                    # Tyre info text (unobstructed across full box width)
                     tyre_text = format_degradation_text(health_data)
                     arcade.Text(tyre_text, left_text_x, cursor_y,
                                 arcade.color.LIGHT_GRAY, 10, anchor_y="center").draw()
@@ -1787,17 +1790,18 @@ class DriverInfoComponent(BaseComponent):
             except (KeyError, AttributeError, TypeError) as e:
                 print(f"Error displaying driver info: {e}")
 
-        # Graphs
+        # Graphs (positioned in the upper-right quadrant alongside Speed/Gear/DRS)
         thr_raw, brk_raw = driver_pos.get('throttle', 0), driver_pos.get('brake', 0)
         thr = float(thr_raw) if isinstance(thr_raw, (int, float)) and math.isfinite(thr_raw) else 0.0
         brk = float(brk_raw) if isinstance(brk_raw, (int, float)) and math.isfinite(brk_raw) else 0.0
         t_r = max(0.0, min(1.0, thr / 100.0))
         b_r = max(0.0, min(1.0, brk / 100.0 if brk > 1.0 else brk))
-        bar_w, bar_h, b_y = 20, 80, bottom + 35
-        r_center = right - 50
+        bar_w, bar_h = 18, 52
+        b_y = top - header_height - 62
+        r_center = right - 42
 
         # Throttle
-        arcade.Text("THR", r_center - 15, b_y - 20,
+        arcade.Text("THR", r_center - 15, b_y - 13,
                     arcade.color.WHITE, 10, anchor_x="center").draw()
         arcade.draw_rect_filled(arcade.XYWH(
             r_center - 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
@@ -1808,7 +1812,7 @@ class DriverInfoComponent(BaseComponent):
                 arcade.color.GREEN,
             )
         # Brake
-        arcade.Text("BRK", r_center + 15, b_y - 20,
+        arcade.Text("BRK", r_center + 15, b_y - 13,
                     arcade.color.WHITE, 10, anchor_x="center").draw()
         arcade.draw_rect_filled(arcade.XYWH(
             r_center + 15, b_y + bar_h / 2, bar_w, bar_h), arcade.color.DARK_GRAY)
@@ -2720,12 +2724,21 @@ class RaceProgressBarComponent(BaseComponent):
             nearest_event = None
             min_dist = float('inf')
 
-            for event in self._events:
+            dnf_events = [e for e in self._events if e.get("type") == self.EVENT_DNF]
+            other_events = [e for e in self._events if e.get("type") != self.EVENT_DNF]
+            for event in dnf_events:
                 event_frame = event.get("frame", 0)
                 dist = abs(event_frame - mouse_frame)
-                if dist < min_dist and dist < self._total_frames * 0.02:  # Within 2% of timeline
+                if dist < min_dist and dist < self._total_frames * 0.015:
                     min_dist = dist
                     nearest_event = event
+            if nearest_event is None:
+                for event in other_events:
+                    event_frame = event.get("frame", 0)
+                    dist = abs(event_frame - mouse_frame)
+                    if dist < min_dist and dist < self._total_frames * 0.02:
+                        min_dist = dist
+                        nearest_event = event
 
             self._hover_event = nearest_event
         else:
@@ -2789,13 +2802,14 @@ class RaceControlsComponent(BaseComponent):
         self._flash_duration = 0.3  # seconds
 
         _controls_folder = os.path.join(str(images_dir()), "controls")
+        _needed_controls = {"play", "pause", "rewind", "speed+", "speed-"}
         if os.path.exists(_controls_folder):
             for filename in os.listdir(_controls_folder):
                 if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                     texture_name = os.path.splitext(filename)[0]
-                    texture_path = os.path.join(_controls_folder, filename)
-                    self._control_textures[texture_name] = arcade.load_texture(
-                        texture_path)
+                    if texture_name in _needed_controls:
+                        texture_path = os.path.join(_controls_folder, filename)
+                        self._control_textures[texture_name] = _load_cached_texture(texture_path)
 
     @property
     def visible(self) -> bool:
@@ -3286,200 +3300,6 @@ class QualifyingLapTimeComponent(BaseComponent):
                 self._last_completed_sector = sector_idx
         return text, text_color
 
-
-def extract_race_events(frames: List[dict], track_statuses: List[dict], total_laps: int) -> List[dict]:
-    """
-    Extract race events from frame data for the progress bar.
-
-    This function analyzes the telemetry frames to identify:
-    - DNF events (when a driver stops appearing)
-    - Leader changes (when the P1 position changes hands)
-    - Flag events (from track_statuses)
-
-    Args:
-        frames: List of frame dictionaries from telemetry
-        track_statuses: List of track status events
-        total_laps: Total number of laps in the race
-
-    Returns:
-        List of event dictionaries for the progress bar
-    """
-    events = []
-
-    if not frames:
-        return events
-
-    n_frames = len(frames)
-
-    # Track drivers present in each frame
-    prev_drivers = set()
-
-    # Sample frames at regular intervals for performance (every 25 frames = 1 second)
-    sample_rate = 25
-
-    for i in range(0, n_frames, sample_rate):
-        frame = frames[i]
-        drivers_data = frame.get("drivers", {})
-        current_drivers = set()
-        for k, v in drivers_data.items():
-            if not isinstance(v, dict):
-                continue
-            if "active" in v:
-                if v["active"]:
-                    current_drivers.add(k)
-            elif "validity" in v:
-                if v["validity"] in ("active", "finished"):
-                    current_drivers.add(k)
-            else:
-                current_drivers.add(k)
-
-        # Detect DNFs (drivers who disappeared)
-        if prev_drivers:
-            dnf_drivers = prev_drivers - current_drivers
-            for driver_code in dnf_drivers:
-                # Get the lap from previous frame if available
-                prev_frame = frames[max(0, i - sample_rate)]
-                driver_info = prev_frame.get(
-                    "drivers", {}).get(driver_code, {})
-                lap = driver_info.get("lap", "?")
-
-                events.append({
-                    "type": RaceProgressBarComponent.EVENT_DNF,
-                    "frame": i,
-                    "label": driver_code,
-                    "lap": lap,
-                })
-
-        prev_drivers = current_drivers
-
-    # Add flag events from track_statuses
-    for status in track_statuses:
-        status_code = str(status.get("status", ""))
-        start_time = status.get("start_time", 0)
-        end_time = status.get("end_time")
-
-        # Convert time to frame (assuming 25 FPS)
-        fps = 25
-        start_frame = int(start_time * fps)
-        # Default 10 seconds
-        end_frame = int(end_time * fps) if end_time else start_frame + 250
-
-        # This prevents rendering artifacts from pre-race track status events
-        # that shouldn't appear on the timeline... Events that span frame 0
-        # (start < 0 but end > 0) are kept; the drawing code will clamp them
-        if end_frame <= 0:
-            continue
-
-        # Note: The drawing code also clamps, but normalizing here improves data quality
-        if n_frames > 0:
-            end_frame = min(end_frame, n_frames)
-
-        event_type = None
-        if status_code == "2":  # Yellow flag
-            event_type = RaceProgressBarComponent.EVENT_YELLOW_FLAG
-        elif status_code == "4":  # Safety Car
-            event_type = RaceProgressBarComponent.EVENT_SAFETY_CAR
-        elif status_code == "5":  # Red flag
-            event_type = RaceProgressBarComponent.EVENT_RED_FLAG
-        elif status_code in ("6", "7"):  # VSC
-            event_type = RaceProgressBarComponent.EVENT_VSC
-
-        if event_type:
-            events.append({
-                "type": event_type,
-                "frame": start_frame,
-                "end_frame": end_frame,
-                "label": "",
-                "lap": None,
-            })
-
-    return events
-
-# Build track geometry from example lap telemetry
-
-
-def build_track_from_example_lap(example_lap, track_width=200):
-    if example_lap is None or not hasattr(example_lap, "__getitem__"):
-        t = np.linspace(0, 2 * np.pi, 200)
-        example_lap = {
-            "X": np.asarray(1000.0 * np.cos(t)),
-            "Y": np.asarray(1000.0 * np.sin(t)),
-            "DRS": np.zeros(200, dtype=int),
-        }
-
-    drs_zones = plotDRSzones(example_lap)
-    plot_x_ref = np.asarray(example_lap["X"])
-    plot_y_ref = np.asarray(example_lap["Y"])
-
-    # compute tangents
-    dx = np.gradient(plot_x_ref)
-    dy = np.gradient(plot_y_ref)
-
-    norm = np.sqrt(dx**2 + dy**2)
-    norm[norm == 0] = 1.0
-    dx /= norm
-    dy /= norm
-
-    nx = -dy
-    ny = dx
-
-    x_outer = plot_x_ref + nx * (track_width / 2)
-    y_outer = plot_y_ref + ny * (track_width / 2)
-    x_inner = plot_x_ref - nx * (track_width / 2)
-    y_inner = plot_y_ref - ny * (track_width / 2)
-
-    # world bounds
-    x_min = min(plot_x_ref.min(), x_inner.min(), x_outer.min())
-    x_max = max(plot_x_ref.max(), x_inner.max(), x_outer.max())
-    y_min = min(plot_y_ref.min(), y_inner.min(), y_outer.min())
-    y_max = max(plot_y_ref.max(), y_inner.max(), y_outer.max())
-
-    return (plot_x_ref, plot_y_ref, x_inner, y_inner, x_outer, y_outer,
-            x_min, x_max, y_min, y_max, drs_zones)
-
-# Plot DRS Zones along the track sides to show DRS Zones on the track
-
-
-def plotDRSzones(example_lap):
-    if example_lap is None or not hasattr(example_lap, "__getitem__"):
-        return []
-    try:
-        if "DRS" not in example_lap:
-            return []
-    except (TypeError, Exception):
-        return []
-
-    x_val = example_lap["X"]
-    y_val = example_lap["Y"]
-    x_get = getattr(x_val, "iloc", x_val)
-    y_get = getattr(y_val, "iloc", y_val)
-    drs_zones = []
-    drs_start = None
-
-    for i, val in enumerate(example_lap["DRS"]):
-        if val in [10, 12, 14]:
-            if drs_start is None:
-                drs_start = i
-        else:
-            if drs_start is not None:
-                drs_end = i - 1
-                zone = {
-                    "start": {"x": x_get[drs_start], "y": y_get[drs_start], "index": drs_start},
-                    "end": {"x": x_get[drs_end], "y": y_get[drs_end], "index": drs_end}
-                }
-                drs_zones.append(zone)
-                drs_start = None
-
-    # Handle case where DRS zone extends to end of lap
-    if drs_start is not None:
-        drs_end = len(example_lap["DRS"]) - 1
-        zone = {
-            "start": {"x": x_get[drs_start], "y": y_get[drs_start], "index": drs_start},
-            "end": {"x": x_get[drs_end], "y": y_get[drs_end], "index": drs_end}
-        }
-        drs_zones.append(zone)
-
-    return drs_zones
 
 
 def draw_finish_line(self, session_type='R'):

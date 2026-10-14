@@ -118,7 +118,7 @@ def parse_requirements(text: str) -> List[DependencyEntry]:
     """
     out: List[DependencyEntry] = []
     for raw in text.splitlines():
-        line = raw.split("#", 1)[0].strip()
+        line = raw.split("#", 1)[0].split(";", 1)[0].strip()
         if not line or line.startswith("-"):
             continue
         m = _PIN_RE.match(line)

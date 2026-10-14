@@ -43,6 +43,8 @@ class DriverTelemetryWindow(PitWallWindow):
         # circuit length from the session (metres), received via stream
         self._circuit_length_m: float | None = None
         self._x_mode = "time"   # "time" | "lap"
+        self._show_drs_zones = True
+        self._drs_patches = []
         super().__init__()
         self.setWindowTitle("F1 Race Replay - Driver Live Telemetry")
 
@@ -180,6 +182,7 @@ class DriverTelemetryWindow(PitWallWindow):
                 brake = raw_brake * 100.0
             else:
                 brake = min(100.0, max(0.0, raw_brake))
+        drs = int(_finite_float(driver.get("drs"), 0.0))
         dist = _finite_float(driver.get("dist"), 0.0)
         lap_raw = driver.get("lap")
         lap = int(_finite_float(lap_raw, 0.0)) if lap_raw is not None and math.isfinite(_finite_float(lap_raw, float("nan"))) else None
@@ -189,7 +192,7 @@ class DriverTelemetryWindow(PitWallWindow):
         while tb and tb[-1]["t"] > session_t:
             tb.pop()
         tb.append({"t": session_t, "speed": speed, "gear": gear,
-                   "throttle": throttle, "brake": brake})
+                   "throttle": throttle, "brake": brake, "drs": drs})
         cutoff = session_t - _TIME_WINDOW
         while tb and tb[0]["t"] < cutoff:
             tb.popleft()
@@ -207,7 +210,7 @@ class DriverTelemetryWindow(PitWallWindow):
         while lb["samples"] and lb["samples"][-1]["dist"] > lap_dist + 5.0:
             lb["samples"].pop()
         lb["samples"].append({"dist": lap_dist, "speed": speed, "gear": gear,
-                               "throttle": throttle, "brake": brake})
+                               "throttle": throttle, "brake": brake, "drs": drs})
 
     # ── Driver selector ───────────────────────────────────────────────────
 
@@ -258,6 +261,7 @@ class DriverTelemetryWindow(PitWallWindow):
         brakes    = [s["brake"]    for s in samples]
 
         self._set_lines(xs, speeds, gears, throttles, brakes)
+        self._update_drs_shading(xs, [s.get("drs", 0) for s in samples])
 
         x_min = -_TIME_WINDOW
         x_max = 0
@@ -278,6 +282,7 @@ class DriverTelemetryWindow(PitWallWindow):
         brakes    = [s["brake"]    for s in samples]
 
         self._set_lines(xs, speeds, gears, throttles, brakes)
+        self._update_drs_shading(xs, [s.get("drs", 0) for s in samples])
 
         # X-axis: prefer the authoritative circuit length from the session.
         # Fall back to the most recently completed lap's distance, then the
@@ -295,7 +300,50 @@ class DriverTelemetryWindow(PitWallWindow):
         self._line_throt.set_data(xs, throttles)
         self._line_brake.set_data(xs, brakes)
 
+    def _update_drs_shading(self, xs, drs_vals):
+        for p in getattr(self, "_drs_patches", []):
+            try:
+                p.remove()
+            except Exception:
+                pass
+        self._drs_patches = []
+        if not getattr(self, "_show_drs_zones", True) or not xs or not drs_vals:
+            return
+        start_x = None
+        for i, (x_val, d_val) in enumerate(zip(xs, drs_vals)):
+            is_on = (d_val is not None and d_val >= 10)
+            if is_on and start_x is None:
+                start_x = x_val
+            elif not is_on and start_x is not None:
+                end_x = xs[i - 1]
+                if end_x > start_x:
+                    self._drs_patches.append(
+                        self._ax_speed.axvspan(start_x, end_x, color="#2ECC71", alpha=0.22, zorder=0)
+                    )
+                start_x = None
+        if start_x is not None and xs[-1] > start_x:
+            self._drs_patches.append(
+                self._ax_speed.axvspan(start_x, xs[-1], color="#2ECC71", alpha=0.22, zorder=0)
+            )
+
+    def keyPressEvent(self, event):  # noqa: N802
+        try:
+            from PySide6.QtCore import Qt
+            if event.key() in (Qt.Key_B, Qt.Key_D):
+                self._show_drs_zones = not getattr(self, "_show_drs_zones", True)
+                self._redraw(self.driver_combo.currentText())
+                return
+        except Exception:
+            pass
+        super().keyPressEvent(event)
+
     def _clear_lines(self):
+        for p in getattr(self, "_drs_patches", []):
+            try:
+                p.remove()
+            except Exception:
+                pass
+        self._drs_patches = []
         for line in (self._line_speed, self._line_gear, self._line_throt, self._line_brake):
             line.set_data([], [])
         self._canvas.draw_idle()

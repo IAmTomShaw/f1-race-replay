@@ -152,40 +152,24 @@ class BayesianTyreDegradationModel:
         baseline = self._abrasion_baseline
         abrasion_samples = []
         
-        for compound, base_rate in baseline.items():
-            slick_laps = laps_df[
-                (laps_df['Compound'] == compound) &
-                (laps_df['TrackCondition'] == 'DRY')
-            ]
-            
-            if slick_laps.empty:
-                continue
-            
-            for driver in slick_laps['Driver'].unique():
-                driver_laps = slick_laps[slick_laps['Driver'] == driver]
-                
-                for stint in driver_laps['Stint'].unique():
-                    stint_laps = driver_laps[driver_laps['Stint'] == stint]
-                    
-                    if len(stint_laps) < 8:
+        dry_laps = laps_df[laps_df['TrackCondition'] == 'DRY']
+        if not dry_laps.empty:
+            for compound, base_rate in baseline.items():
+                slick_laps = dry_laps[dry_laps['Compound'] == compound]
+                if len(slick_laps) < 8:
+                    continue
+                for _, stint_laps in slick_laps.groupby(['Driver', 'Stint'], sort=False):
+                    n_stint = len(stint_laps)
+                    if n_stint < 8:
                         continue
-                    
-                    stint_laps = stint_laps.copy()
-                    stint_laps['LapOnTyre'] = range(1, len(stint_laps) + 1)
-                    
-                    fuel_corrected = (
-                        stint_laps['LapTimeSeconds'] -
-                        self.fuel_effect * stint_laps['FuelMass']
+                    fc = (
+                        stint_laps['LapTimeSeconds'].to_numpy()
+                        - self.fuel_effect * stint_laps['FuelMass'].to_numpy()
                     )
-                    
-                    delta = fuel_corrected - fuel_corrected.iloc[0]
-                    
-                    if delta.std() > 0:
-                        slope, _, _, _ = stats.theilslopes(
-                            delta.values, 
-                            stint_laps['LapOnTyre'].values
-                        )
-                        
+                    delta = fc - fc[0]
+                    if np.std(delta) > 0:
+                        x_arr = np.arange(1, n_stint + 1, dtype=float)
+                        slope, _, _, _ = stats.theilslopes(delta, x_arr)
                         if slope > 0:
                             abrasion_samples.append(slope / base_rate)
         
@@ -305,73 +289,47 @@ class BayesianTyreDegradationModel:
     def _estimate_parameters(self, laps_df: pd.DataFrame):
         compound_slopes = {name: [] for name in self.tyre_profiles.keys()}
         
+        allowed_conds_by_cat = {
+            TyreCategory.SLICK: {"DRY"},
+            TyreCategory.INTER: {"DAMP", "WET", "DRY"},
+            TyreCategory.WET: {"WET"},
+        }
         for compound_name, tyre in self.tyre_profiles.items():
             compound_laps = laps_df[laps_df['Compound'] == compound_name]
-            
             if len(compound_laps) < 5:
                 continue
-            
-            for driver in compound_laps['Driver'].unique():
-                driver_laps = compound_laps[compound_laps['Driver'] == driver]
-                
-                for stint in driver_laps['Stint'].unique():
-                    stint_laps = driver_laps[driver_laps['Stint'] == stint]
-                    
-                    if len(stint_laps) < 5:
-                        continue
-                    valid_laps = stint_laps[
-                        stint_laps.apply(
-                            lambda row: self._should_use_lap_for_fitting(
-                                row['Compound'],
-                                row['TrackCondition']
-                            ),
-                            axis=1
-                        )
-                    ]
-                    
-                    if len(valid_laps) < 3:
-                        continue
-                    
-                    valid_laps = valid_laps.copy()
-                    valid_laps['LapOnTyre'] = range(1, len(valid_laps) + 1)
-                    
-                    fuel_corrected = (
-                        valid_laps['LapTimeSeconds'] -
-                        self.fuel_effect * valid_laps['FuelMass']
-                    )
-                    
-                    first_fc = fuel_corrected.iloc[0]
-                    valid_laps['DeltaFromFirst'] = fuel_corrected - first_fc
-                    
-                    if self.config.enable_warmup:
-                        analysis_laps = valid_laps[
-                            valid_laps['LapOnTyre'] > tyre.warmup_laps
-                        ]
-                    else:
-                        analysis_laps = valid_laps
-                    
-                    if tyre.max_analysis_laps is not None:
-                        analysis_laps = analysis_laps[
-                            analysis_laps['LapOnTyre'] <= tyre.max_analysis_laps
-                        ]
-                    
-                    if len(analysis_laps) > 2:
-                        x = analysis_laps['LapOnTyre'].values
-                        y = analysis_laps['DeltaFromFirst'].values
-                        
-                        if len(x) > 0 and np.std(y) > 0:
-                            slope, _, _, _ = stats.theilslopes(y, x)
-                            slope = max(0, slope)
-                            
-                            if self.config.enable_track_abrasion and self.track_abrasion > 0:
-                                slope = slope / self.track_abrasion
-                            
-                            if tyre.category == TyreCategory.INTER:
-                                dry_fraction = (valid_laps['TrackCondition'] == 'DRY').sum() / len(valid_laps)
-                                if dry_fraction > 0.3:
-                                    slope = min(slope, 0.08)
-                            
-                            compound_slopes[compound_name].append(slope)
+            allowed_conds = allowed_conds_by_cat.get(tyre.category, {"DRY"})
+            for _, stint_laps in compound_laps.groupby(['Driver', 'Stint'], sort=False):
+                if len(stint_laps) < 5:
+                    continue
+                cond_series = stint_laps['TrackCondition']
+                valid_laps = stint_laps[cond_series.isin(allowed_conds)]
+                n_valid = len(valid_laps)
+                if n_valid < 3:
+                    continue
+                lap_on_tyre = np.arange(1, n_valid + 1, dtype=float)
+                fc = (
+                    valid_laps['LapTimeSeconds'].to_numpy()
+                    - self.fuel_effect * valid_laps['FuelMass'].to_numpy()
+                )
+                delta = fc - fc[0]
+                mask = np.ones(n_valid, dtype=bool)
+                if self.config.enable_warmup:
+                    mask &= (lap_on_tyre > tyre.warmup_laps)
+                if tyre.max_analysis_laps is not None:
+                    mask &= (lap_on_tyre <= tyre.max_analysis_laps)
+                x = lap_on_tyre[mask]
+                y = delta[mask]
+                if len(x) > 2 and np.std(y) > 0:
+                    slope, _, _, _ = stats.theilslopes(y, x)
+                    slope = max(0.0, float(slope))
+                    if self.config.enable_track_abrasion and self.track_abrasion > 0:
+                        slope = slope / self.track_abrasion
+                    if tyre.category == TyreCategory.INTER:
+                        dry_fraction = float((valid_laps['TrackCondition'] == 'DRY').sum()) / n_valid
+                        if dry_fraction > 0.3:
+                            slope = min(slope, 0.08)
+                    compound_slopes[compound_name].append(slope)
         
         for compound_name, tyre in self.tyre_profiles.items():
             if len(compound_slopes[compound_name]) > 0:
@@ -428,12 +386,10 @@ class BayesianTyreDegradationModel:
         obs_var = self.sigma_epsilon ** 2
         proc_var = self.sigma_eta ** 2
         
-        for driver in laps_df["Driver"].unique():
-            driver_laps = (
-                laps_df[laps_df["Driver"] == driver]
-                .sort_values("LapNumber")
-                .reset_index(drop=True)
-            )
+        self._driver_clean_laps = {}
+        for driver, driver_laps in laps_df.groupby("Driver", sort=False):
+            driver_laps = driver_laps.sort_values("LapNumber").reset_index(drop=True)
+            self._driver_clean_laps[driver] = driver_laps
             
             mu_alpha = None
             var_alpha = None
@@ -442,13 +398,21 @@ class BayesianTyreDegradationModel:
             prev_stint = None
             prev_condition_category = None
             
-            for _, lap in driver_laps.iterrows():
-                compound = lap["Compound"]
-                lap_time = lap["LapTimeSeconds"]
-                fuel = lap["FuelMass"]
-                stint = lap["Stint"]
-                lap_num = int(lap["LapNumber"])
-                track_condition = lap.get("TrackCondition", "DRY")
+            compounds = driver_laps["Compound"].tolist()
+            lap_times = driver_laps["LapTimeSeconds"].tolist()
+            fuels = driver_laps["FuelMass"].tolist()
+            stints = driver_laps["Stint"].tolist()
+            lap_nums = driver_laps["LapNumber"].tolist()
+            track_conds = (
+                driver_laps["TrackCondition"].tolist()
+                if "TrackCondition" in driver_laps.columns
+                else ["DRY"] * len(driver_laps)
+            )
+            
+            for compound, lap_time, fuel, stint, raw_lap_num, track_condition in zip(
+                compounds, lap_times, fuels, stints, lap_nums, track_conds
+            ):
+                lap_num = int(raw_lap_num)
                 
                 if compound not in self.tyre_profiles:
                     print(f"Warning: Unknown compound '{compound}' for {driver}, carrying forward state")
