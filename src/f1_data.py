@@ -3,7 +3,8 @@ import os
 import pickle
 import sys
 from datetime import timedelta, date
-from multiprocessing import Pool, cpu_count
+import multiprocessing as mp
+from multiprocessing import cpu_count
 
 import fastf1
 import fastf1.plotting
@@ -13,6 +14,12 @@ import pandas as pd
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
+from src.lib.frame_store import FrameStore, FLOAT_FIELDS
+
+
+def _race_cache_paths(event_name, cache_suffix):
+    base = f"computed_data/{event_name}_{cache_suffix}"
+    return f"{base}_framestore.npz", f"{base}_meta.pkl"
 
 def enable_cache():
     # Get cache location from settings
@@ -155,9 +162,75 @@ def get_live_standings(current_driver_standings, current_constructors_standings,
 
         
 
+# Session shared with worker processes. Set once per worker via the pool
+# initializer so the (very large) session object is not pickled for every task.
+_WORKER_SESSION = None
+
+DEFAULT_MAX_WORKERS = 4
+
+
+def _init_worker(session):
+    global _WORKER_SESSION
+    _WORKER_SESSION = session
+
+
+def _get_num_workers(num_tasks):
+    """Worker count: F1_MAX_WORKERS env var, else dynamic based on available RAM and cpu_count.
+
+    Each worker holds its own copy of the session data, so memory use scales
+    with the number of workers. Set F1_MAX_WORKERS=1 to process sequentially.
+    """
+    env_val = os.environ.get("F1_MAX_WORKERS")
+    if env_val:
+        try:
+            return max(1, min(int(env_val), num_tasks))
+        except ValueError:
+            pass
+
+    # Dynamic limit based on system RAM to prevent OOM
+    try:
+        total_ram_gb = (os.sysconf('SC_PAGE_SIZE') * os.sysconf('SC_PHYS_PAGES')) / (1024**3)
+        if total_ram_gb < 8.0:
+            ram_limit = 2  # Safe worker limit for systems with < 8GB RAM to prevent memory exhaustion
+        elif total_ram_gb < 16.0:
+            ram_limit = 3
+        else:
+            ram_limit = DEFAULT_MAX_WORKERS
+    except Exception:
+        ram_limit = 2
+
+    limit = min(cpu_count(), ram_limit)
+    return max(1, min(limit, num_tasks))
+
+
+def _run_driver_pool(session, func, task_args):
+    """Run func over task_args, sharing session with workers without per-task pickling."""
+    num_workers = _get_num_workers(len(task_args))
+
+    if num_workers == 1:
+        _init_worker(session)
+        try:
+            return [func(a) for a in task_args]
+        finally:
+            _init_worker(None)
+
+    # Prefer 'fork' where available (Linux): children inherit the session via
+    # copy-on-write memory instead of receiving a pickled copy. Python 3.14
+    # changed the Linux default to 'forkserver', which pickles everything.
+    methods = mp.get_all_start_methods()
+    ctx = mp.get_context("fork" if "fork" in methods else None)
+
+    print(f"Using {num_workers} worker processes (set F1_MAX_WORKERS to change)")
+    with ctx.Pool(
+        processes=num_workers, initializer=_init_worker, initargs=(session,)
+    ) as pool:
+        return list(pool.imap(func, task_args, chunksize=1))
+
+
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
-    driver_no, session, driver_code = args
+    driver_no, driver_code = args
+    session = _WORKER_SESSION
 
     print(f"Getting telemetry for driver: {driver_code}")
 
@@ -167,6 +240,61 @@ def _process_single_driver(args):
 
     driver_max_lap = laps_driver.LapNumber.max() if not laps_driver.empty else 0
 
+    # 1. Fast path: Extract all telemetry for this driver in bulk (~15-20x faster than per-lap loop)
+    try:
+        tel = laps_driver.get_telemetry()
+        if tel is not None and not tel.empty and "SessionTime" in tel.columns:
+            tel_t = tel["SessionTime"].dt.total_seconds().to_numpy()
+            order = np.argsort(tel_t)
+            tel_t = tel_t[order]
+
+            lap_ends = laps_driver["Time"].dt.total_seconds().to_numpy()
+            lap_idx = np.searchsorted(lap_ends, tel_t)
+            lap_idx = np.clip(lap_idx, 0, len(laps_driver) - 1)
+
+            lap_numbers = laps_driver["LapNumber"].to_numpy()[lap_idx]
+            raw_compounds = laps_driver["Compound"].to_numpy()
+            compound_ints = np.array([get_tyre_compound_int(c) for c in raw_compounds])
+            tyre_compounds = compound_ints[lap_idx]
+            tyre_life_all = laps_driver["TyreLife"].fillna(0).to_numpy()[lap_idx]
+
+            x_all = tel["X"].to_numpy()[order]
+            y_all = tel["Y"].to_numpy()[order]
+            race_dist_all = tel["Distance"].to_numpy()[order]
+            rel_dist_all = tel["RelativeDistance"].to_numpy()[order]
+            speed_all = tel["Speed"].to_numpy()[order]
+            gear_all = tel["nGear"].to_numpy()[order]
+            drs_all = tel["DRS"].to_numpy()[order]
+            throttle_all = tel["Throttle"].to_numpy()[order]
+            brake_all = tel["Brake"].to_numpy().astype(float)[order]
+
+            print(f"Completed telemetry for driver: {driver_code}")
+            return {
+                "code": driver_code,
+                "data": {
+                    "t": tel_t,
+                    "x": x_all,
+                    "y": y_all,
+                    "dist": race_dist_all,
+                    "rel_dist": rel_dist_all,
+                    "lap": lap_numbers,
+                    "tyre": tyre_compounds,
+                    "tyre_life": tyre_life_all,
+                    "speed": speed_all,
+                    "gear": gear_all,
+                    "drs": drs_all,
+                    "throttle": throttle_all,
+                    "brake": brake_all,
+                },
+                "t_min": tel_t.min(),
+                "t_max": tel_t.max(),
+                "max_lap": driver_max_lap,
+            }
+    except Exception:
+        # Fall back to lap-by-lap extraction if bulk extraction fails
+        pass
+
+    # 2. Fallback path: Per-lap iteration
     t_all = []
     x_all = []
     y_all = []
@@ -237,21 +365,19 @@ def _process_single_driver(args):
 
     # Concatenate all arrays at once for better performance
     all_arrays = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                  lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
+                  lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all, throttle_all, brake_all]
     
+    concatenated = [np.concatenate(arr) for arr in all_arrays]
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [np.concatenate(arr) for arr in all_arrays]
+    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all, throttle_all, brake_all = concatenated
 
     # Sort all arrays by time in one operation
     order = np.argsort(t_all)
     all_data = [t_all, x_all, y_all, race_dist_all, rel_dist_all, 
-                lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all]
+                lap_numbers, tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all, throttle_all, brake_all]
     
     t_all, x_all, y_all, race_dist_all, rel_dist_all, lap_numbers, \
-    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all = [arr[order] for arr in all_data]
-
-    throttle_all = np.concatenate(throttle_all)[order]
-    brake_all = np.concatenate(brake_all)[order]
+    tyre_compounds, tyre_life_all, speed_all, gear_all, drs_all, throttle_all, brake_all = [arr[order] for arr in all_data]
 
     print(f"Completed telemetry for driver: {driver_code}")
 
@@ -351,8 +477,13 @@ def get_driver_colors(session):
     return rgb_colors
 
 def get_circuit_rotation(session):
-    circuit = session.get_circuit_info()
-    return circuit.rotation
+    try:
+        circuit = session.get_circuit_info()
+        if circuit is not None and hasattr(circuit, "rotation"):
+            return float(circuit.rotation)
+    except Exception:
+        pass
+    return 0.0
 
 
 def _compute_safety_car_positions(frames, track_statuses, session):
@@ -375,18 +506,18 @@ def _compute_safety_car_positions(frames, track_statuses, session):
       - alpha: 0.0-1.0 for fade in/out animation
     """
     if not frames or not track_statuses:
-        return
+        return {}
 
     # Build reference polyline from the first driver's telemetry to get track shape
     try:
         fastest_lap = session.laps.pick_fastest()
         if fastest_lap is None:
             print("Safety Car: No fastest lap found, skipping SC position computation")
-            return
+            return {}
         tel = fastest_lap.get_telemetry()
         if tel is None or tel.empty:
             print("Safety Car: No telemetry data, skipping SC position computation")
-            return
+            return {}
         
         ref_xs = tel["X"].to_numpy().astype(float)
         ref_ys = tel["Y"].to_numpy().astype(float)
@@ -394,7 +525,7 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         
         if len(ref_xs) < 10:
             print("Safety Car: Insufficient reference points, skipping")
-            return
+            return {}
         
         # Interpolate reference to high density for smooth positioning
         from scipy.spatial import cKDTree
@@ -422,7 +553,7 @@ def _compute_safety_car_positions(frames, track_statuses, session):
         
     except Exception as e:
         print(f"Safety Car: Failed to build reference polyline: {e}")
-        return
+        return {}
 
     # Identify SC deployment periods from track_statuses
     sc_periods = []
@@ -435,7 +566,7 @@ def _compute_safety_car_positions(frames, track_statuses, session):
     
     if not sc_periods:
         print("Safety Car: No SC periods found in this session")
-        return
+        return {}
 
     print(f"Safety Car: Found {len(sc_periods)} SC deployment period(s)")
     
@@ -548,6 +679,7 @@ def _compute_safety_car_positions(frames, track_statuses, session):
     
     # For each SC period, track the SC's cumulative position on the track
     sc_state = {}  # keyed by sc_period index
+    sc_positions = {}
     
     for fi, frame in enumerate(frames):
         t = frame["t"]
@@ -566,7 +698,6 @@ def _compute_safety_car_positions(frames, track_statuses, session):
                 break
         
         if active_sc is None:
-            frame["safety_car"] = None
             continue
         
         sc_start = active_sc["start_time"]
@@ -708,16 +839,15 @@ def _compute_safety_car_positions(frames, track_statuses, session):
             
             sc_x, sc_y = _pos_at_dist(state["track_dist"])
         
-        frame["safety_car"] = {
+        sc_positions[fi] = {
             "x": round(sc_x, 2),
             "y": round(sc_y, 2),
             "phase": phase,
             "alpha": round(alpha, 3),
         }
 
-    # Count frames with SC data
-    sc_frame_count = sum(1 for f in frames if f.get("safety_car") is not None)
-    print(f"Safety Car: Computed positions for {sc_frame_count} frames")
+    print(f"Safety Car: Computed positions for {len(sc_positions)} frames")
+    return sc_positions
 
 
 def get_race_telemetry(session, session_type="R"):
@@ -726,17 +856,29 @@ def get_race_telemetry(session, session_type="R"):
 
     # Check if this data has already been computed
 
-    try:
-        if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return frames
-    except FileNotFoundError:
-        pass  # Need to compute from scratch
+    store_path, meta_path = _race_cache_paths(event_name, cache_suffix)
+    if "--refresh-data" not in sys.argv and os.path.exists(store_path) and os.path.exists(meta_path):
+        try:
+            frames = FrameStore.load(store_path)
+            with open(meta_path, "rb") as f:
+                meta = pickle.load(f)
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            if meta.get("example_lap") is None and session is not None and hasattr(session, "laps"):
+                try:
+                    fastest_lap = session.laps.pick_fastest()
+                    if fastest_lap is not None:
+                        meta["example_lap"] = fastest_lap.get_telemetry()
+                except Exception:
+                    pass
+            return dict(meta, frames=frames)
+        except Exception as e:
+            print(f"Cached telemetry unreadable ({e}); recomputing...")
+
+    legacy = f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl"
+    if os.path.exists(legacy):
+        # Old format loads ~2.3 GB of Python objects; rebuild in the compact format instead.
+        print(f"Note: ignoring legacy cache {legacy} (memory-heavy format); it can be deleted.")
 
     drivers = session.drivers
 
@@ -752,14 +894,9 @@ def get_race_telemetry(session, session_type="R"):
     # 1. Get all of the drivers telemetry data using multiprocessing
     # Prepare arguments for parallel processing
     print(f"Processing {len(drivers)} drivers in parallel...")
-    driver_args = [
-        (driver_no, session, driver_codes[driver_no]) for driver_no in drivers
-    ]
+    driver_args = [(driver_no, driver_codes[driver_no]) for driver_no in drivers]
 
-    num_processes = min(cpu_count(), len(drivers))
-
-    with Pool(processes=num_processes) as pool:
-        results = pool.map(_process_single_driver, driver_args)
+    results = _run_driver_pool(session, _process_single_driver, driver_args)
 
     # Process results
     for result in results:
@@ -984,143 +1121,57 @@ def get_race_telemetry(session, session_type="R"):
     
     print("PIT WINDOWS: ", pit_windows)
 
-    # 5. Build the frames + LIVE LEADERBOARD
-    frames = []
+    # 5. Build the frames as a compact columnar store (~20x less RAM than
+    #    one Python dict per frame). Frame dicts are materialised on demand.
+    codes = list(resampled_data.keys())
     num_frames = len(timeline)
+    stacked = {}
+    for field in FLOAT_FIELDS + ("lap", "gear", "drs"):
+        if codes:
+            stacked[field] = np.column_stack([resampled_data[c][field] for c in codes])
+        else:
+            stacked[field] = np.zeros((num_frames, 0))
+    in_pit = np.zeros((num_frames, len(codes)), dtype=bool)
+    for j, c in enumerate(codes):
+        for start, end in pit_windows_shifted.get(c, []):
+            in_pit[:, j] |= (timeline >= start) & (timeline <= end)
+    del resampled_data, driver_data
 
-    # Pre-extract data references for faster access
-    driver_codes = list(resampled_data.keys())
-    driver_arrays = {code: resampled_data[code] for code in driver_codes}
+    frames = FrameStore.from_arrays(codes, timeline, stacked, in_pit, weather_resampled)
+    del stacked
 
-    for i in range(num_frames):
-        t = timeline[i]
-        snapshot = []
-        for code in driver_codes:
-            d = driver_arrays[code]
-            snapshot.append({
-                "code": code,
-                "dist": float(d["dist"][i]),
-                "x": float(d["x"][i]),
-                "y": float(d["y"][i]),
-                "lap": int(round(d["lap"][i])),
-                "rel_dist": float(d["rel_dist"][i]),
-                "tyre": float(d["tyre"][i]),
-                "tyre_life": float(d["tyre_life"][i]),
-                "speed": float(d['speed'][i]),
-                "gear": int(d['gear'][i]),
-                "drs": int(d['drs'][i]),
-                "throttle": float(d['throttle'][i]),
-                "brake": float(d['brake'][i]),
-            })
-
-        # If for some reason we have no drivers at this instant
-        if not snapshot:
-            continue
-
-        # 5b. Sort by race distance to get POSITIONS (1–20)
-        # Leader = largest race distance covered
-        snapshot.sort(key=lambda r: (r.get("lap", 0), r["dist"]), reverse=True)
-
-        leader = snapshot[0]
-        leader_lap = leader["lap"]
-
-        # 5c. Prepare frame data
-        frame_data = {}
-
-        for idx, car in enumerate(snapshot):
-            code = car["code"]
-            position = idx + 1
-
-            #Pit stop detection
-            in_pit=False
-            for start,end in pit_windows_shifted.get(code,[]):
-                if start<=t<=end:
-                    in_pit=True
-                    break
-            
-            # include speed, gear, drs_active in frame driver dict
-            frame_data[code] = {
-                "x": car["x"],
-                "y": car["y"],
-                "dist": car["dist"],
-                "lap": car["lap"],
-                "rel_dist": round(car["rel_dist"], 4),
-                "tyre": car["tyre"],
-                "tyre_life": car["tyre_life"],
-                "position": position,
-                "speed": car["speed"],
-                "gear": car["gear"],
-                "drs": car["drs"],
-                "throttle": car["throttle"],
-                "brake": car["brake"],
-                "in_pit": in_pit
-            }
-
-        weather_snapshot = {}
-        if weather_resampled:
-            try:
-                wt = weather_resampled
-                rain_val = wt["rainfall"][i] if wt.get("rainfall") is not None else 0.0
-                weather_snapshot = {
-                    "track_temp": float(wt["track_temp"][i])
-                    if wt.get("track_temp") is not None
-                    else None,
-                    "air_temp": float(wt["air_temp"][i])
-                    if wt.get("air_temp") is not None
-                    else None,
-                    "humidity": float(wt["humidity"][i])
-                    if wt.get("humidity") is not None
-                    else None,
-                    "wind_speed": float(wt["wind_speed"][i])
-                    if wt.get("wind_speed") is not None
-                    else None,
-                    "wind_direction": float(wt["wind_direction"][i])
-                    if wt.get("wind_direction") is not None
-                    else None,
-                    "rain_state": "RAINING" if rain_val and rain_val >= 0.5 else "DRY",
-                }
-            except Exception as e:
-                print(f"Failed to attach weather data to frame {i}: {e}")
-
-        frame_payload = {
-            "t": round(t, 3),
-            "lap": leader_lap,  # leader's lap at this time
-            "drivers": frame_data,
-        }
-        if weather_snapshot:
-            frame_payload["weather"] = weather_snapshot
-
-        frames.append(frame_payload)
-
-    # 5d. Compute Safety Car positions for each frame
-    _compute_safety_car_positions(frames, formatted_track_statuses, session)
+    # 5d. Compute Safety Car positions (stored sparsely, only for SC frames)
+    frames.safety_car = _compute_safety_car_positions(frames, formatted_track_statuses, session)
     print("completed telemetry extraction...")
     print("Saving to cache file...")
-    # If computed_data/ directory doesn't exist, create it
-    if not os.path.exists("computed_data"):
-        os.makedirs("computed_data")
+    example_lap = None
+    try:
+        if session is not None and hasattr(session, "laps") and len(session.laps) > 0:
+            fastest_lap = session.laps.pick_fastest()
+            if fastest_lap is not None:
+                example_lap = fastest_lap.get_telemetry()
+    except Exception as e:
+        print(f"Notice: Could not extract example lap: {e}")
 
-    # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
-        pickle.dump({
-            "frames": frames,
-            "driver_colors": get_driver_colors(session),
-            "track_statuses": formatted_track_statuses,
-            "race_control_messages": formatted_rc_messages,
-            "total_laps": int(max_lap_number),
-            "max_tyre_life": max_tyre_life_map,
-        }, f, protocol=pickle.HIGHEST_PROTOCOL)
+    os.makedirs("computed_data", exist_ok=True)
 
-    print("Saved Successfully!")
-    print("The replay should begin in a new window shortly")
-    return {
-        "frames": frames,
+    meta = {
         "driver_colors": get_driver_colors(session),
         "track_statuses": formatted_track_statuses,
         "race_control_messages": formatted_rc_messages,
         "total_laps": int(max_lap_number),
         "max_tyre_life": max_tyre_life_map,
+        "example_lap": example_lap,
     }
+
+    store_path, meta_path = _race_cache_paths(event_name, cache_suffix)
+    frames.save(store_path)
+    with open(meta_path, "wb") as f:
+        pickle.dump(meta, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    print("Saved Successfully!")
+    print("The replay should begin in a new window shortly")
+    return dict(meta, frames=frames)
 
 
 def get_qualifying_results(session):
@@ -1460,7 +1511,8 @@ def get_driver_quali_telemetry(session, driver_code: str, quali_segment: str):
 
 def _process_quali_driver(args):
     """Process qualifying telemetry data for a single driver - must be top-level for multiprocessing"""
-    session, driver_code = args
+    (driver_code,) = args
+    session = _WORKER_SESSION
     print(f"Getting qualifying telemetry for driver: {driver_code}")
 
     driver_telemetry_data = {}
@@ -1541,14 +1593,11 @@ def get_quali_telemetry(session, session_type="Q"):
 
     telemetry_data = {}
 
-    driver_args = [(session, driver_codes[driver_no]) for driver_no in session.drivers]
+    driver_args = [(driver_codes[driver_no],) for driver_no in session.drivers]
 
     print(f"Processing {len(session.drivers)} drivers in parallel...")
 
-    num_processes = min(cpu_count(), len(session.drivers))
-
-    with Pool(processes=num_processes) as pool:
-        results = pool.map(_process_quali_driver, driver_args)
+    results = _run_driver_pool(session, _process_quali_driver, driver_args)
     for result in results:
         driver_code = result["driver_code"]
         telemetry_data[driver_code] = {

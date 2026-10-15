@@ -319,14 +319,56 @@ class QualifyingReplay(arcade.Window):
 
                     comp_key_rect = arcade.XYWH(comp_square_x, comp_key_y, comp_key_size, 3)
                     arcade.draw_rect_filled(comp_key_rect, arcade.color.YELLOW)
+                    
+                    base_text = f"Comparison Driver: {comp_driver_code} - Q3"
                     arcade.Text(
-                        f"Comparison Driver: {comp_driver_code} - Q3",
+                        base_text,
                         comp_square_x + (comp_key_size * 0.5) + 6,
                         comp_key_y,
                         arcade.color.ANTI_FLASH_WHITE,
                         12,
                         anchor_y="center"
                     ).draw()
+
+                    # Calculate and draw Pace Difference
+                    delta_text = ""
+                    delta_color = arcade.color.ANTI_FLASH_WHITE
+                    if frames:
+                        safe_frame_index = max(0, min(self.frame_index, len(frames) - 1))
+                        c_frame = frames[safe_frame_index]
+                        c_t = c_frame.get("t", 0.0)
+                        c_tel = c_frame.get("telemetry", {}) if isinstance(c_frame.get("telemetry", {}), dict) else {}
+                        c_dist = self._pick_telemetry_value(c_tel, "dist")
+                        
+                        if c_dist is not None:
+                            closest_t = None
+                            min_dist_diff = float('inf')
+                            for comp_f in comparison_telemetry:
+                                comp_tel = comp_f.get("telemetry", {}) if isinstance(comp_f.get("telemetry", {}), dict) else {}
+                                comp_d = self._pick_telemetry_value(comp_tel, "dist")
+                                if comp_d is not None:
+                                    dist_diff = abs(comp_d - c_dist)
+                                    if dist_diff < min_dist_diff:
+                                        min_dist_diff = dist_diff
+                                        closest_t = comp_f.get("t", 0.0)
+                            
+                            if closest_t is not None:
+                                delta = c_t - closest_t
+                                sign = "+" if delta > 0 else "-"
+                                delta_color = arcade.color.RED if delta > 0 else arcade.color.GREEN
+                                delta_text = f"  |  Pace: {sign}{abs(delta):.3f}s"
+                    
+                    if delta_text:
+                        base_width = len(base_text) * 7.5
+                        arcade.Text(
+                            delta_text,
+                            comp_square_x + (comp_key_size * 0.5) + 6 + base_width,
+                            comp_key_y,
+                            delta_color,
+                            12,
+                            anchor_y="center",
+                            bold=True
+                        ).draw()
 
                 # compute global ranges from all frames (use distance for x-axis) - Should be max of 1.0 rel_dist, but just in case
 
