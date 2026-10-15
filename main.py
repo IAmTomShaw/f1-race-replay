@@ -9,6 +9,9 @@ from PySide6.QtWidgets import QApplication
 from src.lib.season import get_season
 import logging
 import re
+import os
+import pickle
+import gc
 
 
 def _extract_circuit_name(event_name: str) -> str:
@@ -42,6 +45,9 @@ def _extract_circuit_name(event_name: str) -> str:
 
 
 def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
+  # Enable cache for fastf1 before loading session
+  enable_cache()
+
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
   if session is None:
@@ -49,9 +55,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     return
 
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
-
-  # Enable cache for fastf1
-  enable_cache()
 
   if session_type == 'Q' or session_type == 'SQ':
 
@@ -91,31 +94,53 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     race_telemetry = get_race_telemetry(session, session_type=session_type)
 
     # Get example lap for track layout
-    # Qualifying lap preferred for DRS zones (fallback to fastest race lap (no DRS data))
-    example_lap = None
+    example_lap = race_telemetry.get('example_lap')
+    event_cache_key = str(session).replace(' ', '_')
+    layout_cache_file = f"computed_data/{event_cache_key}_track_layout_lap.pkl"
 
-    try:
-        print("Attempting to load qualifying session for track layout...")
-        quali_session = load_session(year, round_number, 'Q')
-        if quali_session is not None and len(quali_session.laps) > 0:
-            fastest_quali = quali_session.laps.pick_fastest()
-            if fastest_quali is not None:
-                quali_telemetry = fastest_quali.get_telemetry()
-                if 'DRS' in quali_telemetry.columns:
-                    example_lap = quali_telemetry
-                    print(f"Using qualifying lap from driver {fastest_quali['Driver']} for DRS Zones")
-    except Exception as e:
-        print(f"Could not load qualifying session: {e}")
+    if example_lap is None and os.path.exists(layout_cache_file):
+        try:
+            with open(layout_cache_file, "rb") as f:
+                example_lap = pickle.load(f)
+                print("Loaded precomputed track layout lap.")
+        except Exception:
+            pass
 
-    # fallback: Use fastest race lap
+    # Use fastest race lap from session already in memory (avoids loading qualifying and saving ~1.2GB RAM)
     if example_lap is None:
-        fastest_lap = session.laps.pick_fastest()
-        if fastest_lap is not None:
-            example_lap = fastest_lap.get_telemetry()
-            print("Using fastest race lap (DRS detection may use speed-based fallback)")
-        else:
-            print("Error: No valid laps found in session")
-            return
+        try:
+            fastest_lap = session.laps.pick_fastest() if session.laps is not None and len(session.laps) > 0 else None
+            if fastest_lap is not None:
+                example_lap = fastest_lap.get_telemetry()
+                print("Using fastest race lap for track layout geometry.")
+        except Exception as e:
+            print(f"Notice: Could not extract fastest lap telemetry: {e}")
+
+    # Fallback to qualifying ONLY if race session had zero valid lap telemetry
+    if example_lap is None and (year is None or year < 2026):
+        try:
+            print("Attempting to load qualifying session for track layout fallback...")
+            quali_session = load_session(year, round_number, 'Q')
+            if quali_session is not None and len(quali_session.laps) > 0:
+                fastest_quali = quali_session.laps.pick_fastest()
+                if fastest_quali is not None:
+                    example_lap = fastest_quali.get_telemetry()
+                    print(f"Using qualifying lap from driver {fastest_quali['Driver']}")
+        except Exception as e:
+            print(f"Could not load qualifying session: {e}")
+
+    if example_lap is None:
+        print("Error: No valid lap telemetry found for track layout")
+        return
+
+    # Cache layout lap so subsequent runs load instantly
+    if not os.path.exists("computed_data"):
+        os.makedirs("computed_data", exist_ok=True)
+    try:
+        with open(layout_cache_file, "wb") as f:
+            pickle.dump(example_lap, f, protocol=pickle.HIGHEST_PROTOCOL)
+    except Exception:
+        pass
 
     drivers = session.drivers
 
@@ -143,6 +168,13 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
 
     # Compute standings per lap
     live_driver_standings, live_constructors_standings = get_live_standings(current_driver_standings, current_constructors_standings, session)
+
+    # Free heavy raw sensor / GPS arrays from FastF1 session to reclaim memory before replay
+    if hasattr(session, '_car_data'):
+        session._car_data = {}
+    if hasattr(session, '_pos_data'):
+        session._pos_data = {}
+    gc.collect()
 
     # Launch telemetry viewer if requested
     if show_telemetry_viewer:

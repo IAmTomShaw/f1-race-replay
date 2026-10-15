@@ -375,6 +375,40 @@ class RaceSelectionWindow(QMainWindow):
         dlg.setWindowTitle("Loading")
         dlg.setWindowModality(Qt.ApplicationModal)
         dlg.setCancelButton(None)
+        dlg.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        dlg.setMinimumWidth(380)
+        dlg.setMinimumHeight(120)
+        if dlg.layout():
+            dlg.layout().setContentsMargins(24, 20, 24, 20)
+            dlg.layout().setSpacing(14)
+        label = dlg.findChild(QLabel)
+        if label:
+            label.setAlignment(Qt.AlignCenter)
+        dlg.setStyleSheet("""
+            QProgressDialog {
+                background-color: #1a1a1e;
+                color: #f0f0f5;
+                border: 1px solid #2e2e38;
+                border-radius: 10px;
+            }
+            QLabel {
+                color: #f0f0f5;
+                font-size: 14px;
+                font-weight: 600;
+                padding-bottom: 4px;
+            }
+            QProgressBar {
+                border: 1px solid #3a3a48;
+                border-radius: 6px;
+                background-color: #24242e;
+                height: 12px;
+                text-align: center;
+            }
+            QProgressBar::chunk {
+                background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #e10600, stop:1 #ff3344);
+                border-radius: 5px;
+            }
+        """)
         dlg.setMinimumDuration(0)
         dlg.setRange(0, 0)
         dlg.show()
