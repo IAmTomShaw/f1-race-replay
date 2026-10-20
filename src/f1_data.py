@@ -9,6 +9,7 @@ import fastf1
 import fastf1.plotting
 import numpy as np
 import pandas as pd
+from fastf1.exceptions import DataNotLoadedError
 
 from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
@@ -278,20 +279,31 @@ def _process_single_driver(args):
     }
 
 
+def _load_verified(year, round_number, session_type):
+    session = fastf1.get_session(year, round_number, session_type)
+    session.load(telemetry=True, weather=True)
+    # fastf1 logs a warning instead of raising when the data source is unreachable
+    # (e.g. HTTP 401), leaving an empty session. Fail here rather than in worker processes.
+    try:
+        session.laps
+    except DataNotLoadedError:
+        raise RuntimeError(
+            "FastF1 could not download the session data (the F1 live timing API "
+            "may be unavailable). Check your connection or try again later."
+        )
+    return session
+
+
 def load_session(year, round_number, session_type="R"):
     # session_type: 'R' (Race), 'S' (Sprint), 'Q' (Qualifying), 'FP1', 'FP2', 'FP3' etc.
     # Handle cases where 'S' might be incorrect for certain events
     try:
-        session = fastf1.get_session(year, round_number, session_type)
-        session.load(telemetry=True, weather=True)
-        return session
+        return _load_verified(year, round_number, session_type)
     except Exception as e:
         # Fallback: if 'S' (Sprint) fails, try 'SQ' (Sprint Qualifying) as some events use different codes
         if session_type == 'S':
             try:
-                session = fastf1.get_session(year, round_number, 'SQ')
-                session.load(telemetry=True, weather=True)
-                return session
+                return _load_verified(year, round_number, 'SQ')
             except Exception:
                 pass
         print(f"Error loading session {session_type}: {e}")
