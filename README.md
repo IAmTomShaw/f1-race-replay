@@ -17,6 +17,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Interactive Controls:** Pause, rewind, fast forward, and adjust playback speed using on-screen buttons or keyboard shortcuts.
 - **Legend:** On-screen legend explains all controls.
 - **Driver Telemetry Insights:** View speed, gear, DRS status, and current lap for selected drivers when selected on the leaderboard.
+- **Car Detail:** One car at a glance in an insight window — live telemetry, tyres and pace — with every value tagged **LIVE**, **EST** or **AI** so a model output is never mistaken for telemetry.
 
 ## Controls
 
@@ -30,6 +31,24 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Toggle Driver Names**: **L** to hide/show driver names on track
 - **Select driver/drivers**: Click to select driver or shift click to select multiple drivers
 
+
+## Car Detail
+
+Open **Car Detail** from the Insights Menu (Live Telemetry section). It follows the driver you click on the replay leaderboard (untick *Follow leaderboard selection* to pin one car) and shows:
+
+- **Telemetry:** speed, gear, throttle, brake and DRS, next to a top-down car drawn in team colours with tyres in the compound colour
+- **Tyres:** compound and age, plus the tyre model's health, wear rate, time lost so far and how long the tyres will last
+- **Pace & race:** last lap, predicted next lap, gaps to the cars ahead and behind, and fuel load
+
+Every value carries a tag that says where it comes from:
+
+| Tag | Meaning | Used for |
+|-----|---------|----------|
+| **LIVE** | Recorded timing and telemetry (FastF1) | Speed, gear, throttle, brake, DRS, compound, tyre age, last lap, position |
+| **EST** | A simple estimate, not measured | Gaps in seconds (track distance ÷ the car's average lap speed); fuel (110 kg at the start burned evenly to a 1 kg reserve at the flag) |
+| **AI** | Output of the Bayesian tyre model (`src/bayesian_tyre_model.py`) | Tyre health, wear rate, time lost, laps left, next lap time with a 95% range |
+
+The window lives in `src/insights/car_detail_window.py`; the estimate and formatting helpers are in `src/lib/car_state.py`.
 
 ## Safety Car
 
@@ -204,6 +223,7 @@ f1-race-replay/
 │   │   ├── pit_wall_window.py    # Base class for custom telemetry windows
 │   │   └── pit_wall_window_template.py  # Starting template for a new insight window
 │   ├── insights/                 # Insight windows fed by the telemetry stream
+│   │   ├── car_detail_window.py  # Car Detail insight: one car's telemetry, tyres and pace, tagged LIVE / EST / AI
 │   │   ├── driver_telemetry_window.py
 │   │   ├── lap_time_chart_window.py
 │   │   ├── race_control_feed_window.py

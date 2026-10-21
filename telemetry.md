@@ -111,6 +111,15 @@ These come from official FastF1 lap data. A field is `null` when the timing feed
 
 `src/lib/sectors.py` provides helpers for working with these values: `best_sectors`, `theoretical_best_s` (ideal-lap sum), `classify_sector_statuses` (session best / personal best colouring), and `session_best_holders`.
 
+### Selected Drivers and the Tyre Model
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `selected_drivers` | list of string | Driver codes selected on the replay leaderboard, in the order they were clicked |
+| `tyre_model` | object | Per driver code, the Bayesian tyre model's current outputs (see below). Empty when the model isn't available |
+
+Each `tyre_model` entry has `compound`, `laps_on_tyre`, `health` (0–100), `wear_s_per_lap`, `time_lost_s`, `laps_left` (until the model's wear limit), `uncertainty_s` (1 standard deviation) and `next_lap_s` with `next_lap_low_s` / `next_lap_high_s` (95% range). These are **model predictions, not telemetry** — show them as such.
+
 ## Technical Details
 
 - **Protocol**: TCP socket on `localhost:9999`

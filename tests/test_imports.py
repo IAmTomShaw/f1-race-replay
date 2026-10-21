@@ -12,6 +12,7 @@ MODULES = [
     "src.gui.pit_wall_window_template",
     "src.gui.race_selection",
     "src.gui.settings_dialog",
+    "src.insights.car_detail_window",
     "src.insights.driver_telemetry_window",
     "src.insights.example_pit_wall_window",
     "src.insights.race_control_feed_window",
