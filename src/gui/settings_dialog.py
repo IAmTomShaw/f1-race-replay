@@ -5,6 +5,7 @@ Provides UI for configuring application settings like cache location.
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QCheckBox,
     QDialog,
     QDialogButtonBox,
     QFileDialog,
@@ -86,6 +87,25 @@ class SettingsDialog(QDialog):
 
         layout.addWidget(cache_group)
 
+        # Map Settings Group
+        map_group = QGroupBox("Track Map")
+        map_layout = QVBoxLayout()
+        map_group.setLayout(map_layout)
+
+        self.osm_map_checkbox = QCheckBox("Show a real-world map under the track")
+        map_layout.addWidget(self.osm_map_checkbox)
+
+        map_help = QLabel(
+            "Roads, buildings, parks and water around the circuit, drawn from\n"
+            "OpenStreetMap data (downloaded once per circuit, then cached).\n"
+            "Press M during a replay to hide or show it."
+        )
+        map_help.setStyleSheet("color: gray; font-size: 11px;")
+        map_help.setWordWrap(True)
+        map_layout.addWidget(map_help)
+
+        layout.addWidget(map_group)
+
         # Spacer
         layout.addStretch()
 
@@ -107,6 +127,7 @@ class SettingsDialog(QDialog):
         """Load current settings values into the UI."""
         self.cache_path_edit.setText(self.settings.cache_location)
         self.computed_path_edit.setText(self.settings.computed_data_location)
+        self.osm_map_checkbox.setChecked(self.settings.osm_map_enabled)
 
     def _browse_cache_location(self):
         """Open a folder browser for cache location."""
@@ -170,6 +191,7 @@ class SettingsDialog(QDialog):
         # Save settings
         self.settings.cache_location = cache_path
         self.settings.computed_data_location = computed_path
+        self.settings.osm_map_enabled = self.osm_map_checkbox.isChecked()
         self.settings.save()
 
         QMessageBox.information(

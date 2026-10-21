@@ -9,6 +9,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 ## Features
 
 - **Race Replay Visualization:** Watch the race unfold with real-time driver positions on a rendered track.
+- **Real-World Map:** The track sits on a real map of the area around it — roads, buildings, parks and water from OpenStreetMap. Press **M** to hide or show it, or turn it off in Settings.
 - **Safety Car Visualization:** See the Safety Car deploy from pit lane, lead the field, and return to pits — with animated transitions and pulsing glow effects.
 - **Insights Menu:** Floating menu for quick access to telemetry analysis tools (launches automatically with replay).
 - **Leaderboard:** See live driver positions and current tyre compounds.
@@ -28,6 +29,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 - **Toggle DRS Zone**: **D** to hide/show DRS Zone
 - **Toggle Progress Bar**: **B** to hide/show progress bar
 - **Toggle Driver Names**: **L** to hide/show driver names on track
+- **Toggle Real-World Map**: **M** to hide/show the map under the track
 - **Select driver/drivers**: Click to select driver or shift click to select multiple drivers
 
 
@@ -67,6 +69,19 @@ The SC position computation happens in `_compute_safety_car_positions()` in `src
 | `alpha` | Opacity value from `0.0` (invisible) to `1.0` (fully visible), used for fade in/out animation |
 
 > **Note:** If you have existing cached `.pkl` files from previous runs, you must re-run with `--refresh-data` to generate SC position data. Older cached files will simply show no Safety Car.
+
+## Real-World Map
+
+The replay draws the circuit's real surroundings under the track: roads, buildings, parks, water and coastline from [OpenStreetMap](https://www.openstreetmap.org/copyright). No API key is needed.
+
+### How it works
+
+1. **Find the circuit.** The session is matched to its real-world outline from [bacinger/f1-circuits](https://github.com/bacinger/f1-circuits) (MIT licence) by name and shape.
+2. **Line it up.** That outline is fitted to the replay's own track (scale, rotation, mirroring and offset). If the fit is more than about 40 m out, no map is shown, so you never get a map that doesn't match the track.
+3. **Download once.** Map data for the area comes from the [Overpass API](https://overpass-api.de/) and is cached in your computed data folder (`computed_data/maps/` by default), so later replays of the same circuit work offline.
+4. **Draw in the background.** The map is rendered into a single image on a background thread, so the replay starts straight away and the map fades in when it's ready.
+
+The credit "Map data © OpenStreetMap contributors" is shown whenever the map is visible, as the [OpenStreetMap licence](https://www.openstreetmap.org/copyright) requires. If you're offline and nothing is cached, the replay simply runs without a map.
 
 ## Qualifying Session Support (in development)
 
@@ -213,10 +228,13 @@ f1-race-replay/
 │   │   ├── telemetry_stream_viewer.py  # Raw telemetry stream viewer
 │   │   └── example_pit_wall_window.py  # Example PitWallWindow implementation
 │   ├── services/
+│   │   ├── circuit_map.py        # Real-world map under the track (OpenStreetMap download, cache and render)
 │   │   └── stream.py             # TCP telemetry stream server and client
 │   ├── cli/
 │   │   └── race_selection.py     # CLI menu (python main.py --cli)
 │   └── lib/                      # Small helpers
+│       ├── georef.py             # Fits a real-world circuit outline to the replay's track
+│       ├── map_geometry.py       # Line joining, clipping and coastline-to-sea helpers for the map
 │       ├── season.py             # Current season detection
 │       ├── sectors.py            # Sector time analysis helpers
 │       ├── settings.py           # Persistent application settings
