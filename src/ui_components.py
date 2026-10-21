@@ -55,6 +55,7 @@ class MapUnderlayComponent(BaseComponent):
         self._bounds = None        # (x0, x1, y0, y1) in the rotated world frame
         self._shown_at = 0.0       # when the map arrived, for the fade-in
         self._credit = ""
+        self._status = None        # shown bottom-right when the map can't be shown
         self._attribution = arcade.Text(
             "", 0, 0, (190, 190, 190, 210), 10, anchor_x="right", anchor_y="bottom"
         )
@@ -75,9 +76,11 @@ class MapUnderlayComponent(BaseComponent):
                 result = build_track_map(**kwargs)
             except Exception as exc:  # offline, server busy, unexpected data...
                 print(f"Map underlay unavailable: {exc}")
+                self._status = "Real-world map unavailable (offline or map server busy)"
                 return
             if result is None:
                 print("Map underlay: no real-world outline matches this layout, skipping")
+                self._status = "No real-world map for this track layout"
                 return
             print(f"Map underlay ready: {result.circuit_name} (fit error {result.residual_m:.1f} m)")
             self._pending = result
@@ -95,15 +98,20 @@ class MapUnderlayComponent(BaseComponent):
         self._shown_at = time.monotonic()
 
     def draw(self, window):
-        if self._texture is None and self._pending is not None:
-            self._upload()
-        if not self.visible or self._texture is None:
-            return
-        x0, x1, y0, y1 = self._bounds
-        s, tx, ty = window.world_scale, window.tx, window.ty
-        rect = arcade.LRBT(s * x0 + tx, s * x1 + tx, s * y0 + ty, s * y1 + ty)
-        alpha = min(255, int(255 * (time.monotonic() - self._shown_at) / self.FADE_IN_S))
-        arcade.draw_texture_rect(self._texture, rect, alpha=alpha, atlas=self._atlas)
+        try:
+            if self._texture is None and self._pending is not None:
+                self._upload()
+            if not self.visible or self._texture is None:
+                return
+            x0, x1, y0, y1 = self._bounds
+            s, tx, ty = window.world_scale, window.tx, window.ty
+            rect = arcade.LRBT(s * x0 + tx, s * x1 + tx, s * y0 + ty, s * y1 + ty)
+            alpha = min(255, int(255 * (time.monotonic() - self._shown_at) / self.FADE_IN_S))
+            arcade.draw_texture_rect(self._texture, rect, alpha=alpha, atlas=self._atlas)
+        except Exception as exc:  # GPU/driver or Arcade API problem: never break the replay
+            print(f"Map underlay disabled, drawing failed: {exc}")
+            self._texture, self._pending = None, None
+            self._status = "Real-world map couldn't be drawn on this system"
 
     def draw_attribution(self, window):
         """
@@ -112,6 +120,11 @@ class MapUnderlayComponent(BaseComponent):
         off: how to bring it back, so the shortcut is always discoverable.
         """
         if self._texture is None:
+            if self._status:
+                self._attribution.text = self._status
+                self._attribution.x = window.width - 10
+                self._attribution.y = 6
+                self._attribution.draw()
             return
         if self.visible:
             self._attribution.text = f"{self._credit}   ·   Press M to hide the map"

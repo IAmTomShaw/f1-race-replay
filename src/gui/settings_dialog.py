@@ -98,7 +98,8 @@ class SettingsDialog(QDialog):
         map_help = QLabel(
             "Roads, buildings, parks and water around the circuit, drawn from\n"
             "OpenStreetMap data (downloaded once per circuit, then cached).\n"
-            "Press M during a replay to hide or show it."
+            "Changes apply the next time a replay starts.\n"
+            "Press M during a replay to hide or show it straight away."
         )
         map_help.setStyleSheet("color: gray; font-size: 11px;")
         map_help.setWordWrap(True)
