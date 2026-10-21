@@ -426,8 +426,9 @@ class CarDetailWindow(PitWallWindow):
             tip="Distance to the car behind divided by this car's average lap speed.")
         self.fuel_value = self._row(
             rgrid, 4, "Fuel load", EST,
-            tip="Assumes a full 110 kg at the start, burned evenly to ~1 kg at the flag.\n"
-                "Teams don't publish real fuel loads.")
+            tip="Rough estimate, not a measurement. Assumes a full 110 kg at the start,\n"
+                "burned evenly to ~1 kg at the flag. Safety-car laps burn less, so it\n"
+                "reads low after long caution periods. Teams don't publish real fuel loads.")
         self.race_card.layout_.addLayout(rgrid)
         layout.addWidget(self.race_card)
 
@@ -621,18 +622,37 @@ class CarDetailWindow(PitWallWindow):
         # EST: gaps from track distance and this car's average lap speed
         circuit_m = data.get("circuit_length_m")
         avg_speed = average_speed_mps(circuit_m, last["time_s"]) if last else None
-        self.gap_ahead_value.setText(self._gap_text(drivers, code, position - 1, avg_speed, circuit_m))
-        self.gap_behind_value.setText(self._gap_text(drivers, code, position + 1, avg_speed, circuit_m))
+        ahead, behind = self._neighbours(drivers, code)
+        self.gap_ahead_value.setText(
+            self._gap_text(drivers, code, ahead, avg_speed, circuit_m) if ahead else "Leading")
+        self.gap_behind_value.setText(
+            self._gap_text(drivers, code, behind, avg_speed, circuit_m) if behind else "Last car")
 
         # EST: fuel
         fuel = estimate_fuel_kg(lap, car.get("rel_dist"), total_laps)
         self.fuel_value.setText(f"≈ {fuel:.0f} kg" if fuel is not None else "—")
 
     @staticmethod
-    def _gap_text(drivers, code, other_position, avg_speed, circuit_m) -> str:
-        other = next((c for c, d in drivers.items() if d.get("position") == other_position), None)
-        if other is None:
-            return "—"
+    def _neighbours(drivers, code):
+        """
+        Cars directly ahead and behind in the running order. Sorted by position
+        rather than looking up position +/- 1, so gaps in the numbering (retired
+        cars, missing data) still find the right neighbour. None at either end.
+        """
+        def pos(c):
+            try:
+                return int(drivers[c].get("position") or 0)
+            except (TypeError, ValueError):
+                return 0
+        order = sorted((c for c in drivers if pos(c) > 0), key=pos)
+        if code not in order:
+            return None, None
+        i = order.index(code)
+        return (order[i - 1] if i > 0 else None,
+                order[i + 1] if i + 1 < len(order) else None)
+
+    @staticmethod
+    def _gap_text(drivers, code, other, avg_speed, circuit_m) -> str:
         try:
             gap_m = abs(float(drivers[other]["dist"]) - float(drivers[code]["dist"]))
         except (KeyError, TypeError, ValueError):
