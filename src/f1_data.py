@@ -351,8 +351,14 @@ def get_driver_colors(session):
     return rgb_colors
 
 def get_circuit_rotation(session):
-    circuit = session.get_circuit_info()
-    return circuit.rotation
+    try:
+        circuit = session.get_circuit_info()
+        return circuit.rotation
+    except (AttributeError, KeyError, TypeError) as exc:
+        # FastF1 has no circuit info for some venues (e.g. a relocated
+        # race). Rotation is cosmetic, so draw the track unrotated.
+        print(f"Warning: could not load FastF1 circuit info: {exc}")
+        return 0.0
 
 
 def _compute_safety_car_positions(frames, track_statuses, session):
