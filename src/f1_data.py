@@ -1,6 +1,7 @@
 import math
 import os
 import pickle
+import re
 import sys
 from datetime import timedelta, date
 from multiprocessing import Pool, cpu_count
@@ -351,8 +352,15 @@ def get_driver_colors(session):
     return rgb_colors
 
 def get_circuit_rotation(session):
-    circuit = session.get_circuit_info()
-    return circuit.rotation
+    try:
+        circuit = session.get_circuit_info()
+        if circuit is not None and hasattr(circuit, "rotation") and circuit.rotation is not None:
+            rotation = float(circuit.rotation)
+            if math.isfinite(rotation):
+                return rotation
+    except Exception as e:
+        print(f"Could not load circuit rotation ({e}), using default 0.0")
+    return 0.0
 
 
 def _compute_safety_car_positions(frames, track_statuses, session):
@@ -720,21 +728,44 @@ def _compute_safety_car_positions(frames, track_statuses, session):
     print(f"Safety Car: Computed positions for {sc_frame_count} frames")
 
 
-def get_race_telemetry(session, session_type="R"):
+def _telemetry_cache_path(session, cache_suffix):
+    # Session descriptions include a colon after the round number. Sanitize
+    # filename characters on every platform so caches are portable to Windows.
     event_name = str(session).replace(" ", "_")
+    event_name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", event_name)
+    return os.path.join("computed_data", f"{event_name}_{cache_suffix}_telemetry.pkl")
+
+
+def _load_telemetry_cache(session, cache_suffix):
+    cache_path = _telemetry_cache_path(session, cache_suffix)
+    try:
+        with open(cache_path, "rb") as cache_file:
+            return pickle.load(cache_file)
+    except FileNotFoundError:
+        # Keep existing macOS/Linux caches usable without recomputing races.
+        # Never open legacy names on Windows, where ':' can denote a stream.
+        if os.name == "nt":
+            raise
+        event_name = str(session).replace(" ", "_")
+        legacy_path = os.path.join("computed_data", f"{event_name}_{cache_suffix}_telemetry.pkl")
+        if legacy_path == cache_path:
+            raise
+        with open(legacy_path, "rb") as cache_file:
+            return pickle.load(cache_file)
+
+
+def get_race_telemetry(session, session_type="R"):
     cache_suffix = "sprint" if session_type == "S" else "race"
+    cache_path = _telemetry_cache_path(session, cache_suffix)
 
     # Check if this data has already been computed
 
     try:
         if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                frames = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return frames
+            frames = _load_telemetry_cache(session, cache_suffix)
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return frames
     except FileNotFoundError:
         pass  # Need to compute from scratch
 
@@ -1101,7 +1132,7 @@ def get_race_telemetry(session, session_type="R"):
         os.makedirs("computed_data")
 
     # Save using pickle (10-100x faster than JSON)
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(cache_path, "wb") as f:
         pickle.dump({
             "frames": frames,
             "driver_colors": get_driver_colors(session),
@@ -1512,19 +1543,16 @@ def get_quali_telemetry(session, session_type="Q"):
     #   }
     # }
 
-    event_name = str(session).replace(" ", "_")
     cache_suffix = "sprintquali" if session_type == "SQ" else "quali"
+    cache_path = _telemetry_cache_path(session, cache_suffix)
 
     # Check if this data has already been computed
     try:
         if "--refresh-data" not in sys.argv:
-            with open(
-                f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "rb"
-            ) as f:
-                data = pickle.load(f)
-                print(f"Loaded precomputed {cache_suffix} telemetry data.")
-                print("The replay should begin in a new window shortly!")
-                return data
+            data = _load_telemetry_cache(session, cache_suffix)
+            print(f"Loaded precomputed {cache_suffix} telemetry data.")
+            print("The replay should begin in a new window shortly!")
+            return data
     except FileNotFoundError:
         pass  # Need to compute from scratch
 
@@ -1566,7 +1594,7 @@ def get_quali_telemetry(session, session_type="Q"):
     if not os.path.exists("computed_data"):
         os.makedirs("computed_data")
 
-    with open(f"computed_data/{event_name}_{cache_suffix}_telemetry.pkl", "wb") as f:
+    with open(cache_path, "wb") as f:
         pickle.dump(
             {
                 "results": qualifying_results,
