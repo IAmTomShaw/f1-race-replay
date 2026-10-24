@@ -1701,7 +1701,8 @@ def get_practice_results(session):
     for _, lap in laps.iterrows():
         driver = lap['Driver']
         lap_time = lap['LapTime']
-        if pd.isna(lap_time):
+        # Laps deleted by race control (e.g. track limits) don't count for the official classification
+        if pd.isna(lap_time) or lap.get('Deleted') == True:
             continue
         if driver not in driver_fastest or lap_time < driver_fastest[driver]['LapTime']:
             driver_fastest[driver] = {
