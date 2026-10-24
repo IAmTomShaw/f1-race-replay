@@ -7,6 +7,7 @@ from multiprocessing import Pool, cpu_count
 
 import fastf1
 import fastf1.plotting
+from fastf1.exceptions import DataNotLoadedError
 import numpy as np
 import pandas as pd
 
@@ -279,6 +280,30 @@ def _process_single_driver(args):
 
 
 def load_session(year, round_number, session_type="R"):
+    session = _load_session(year, round_number, session_type)
+
+    # FastF1 doesn't raise when timing data can't be downloaded, it leaves the laps unloaded
+    if session is not None and not _has_timing_data(session):
+        print(
+            f"No timing data available for {year} round {round_number} session '{session_type}'.\n"
+            "The session may not have taken place yet, or the download failed. Formula 1 now requires "
+            "an F1 TV subscription to download timing data that isn't already in your FastF1 cache "
+            "(see https://github.com/theOehrly/Fast-F1/issues/978)."
+        )
+        return None
+
+    return session
+
+
+def _has_timing_data(session):
+    try:
+        session.laps
+    except DataNotLoadedError:
+        return False
+    return True
+
+
+def _load_session(year, round_number, session_type="R"):
     # session_type: 'R' (Race), 'S' (Sprint), 'Q' (Qualifying), 'FP1', 'FP2', 'FP3' etc.
     # Handle cases where 'S' might be incorrect for certain events
     try:

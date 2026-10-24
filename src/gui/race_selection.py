@@ -414,6 +414,21 @@ class RaceSelectionWindow(QMainWindow):
                     self.error.emit(str(e))
 
         def _on_loaded(session_obj):
+            if session_obj is None:
+                try:
+                    dlg.close()
+                except Exception:
+                    pass
+                QMessageBox.critical(
+                    self,
+                    "Load error",
+                    "No timing data is available for this session.\n\n"
+                    "The session may not have taken place yet, or the download failed. Formula 1 now "
+                    "requires an F1 TV subscription to download timing data that isn't already cached "
+                    "(see https://github.com/theOehrly/Fast-F1/issues/978).",
+                )
+                return
+
             # create a unique ready-file path and pass it to the child
             ready_path = os.path.join(tempfile.gettempdir(), f"f1_ready_{uuid.uuid4().hex}")
             cmd_with_ready = list(cmd) + ["--ready-file", ready_path]
