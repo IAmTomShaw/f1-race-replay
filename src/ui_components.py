@@ -256,8 +256,8 @@ class LeaderboardComponent(BaseComponent):
         self.show_neighbor_gaps = False
         self.gap_toggle_rect = None
         self.neighbor_toggle_rect = None
-        # Reuse a single Text object for gap rendering to avoid reallocating each frame
-        self._gap_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, 12, anchor_x="right", anchor_y="top")
+        # Persistent Text objects, keyed by label (avoid per-frame allocations)
+        self._texts = {}
         self._tyre_textures = {}
         self._visible: bool = visible
         # Import the tyre textures from the images/tyres folder (all files)
@@ -329,13 +329,29 @@ class LeaderboardComponent(BaseComponent):
             
             self.computed_neighbor_gaps[code] = {"ahead": ahead_info}
 
+    def _cached_text(self, key, text, x, y, color, font_size, **kwargs):
+        # Creating a Text object is expensive, so each label is created once and then updated.
+        # The text/x/y setters skip unchanged values, but the color setter always re-lays out the text.
+        label = self._texts.get(key)
+        if label is None:
+            label = arcade.Text(text, x, y, color, font_size, **kwargs)
+            self._texts[key] = label
+            return label
+        label.text = text
+        label.x = x
+        label.y = y
+        color = arcade.types.Color.from_iterable(color)
+        if label.color != color:
+            label.color = color
+        return label
+
     def draw(self, window):
         # Skip rendering entirely if hidden
         if not self._visible:
             return
         self.selected = getattr(window, "selected_drivers", [])
         leaderboard_y = window.height - 40
-        arcade.Text("Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
+        self._cached_text("title", "Leaderboard", self.x, leaderboard_y, arcade.color.WHITE, 20, bold=True, anchor_x="left", anchor_y="top").draw()
         # sync with window state if present
         self.show_gaps = getattr(window, "leaderboard_show_gaps", self.show_gaps)
         self.show_neighbor_gaps = getattr(window, "leaderboard_show_neighbor_gaps", self.show_neighbor_gaps)
@@ -356,7 +372,7 @@ class LeaderboardComponent(BaseComponent):
         arcade.draw_circle_filled(neighbor_x, toggle_y, toggle_radius, nb_bg)
         nb_border = (150, 150, 150) if not self.show_neighbor_gaps else (80, 200, 80)
         arcade.draw_circle_outline(neighbor_x, toggle_y, toggle_radius, nb_border, 2)
-        arcade.Text("I", neighbor_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
+        self._cached_text("interval_toggle", "I", neighbor_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
 
         # leader radio-btn (L)
         toggle_x = self.x + self.width - toggle_radius
@@ -365,7 +381,7 @@ class LeaderboardComponent(BaseComponent):
         arcade.draw_circle_filled(toggle_x, toggle_y, toggle_radius, lg_bg)
         lg_border = (150, 150, 150) if not self.show_gaps else (80, 200, 80)
         arcade.draw_circle_outline(toggle_x, toggle_y, toggle_radius, lg_border, 2)
-        arcade.Text("L", toggle_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
+        self._cached_text("leader_toggle", "L", toggle_x, toggle_y, arcade.color.WHITE, 12, anchor_x="center", anchor_y="center", bold=True).draw()
 
         self.rects = []
 
@@ -411,13 +427,13 @@ class LeaderboardComponent(BaseComponent):
                 driver_text = text
                 pit_text = ""
 
-            arcade.Text(driver_text,left_x,top_y,text_color,16,anchor_x="left",anchor_y="top").draw()
-            
+            self._cached_text(("driver", i), driver_text,left_x,top_y,text_color,16,anchor_x="left",anchor_y="top").draw()
+
             #PIT indicator in white
-            if pit_text:arcade.Text(pit_text, left_x + 80, top_y,arcade.color.WHITE,16,anchor_x="left",anchor_y="top").draw()
+            if pit_text:self._cached_text(("pit", i), pit_text, left_x + 80, top_y,arcade.color.WHITE,16,anchor_x="left",anchor_y="top").draw()
 
             #OUT indicator in red
-            if out_text: arcade.Text(out_text, left_x + 80, top_y, (155,17,30), 16, anchor_x="left", anchor_y="top",bold=True).draw()
+            if out_text: self._cached_text(("out", i), out_text, left_x + 80, top_y, (155,17,30), 16, anchor_x="left", anchor_y="top",bold=True).draw()
 
             # Gap display (if enabled)
             if getattr(self, "show_neighbor_gaps", False):
@@ -463,12 +479,7 @@ class LeaderboardComponent(BaseComponent):
                 gap_x = right_x - 36
                 if 'gap_text' in locals() and gap_text:
                     gap_color = arcade.color.BLACK if code in self.selected else arcade.color.LIGHT_GRAY
-                    # Update and draw the reusable gap Text object
-                    self._gap_text.text = gap_text
-                    self._gap_text.x = gap_x
-                    self._gap_text.y = top_y
-                    self._gap_text.color = gap_color
-                    self._gap_text.draw()
+                    self._cached_text(("gap", i), gap_text, gap_x, top_y, gap_color, 12, anchor_x="right", anchor_y="top").draw()
 
             # Tyre Icons
             tyre_val = pos.get("tyre", "?")
@@ -511,7 +522,8 @@ class LeaderboardComponent(BaseComponent):
                     life_display = str(int(current_life)) if pd.notna(current_life) else "0"
                 except (ValueError, TypeError):
                     life_display = "0"
-                arcade.Text(
+                self._cached_text(
+                    ("tyre_life", i),
                     life_display,
                     tyre_icon_x + 8,
                     tyre_icon_y - 8,
@@ -539,7 +551,7 @@ class LeaderboardComponent(BaseComponent):
 
         # Add text at the bottom of the leaderboard during lap 1 to alert the user to potential mis-ordering
         if new_entries[0][2].get("lap", 0) == 1:
-            arcade.Text("May be inaccurate during Lap 1",
+            self._cached_text("lap_one_warning", "May be inaccurate during Lap 1",
                         self.x, leaderboard_y - 30 - (len(new_entries) * self.row_height) - 20,
                         arcade.color.YELLOW, 12, anchor_x="left", anchor_y="top").draw()
 
