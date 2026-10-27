@@ -153,7 +153,71 @@ def get_live_standings(current_driver_standings, current_constructors_standings,
 
     return live_driver_standings, live_constructor_standings
 
-        
+
+# Longest gap (s) in a lap's position data before it counts as missing. Healthy
+# sessions stay below ~1.4 s; feed dropouts (e.g. 2026 Monaco) last a minute or more.
+MAX_POSITION_GAP_S = 5.0
+
+
+def _has_position_data(lap):
+    """True if FastF1 position data covers the whole lap without dropouts.
+
+    A lap that only partly overlaps the position feed is not empty, but
+    lap.get_telemetry() would interpolate X/Y for the whole lap from a few samples.
+    """
+    pos = lap.get_pos_data()
+    if pos.empty:
+        return False
+    times = pos["SessionTime"].dt.total_seconds().to_numpy()
+    if pd.notna(lap.LapStartTime) and pd.notna(lap.Time):
+        times = np.concatenate(
+            ([lap.LapStartTime.total_seconds()], times, [lap.Time.total_seconds()])
+        )
+    return len(times) < 2 or np.diff(times).max() <= MAX_POSITION_GAP_S
+
+
+def _reference_lap_telemetry(session):
+    """Telemetry of the fastest lap (excluding pit in/out laps) with full position data.
+
+    Used as the track shape when other laps have no position data. Returns None
+    if no lap in the session has full position data.
+    """
+    laps = session.laps.pick_wo_box()
+    laps = laps[laps["LapTime"].notna()].sort_values("LapTime")
+    for _, lap in laps.iterlaps():
+        if not _has_position_data(lap):
+            continue
+        tel = lap.get_telemetry()
+        if not tel.empty:
+            return tel
+    return None
+
+
+def _telemetry_without_position(lap, reference_tel):
+    """Build lap telemetry from car data alone, for laps without position data.
+
+    FastF1 sometimes has car data (speed, gear, ...) for a lap but no position data,
+    e.g. the 2026 Monaco GP from lap 6 onwards, and lap.get_telemetry() then raises
+    a KeyError. Distance is integrated from speed exactly as get_telemetry() does,
+    and X/Y are approximated by placing the car on the reference lap at the same
+    fraction of the lap (RelativeDistance). Pit lane trips are not reproduced.
+    Returns None if the lap has no car data either.
+    """
+    car_data = lap.get_car_data(pad=1, pad_side="both")
+    if car_data.empty:
+        return None
+    tel = car_data.add_distance().add_relative_distance()
+    tel = tel.slice_by_lap(lap, interpolate_edges=True)
+
+    ref_rd = reference_tel["RelativeDistance"].to_numpy(dtype=float)
+    ref_x = reference_tel["X"].to_numpy(dtype=float)
+    ref_y = reference_tel["Y"].to_numpy(dtype=float)
+    valid = np.isfinite(ref_rd) & np.isfinite(ref_x) & np.isfinite(ref_y)
+    rd = tel["RelativeDistance"].to_numpy(dtype=float)
+    tel["X"] = np.interp(rd, ref_rd[valid], ref_x[valid])
+    tel["Y"] = np.interp(rd, ref_rd[valid], ref_y[valid])
+    return tel
+
 
 def _process_single_driver(args):
     """Process telemetry data for a single driver - must be top-level for multiprocessing"""
@@ -183,20 +247,29 @@ def _process_single_driver(args):
 
     total_dist_so_far = 0.0
 
+    # Track shape for laps without position data, loaded only when first needed
+    reference_tel = None
+    reference_loaded = False
+    approximated_laps = []
+
     # iterate laps in order
     for _, lap in laps_driver.iterlaps():
         # get telemetry for THIS lap only
-        try:
+        if _has_position_data(lap):
             lap_tel = lap.get_telemetry()
-        except KeyError as e:
-            # Handle case where FastF1 fails to merge car and position data
-            # due to empty position telemetry (missing 'Date' column)
-            if "'Date'" in str(e):
-                print(f"Warning: Skipping lap {lap.LapNumber} for driver {driver_code} due to missing position telemetry")
+        else:
+            # Without position data, lap.get_telemetry() raises a KeyError ('Date')
+            # or interpolates X/Y across the gap, so rebuild the lap from car data.
+            if not reference_loaded:
+                reference_tel = _reference_lap_telemetry(session)
+                reference_loaded = True
+            lap_tel = None
+            if reference_tel is not None:
+                lap_tel = _telemetry_without_position(lap, reference_tel)
+            if lap_tel is None:
+                print(f"Warning: Skipping lap {lap.LapNumber} for driver {driver_code} due to missing telemetry")
                 continue
-            else:
-                # Re-raise if it's a different KeyError
-                raise
+            approximated_laps.append(int(lap.LapNumber))
         lap_number = lap.LapNumber
         tyre_compund_as_int = get_tyre_compound_int(lap.Compound)
         tyre_life = lap.TyreLife if pd.notna(lap.TyreLife) else 0
@@ -231,6 +304,12 @@ def _process_single_driver(args):
         drs_all.append(drs_lap)
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
+
+    if approximated_laps:
+        print(
+            f"Warning: No position data for {len(approximated_laps)} lap(s) of {driver_code} "
+            f"(first: lap {approximated_laps[0]}); track position approximated from car data"
+        )
 
     if not t_all:
         return None
@@ -377,13 +456,9 @@ def _compute_safety_car_positions(frames, track_statuses, session):
     if not frames or not track_statuses:
         return
 
-    # Build reference polyline from the first driver's telemetry to get track shape
+    # Build reference polyline from the fastest lap with position data to get track shape
     try:
-        fastest_lap = session.laps.pick_fastest()
-        if fastest_lap is None:
-            print("Safety Car: No fastest lap found, skipping SC position computation")
-            return
-        tel = fastest_lap.get_telemetry()
+        tel = _reference_lap_telemetry(session)
         if tel is None or tel.empty:
             print("Safety Car: No telemetry data, skipping SC position computation")
             return
