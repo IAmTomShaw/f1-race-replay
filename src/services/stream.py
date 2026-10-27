@@ -2,6 +2,7 @@
 
 # The stream service is used to broadcast telemetry data from the primary replay process to any number of secondary processes/windows (e.g. for running data analysis or additional visualizations in parallel). It uses a simple TCP socket server to send telemetry frames as JSON-encoded messages. Secondary processes can connect to the stream server to receive real-time telemetry data for the current session.
 
+import os
 import socket
 import json
 import threading
@@ -22,6 +23,11 @@ class TelemetryStreamServer:
 
   def start(self):
     self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    # Stopping a replay closes its clients' connections, which keep the port busy
+    # for a while on Linux and macOS. Let the next replay bind it anyway. Not on
+    # Windows: it doesn't need this, and there it would let two servers share the port.
+    if os.name != "nt":
+      self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     self.server_socket.bind((self.host, self.port))
     self.server_socket.listen(5)
     self.running = True
