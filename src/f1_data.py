@@ -182,6 +182,8 @@ def _process_single_driver(args):
     brake_all = []
 
     total_dist_so_far = 0.0
+    laps_accounted = 0  # highest lap number already folded into total_dist_so_far
+    last_lap_len = None  # length of the most recent lap measured from telemetry
 
     # iterate laps in order
     for _, lap in laps_driver.iterlaps():
@@ -215,6 +217,18 @@ def _process_single_driver(args):
         throttle_lap = lap_tel["Throttle"].to_numpy()
         brake_lap = lap_tel["Brake"].to_numpy().astype(float)
 
+        # lap_tel["Distance"] restarts at 0 on every lap, so it is only meaningful
+        # within a lap. Accumulate it so drivers can be ranked across lap boundaries.
+        finite_d = d_lap[np.isfinite(d_lap)]
+        this_lap_len = float(finite_d.max()) if finite_d.size else None
+
+        # Laps with no usable telemetry (skipped above) add no samples. Credit them with
+        # an estimated length so the driver does not drop a lap behind in the ranking.
+        missing_laps = int(lap_number) - 1 - laps_accounted
+        lap_len_estimate = last_lap_len if last_lap_len is not None else this_lap_len
+        if missing_laps > 0 and lap_len_estimate is not None:
+            total_dist_so_far += missing_laps * lap_len_estimate
+
         # race distance = distance before this lap + distance within this lap
         race_d_lap = total_dist_so_far + d_lap
 
@@ -231,6 +245,11 @@ def _process_single_driver(args):
         drs_all.append(drs_lap)
         throttle_all.append(throttle_lap)
         brake_all.append(brake_lap)
+
+        if this_lap_len is not None:
+            total_dist_so_far += this_lap_len
+            last_lap_len = this_lap_len
+        laps_accounted = int(lap_number)
 
     if not t_all:
         return None
