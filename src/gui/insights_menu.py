@@ -69,6 +69,13 @@ class InsightsMenu(QMainWindow):
         ))
 
         content_layout.addWidget(self.create_category_section(
+            "Weather",
+            [
+                ("Weather Forecast", "Pre-race and in-race forecast for the circuit, rain risk and recorded replay conditions", self.launch_weather),
+            ]
+        ))
+
+        content_layout.addWidget(self.create_category_section(
             "Race Events",
             [
                 ("Race Control Feed", "Live FIA flags, penalties, safety car and DRS status", self.launch_race_control_feed),
@@ -206,6 +213,13 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Race Control Feed")
         from src.insights.race_control_feed_window import RaceControlFeedWindow
         window = RaceControlFeedWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_weather(self):
+        print("🚀 Launching: Weather Forecast")
+        from src.insights.weather_window import WeatherWindow
+        window = WeatherWindow()
         window.show()
         self.opened_windows.append(window)
 
