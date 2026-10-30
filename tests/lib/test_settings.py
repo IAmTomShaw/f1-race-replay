@@ -120,3 +120,23 @@ def test_settings_manager_reset_to_defaults(monkeypatch, tmp_path):
 
     assert manager.cache_location == ".fastf1-cache"
     assert manager.computed_data_location == "computed_data"
+
+
+def test_osm_map_is_on_by_default_and_can_be_turned_off(monkeypatch, tmp_path):
+    reset_settings_singleton()
+    settings_file = tmp_path / "settings.json"
+
+    monkeypatch.setattr(
+        SettingsManager,
+        "_get_settings_file_path",
+        lambda self: settings_file,
+    )
+
+    manager = SettingsManager()
+    assert manager.osm_map_enabled is True
+
+    manager.osm_map_enabled = False
+    manager.save()
+
+    reset_settings_singleton()
+    assert SettingsManager().osm_map_enabled is False

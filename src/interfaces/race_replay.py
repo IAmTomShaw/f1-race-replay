@@ -17,10 +17,12 @@ from src.ui_components import (
     ConstructorsChampionshipOverlay,
     extract_race_events,
     build_track_from_example_lap,
-    draw_finish_line
+    draw_finish_line,
+    MapUnderlayComponent
 )
 from src.tyre_degradation_integration import TyreDegradationIntegrator
 from src.services.stream import TelemetryStreamServer
+from src.lib.settings import get_settings
 
 
 SCREEN_WIDTH = 1280
@@ -245,6 +247,21 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Trigger initial scaling calculation
         self.update_scaling(self.width, self.height)
+
+        # Real-world map under the track (OpenStreetMap). Built in the
+        # background so it never delays the replay; toggle with M.
+        self.map_underlay_comp = MapUnderlayComponent()
+        if get_settings().osm_map_enabled:
+            event = getattr(session, "event", None)
+            self.map_underlay_comp.load_async(
+                reference_xy=np.column_stack([np.asarray(self.plot_x_ref, dtype=float),
+                                              np.asarray(self.plot_y_ref, dtype=float)]),
+                rotation_deg=float(self.circuit_rotation or 0.0),
+                rotation_center=((self.x_min + self.x_max) / 2, (self.y_min + self.y_max) / 2),
+                location=str(event.get("Location", "")) if event is not None else "",
+                country=(session_info or {}).get("country", ""),
+                event_name=(session_info or {}).get("event_name", ""),
+            )
 
         # Selection & hit-testing state for leaderboard
         self.selected_driver = None
@@ -1320,6 +1337,9 @@ class F1RaceReplayWindow(arcade.Window):
                 texture=self.bg_texture
             )
 
+        # 1.5 Real-world map under the track (once it has loaded)
+        self.map_underlay_comp.draw(self)
+
         # 2. Draw Track (using pre-calculated screen points)
         idx = min(int(self.frame_index), self.n_frames - 1)
         frame = self.frames[idx]
@@ -1597,6 +1617,9 @@ class F1RaceReplayWindow(arcade.Window):
 
         # Draw Controls popup box
         self.controls_popup_comp.draw(self)
+
+        # Map credit (required by the OpenStreetMap licence whenever the map shows)
+        self.map_underlay_comp.draw_attribution(self)
         
         # Draw tooltips and overlays on top of everything
         self.progress_bar_comp.draw_overlays(self)
@@ -1702,6 +1725,8 @@ class F1RaceReplayWindow(arcade.Window):
             self.toggle_drs_zones = not self.toggle_drs_zones
         elif symbol == arcade.key.L:
             self.show_driver_labels = not self.show_driver_labels
+        elif symbol == arcade.key.M:
+            self.map_underlay_comp.toggle_visibility()
         elif symbol == arcade.key.H:
             # Toggle Controls popup with 'H' key — show anchored to bottom-left with 20px margin
             margin_x = 20
