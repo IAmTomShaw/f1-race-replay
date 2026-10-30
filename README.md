@@ -23,13 +23,18 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 
 - **Pause/Resume:** SPACE or Pause button
 - **Rewind/Fast Forward:** ← / → or Rewind/Fast Forward buttons
-- **Playback Speed:** ↑ / ↓ or Speed button (cycles through 0.5x, 1x, 2x, 4x)
-- **Set Speed Directly:** Keys 1–4
+- **Playback Speed:** ↑ / ↓ or Speed button (steps between 0.1x and 256x)
+- **Set Speed Directly:** Keys 1–4 (0.5x, 1x, 2x, 4x)
 - **Restart**: **R** to restart replay
 - **Toggle DRS Zone**: **D** to hide/show DRS Zone
 - **Toggle Progress Bar**: **B** to hide/show progress bar
 - **Toggle Driver Names**: **L** to hide/show driver names on track
 - **Toggle Real-World Map**: **M** to hide/show the map under the track
+- **Toggle Session Info**: **I** to hide/show the session info banner
+- **Drivers' Championship**: **C** to show/hide the live drivers' standings
+- **Constructors' Championship**: **A** to show/hide the live constructors' standings
+- **Controls Help**: **H** to show/hide the controls popup
+- **Close Window**: **ESC**
 - **Select driver/drivers**: Click to select driver or shift click to select multiple drivers
 
 
@@ -178,6 +183,18 @@ The application will load a pre-computed telemetry dataset if you have run it be
 python main.py --viewer --year 2025 --round 12 --refresh-data
 ```
 
+To start the replay at a different speed, use the `--playback-speed` flag:
+```bash
+python main.py --viewer --year 2025 --round 12 --playback-speed 2
+```
+
+### Practice Session Replay
+
+To run a Practice session replay, use the `--fp1`, `--fp2` or `--fp3` flag:
+```bash
+python main.py --viewer --year 2025 --round 12 --fp1
+```
+
 ### Qualifying Session Replay
 
 To run a Qualifying session replay, use the `--qualifying` flag:
@@ -188,6 +205,11 @@ python main.py --viewer --year 2025 --round 12 --qualifying
 To run a Sprint Qualifying session (if the event has one), add `--sprint`:
 ```bash
 python main.py --viewer --year 2025 --round 12 --qualifying --sprint
+```
+
+`--sprint-qualifying` does the same thing:
+```bash
+python main.py --viewer --year 2025 --round 12 --sprint-qualifying
 ```
 
 ## File Structure
@@ -273,12 +295,12 @@ The `PitWallWindow` base class handles all telemetry stream connection logic aut
 **Documentation & Examples:**
 - See [docs/PitWallWindow.md](./docs/PitWallWindow.md) for complete guide
 - See [docs/InsightsMenu.md](./docs/InsightsMenu.md) for adding insights to the menu
-- Run the example: `python -m src.gui.example_pit_wall_window`
+- Run the example: `python -m src.insights.example_pit_wall_window`
 - Test the menu: `python -m src.gui.insights_menu`
 
 ## Customization
 
-- Change track width, colors, and UI layout in `src/arcade_replay.py`.
+- Change track width, colors, and UI layout in `src/interfaces/race_replay.py` and `src/ui_components.py`.
 - Adjust telemetry processing in `src/f1_data.py`.
 - Create custom telemetry windows using `PitWallWindow` base class (see above).
 

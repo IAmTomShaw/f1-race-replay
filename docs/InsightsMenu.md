@@ -23,7 +23,7 @@ To add a new insight button to the menu, follow these steps:
 First, create your insight window using the `PitWallWindow` base class:
 
 ```python
-# src/gui/my_custom_insight.py
+# src/insights/my_custom_insight.py
 from src.gui.pit_wall_window import PitWallWindow
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
@@ -57,7 +57,7 @@ In `src/gui/insights_menu.py`, add a launch method for your insight:
 def launch_my_custom_insight(self):
     """Launch my custom insight window."""
     print("🚀 Launching: My Custom Insight")
-    from src.gui.my_custom_insight import MyCustomInsight
+    from src.insights.my_custom_insight import MyCustomInsight
     window = MyCustomInsight()
     window.show()
     self.opened_windows.append(window)
@@ -217,4 +217,4 @@ def create_insight_button(self, name, description, callback):
 
 - [PitWallWindow.md](./PitWallWindow.md) - Base class for creating insights
 - [../src/gui/insights_menu.py](../src/gui/insights_menu.py) - Menu implementation
-- [../src/gui/example_pit_wall_window.py](../src/gui/example_pit_wall_window.py) - Example insight
+- [../src/insights/example_pit_wall_window.py](../src/insights/example_pit_wall_window.py) - Example insight

@@ -41,7 +41,30 @@ def _extract_circuit_name(event_name: str) -> str:
     return circuit_name
 
 
+def _get_session_type(argv: list[str]) -> str:
+    """
+    Map the session flags in argv to a FastF1 session identifier.
+    Sprint Qualifying can be requested with --sprint-qualifying or --qualifying --sprint.
+    """
+    if "--sprint-qualifying" in argv or ("--qualifying" in argv and "--sprint" in argv):
+        return 'SQ'
+    if "--sprint" in argv:
+        return 'S'
+    if "--qualifying" in argv:
+        return 'Q'
+    if "--fp1" in argv:
+        return 'FP1'
+    if "--fp2" in argv:
+        return 'FP2'
+    if "--fp3" in argv:
+        return 'FP3'
+    return 'R'
+
+
 def main(year=None, round_number=None, playback_speed=1, session_type='R', visible_hud=True, ready_file=None, show_telemetry_viewer=True):
+  # Enable cache for fastf1 before loading anything, so the configured cache location is used
+  enable_cache()
+
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
   session = load_session(year, round_number, session_type)
   if session is None:
@@ -49,9 +72,6 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
     return
 
   print(f"Loaded session: {session.event['EventName']} - {session.event['RoundNumber']} - {session_type}")
-
-  # Enable cache for fastf1
-  enable_cache()
 
   if session_type == 'Q' or session_type == 'SQ':
 
@@ -219,20 +239,7 @@ if __name__ == "__main__":
       visible_hud = False
 
     # Session type selection
-    if "--sprint-qualifying" in sys.argv:
-      session_type = 'SQ'
-    elif "--sprint" in sys.argv:
-      session_type = 'S'
-    elif "--qualifying" in sys.argv:
-      session_type = 'Q'
-    elif "--fp1" in sys.argv:
-      session_type = 'FP1'
-    elif "--fp2" in sys.argv:
-      session_type = 'FP2'
-    elif "--fp3" in sys.argv:
-      session_type = 'FP3'
-    else:
-      session_type = 'R'
+    session_type = _get_session_type(sys.argv)
 
     # Optional ready-file path used when spawned from the GUI to signal ready state
     ready_file = None
