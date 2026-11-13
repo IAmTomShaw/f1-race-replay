@@ -1,0 +1,27 @@
+{
+  "name": "f1-race-replay-web",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -H 0.0.0.0 --port 3000",
+    "build": "next build",
+    "start": "next start -H 0.0.0.0 --port 3000",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "lucide-react": "^0.475.0",
+    "next": "^15.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "zustand": "^5.0.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "^4.0.9",
+    "@types/node": "^22.13.5",
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "postcss": "^8.5.3",
+    "tailwindcss": "^4.0.9",
+    "typescript": "^5.8.2"
+  }
+}
