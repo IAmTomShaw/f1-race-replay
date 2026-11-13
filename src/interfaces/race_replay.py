@@ -21,6 +21,7 @@ from src.ui_components import (
 )
 from src.tyre_degradation_integration import TyreDegradationIntegrator
 from src.services.stream import TelemetryStreamServer
+from src.lib.leaderboard import official_finishing_order, order_leaderboard_codes
 
 
 SCREEN_WIDTH = 1280
@@ -76,6 +77,10 @@ class F1RaceReplayWindow(arcade.Window):
         self._precomputed_status_laps = self._compute_status_laps(frames, track_statuses)
         self.visible_hud = visible_hud # If it displays HUD or not (leaderboard, controls, weather, etc)
         self.session = session
+        # Official classified order (penalties, lapped cars, DNFs) used once the race ends
+        self._official_order = official_finishing_order(
+            getattr(session, "results", None) if session is not None else None
+        )
 
         # Rotation (degrees) to apply to the whole circuit around its centre
         self.circuit_rotation = circuit_rotation
@@ -1565,6 +1570,15 @@ class F1RaceReplayWindow(arcade.Window):
             progress_m = driver_progress.get(code, float(pos.get("dist", 0.0)))
             driver_list.append((code, color, pos, progress_m))
         driver_list.sort(key=lambda x: x[3], reverse=True)
+
+        # At the final frame, replace the live-telemetry order with the official result
+        race_finished = self.n_frames > 0 and int(self.frame_index) >= self.n_frames - 1
+        if race_finished and self._official_order:
+            by_code = {item[0]: item for item in driver_list}
+            final_codes = order_leaderboard_codes(
+                [item[0] for item in driver_list], self._official_order, True
+            )
+            driver_list = [by_code[c] for c in final_codes]
 
         self.last_leaderboard_order = [c for c, _, _, _ in driver_list]
         self.leaderboard_comp.set_entries(driver_list)
