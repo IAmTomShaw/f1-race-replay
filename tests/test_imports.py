@@ -4,8 +4,12 @@ import pytest
 
 
 MODULES = [
+    "backend.app",
     "src.bayesian_tyre_model",
     "src.cli.race_selection",
+    "src.core.openf1_loader",
+    "src.core.replay_exporter",
+    "src.core.track_geometry",
     "src.f1_data",
     "src.gui.insights_menu",
     "src.gui.pit_wall_window",
