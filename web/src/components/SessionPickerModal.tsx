@@ -14,6 +14,7 @@ export const SessionPickerModal: React.FC = () => {
   const loadFastF1Session = useReplayStore((s) => s.loadFastF1Session);
 
   const [seasons, setSeasons] = useState<number[]>([2026, 2025, 2024, 2023]);
+  const [defaultYear, setDefaultYear] = useState<number>(2026);
   const [selectedYear, setSelectedYear] = useState<number>(2026);
   const [seasonsInitialized, setSeasonsInitialized] = useState(false);
   const [events, setEvents] = useState<SeasonEventItem[]>([]);
@@ -23,9 +24,14 @@ export const SessionPickerModal: React.FC = () => {
   const isOpen = activeOverlay === "session_picker";
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      if (seasonsInitialized) {
+        setSelectedYear(defaultYear);
+      }
+      return;
+    }
     useReplayStore.getState().refreshBackendStatus();
-  }, [isOpen]);
+  }, [isOpen, seasonsInitialized, defaultYear]);
 
   useEffect(() => {
     if (!isOpen || !backendOnline || seasonsInitialized) return;
@@ -34,8 +40,10 @@ export const SessionPickerModal: React.FC = () => {
     fetchSeasons()
       .then((data) => {
         if (!cancelled) {
+          const initialYear = data.default_year ?? data.seasons[0] ?? 2026;
           setSeasons(data.seasons);
-          setSelectedYear(data.default_year);
+          setDefaultYear(initialYear);
+          setSelectedYear(initialYear);
           setSeasonsInitialized(true);
         }
       })
@@ -73,7 +81,7 @@ export const SessionPickerModal: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [isOpen, backendOnline, selectedYear]);
+  }, [isOpen, backendOnline, seasonsInitialized, selectedYear]);
 
   if (!isOpen) return null;
 
@@ -134,10 +142,10 @@ export const SessionPickerModal: React.FC = () => {
                 The web frontend is currently running in standalone mode using the built-in showcase bundle. To load full 2018–2026 FastF1 sessions:
               </p>
               <pre className="mt-2.5 overflow-x-auto rounded bg-black/50 p-2.5 text-[11px] text-emerald-300">
-                .venv/bin/uvicorn backend.app:app --reload --port 8000
+                .venv/bin/uvicorn backend.app:app --reload --host 0.0.0.0 --port 8001
               </pre>
               <p className="mt-2 text-[11px] text-slate-500">
-                Configured endpoint: {apiBase || "/api (proxied to http://127.0.0.1:8000)"}
+                Configured endpoint: {apiBase || "/api (proxied to http://127.0.0.1:8001)"}
               </p>
             </div>
           ) : (
@@ -159,7 +167,7 @@ export const SessionPickerModal: React.FC = () => {
                 ))}
               </div>
 
-              {loadingSchedule ? (
+              {!seasonsInitialized || loadingSchedule ? (
                 <div className="flex items-center justify-center gap-2 py-12 font-mono text-xs text-slate-400">
                   <Loader2 className="h-4 w-4 animate-spin text-[#E10600]" />
                   Loading {selectedYear} FIA Event Calendar...

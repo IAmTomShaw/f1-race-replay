@@ -13,6 +13,10 @@ def test_health_and_seasons_endpoints():
     assert res.status_code == 200
     assert res.json()["status"] == "ok"
 
+    res_root_health = client.get("/health")
+    assert res_root_health.status_code == 200
+    assert res_root_health.json()["status"] == "ok"
+
     seasons = client.get("/api/seasons")
     assert seasons.status_code == 200
     body = seasons.json()

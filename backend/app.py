@@ -2,6 +2,7 @@
 FastAPI backend for the F1 Race Replay Web Pit Wall.
 
 Endpoints:
+  - GET  /health
   - GET  /api/health
   - GET  /api/seasons
   - GET  /api/seasons/{year}
@@ -122,6 +123,7 @@ def _run_export_job(year: int, round_number: int, session_type: str, refresh: bo
 
 
 @app.get("/api/health")
+@app.get("/health")
 def health_check() -> dict[str, Any]:
     return {
         "status": "ok",

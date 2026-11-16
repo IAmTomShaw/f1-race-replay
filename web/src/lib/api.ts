@@ -9,7 +9,7 @@ export function getApiBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
   }
-  // Empty string uses same-origin /api/* (proxied by Next.js to 127.0.0.1:8000 locally)
+  // Empty string uses same-origin /api/* (proxied by Next.js to 127.0.0.1:8001 locally)
   return "";
 }
 
