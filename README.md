@@ -4,7 +4,7 @@ A Python application for visualizing Formula 1 race telemetry and replaying race
 
 ![Race Replay Preview](./resources/preview.png)
 
-> **HUGE NEWS:** The telemetry stream feature is now in a usable state. See the [telemetry demo documentation](./telemetry.md) for access instructions, data format details, and usage ideas.
+> **UPDATE**: The latest version of F1 Race Replay supports the paywall implemented by FastF1. Formula 1 have put the data behind their F1TV paywall, so they only want to access telemetry is to log in with your F1TV Account. The functionality of the project remains the same.
 
 ## Features
 

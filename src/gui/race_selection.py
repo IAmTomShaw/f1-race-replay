@@ -13,6 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names, load_session
 from src.gui.settings_dialog import SettingsDialog
+from src.gui.f1tv_login_dialog import F1TVLoginDialog
 from src.lib.season import get_season
 
 # Worker thread to fetch schedule without blocking UI
@@ -67,6 +68,10 @@ class RaceSelectionWindow(QMainWindow):
         settings_btn.setCursor(Qt.PointingHandCursor)
         settings_btn.setFixedHeight(32)
         settings_btn.clicked.connect(self.open_settings)
+        login_btn = QPushButton("🔑 F1TV Sign-in")
+        login_btn.setCursor(Qt.PointingHandCursor)
+        login_btn.setFixedHeight(32)
+        login_btn.clicked.connect(self.open_f1tv_login)
         font.setPointSize(18)
         font.setBold(True)
         header_label.setFont(font)
@@ -74,6 +79,7 @@ class RaceSelectionWindow(QMainWindow):
         
         header_layout.addWidget(header_label)
         header_layout.addStretch()
+        header_layout.addWidget(login_btn)
         header_layout.addWidget(settings_btn)
         main_layout.addLayout(header_layout)
 
@@ -478,6 +484,9 @@ class RaceSelectionWindow(QMainWindow):
     def show_error(self, message):
         QMessageBox.critical(self, "Error", f"Failed to load schedule: {message}")
         self.loading_session = False
+
+    def open_f1tv_login(self):
+        F1TVLoginDialog(self).exec()
 
     def open_settings(self):
         dialog = SettingsDialog(self)

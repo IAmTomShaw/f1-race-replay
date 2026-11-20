@@ -14,6 +14,30 @@ from src.lib.settings import get_settings
 from src.lib.time import parse_time_string
 from src.lib.tyres import get_tyre_compound_int
 
+
+def _patch_merge_asof_for_pandas3():
+    # pandas 3 can produce timedelta64[ns] and timedelta64[us] columns, which
+    # FastF1 3.9.x merges on "Time" and which raises a MergeError.
+    original = pd.merge_asof
+
+    def merge_asof(left, right, *args, **kwargs):
+        on = kwargs.get("on")
+        if (
+            isinstance(on, str)
+            and on in getattr(left, "columns", [])
+            and on in getattr(right, "columns", [])
+            and left[on].dtype != right[on].dtype
+            and pd.api.types.is_timedelta64_dtype(left[on])
+            and pd.api.types.is_timedelta64_dtype(right[on])
+        ):
+            right = right.astype({on: left[on].dtype})
+        return original(left, right, *args, **kwargs)
+
+    pd.merge_asof = merge_asof
+
+
+_patch_merge_asof_for_pandas3()
+
 def enable_cache():
     # Get cache location from settings
     settings = get_settings()
@@ -24,7 +48,10 @@ def enable_cache():
         os.makedirs(cache_path)
 
     # Enable local cache
-    fastf1.Cache.enable_cache(cache_path)
+    if hasattr(fastf1.Cache, "configure"):
+        fastf1.Cache.configure(cache_dir=cache_path)
+    else:
+        fastf1.Cache.enable_cache(cache_path)
 
 
 FPS = 25
