@@ -27,6 +27,7 @@ SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 SCREEN_TITLE = "F1 Race Replay"
 PLAYBACK_SPEEDS = [0.1, 0.2, 0.5, 1.0, 2.0, 4.0, 8.0, 16.0, 32.0, 64.0, 128.0, 256.0]
+LAP_DATA_RESEND_INTERVAL_S = 2.0
 
 class F1RaceReplayWindow(arcade.Window):
     def __init__(self, frames, track_statuses, example_lap, drivers, title,
@@ -39,6 +40,9 @@ class F1RaceReplayWindow(arcade.Window):
         self.maximize()
 
         self.telemetry_stream = None
+        # When the pre-computed lap data was last broadcast, and to how many clients
+        self._lap_data_sent_at = None
+        self._lap_data_client_count = 0
         if enable_telemetry:
             try:
                 self.telemetry_stream = TelemetryStreamServer()
@@ -355,11 +359,18 @@ class F1RaceReplayWindow(arcade.Window):
                 "rotation_deg": self.circuit_rotation,
             }
 
-        # Send pre-computed data continuously. It's just a Python dictionary reference 
-        # (O(1) memory overhead in local publish/subscribe) and ensures windows 
-        # opened after the race has finished still receive the data.
-        payload["lap_times"] = self._precomputed_lap_times
-        payload["status_laps"] = self._precomputed_status_laps
+        # The pre-computed lap data never changes, but it's most of the payload (hundreds of KB as JSON
+        # for a full race). Send it when a new client connects, and every few seconds so windows opened
+        # later, even after the race has finished, still receive it.
+        client_count = len(self.telemetry_stream.clients)
+        now = time.monotonic()
+        if (self._lap_data_sent_at is None
+                or client_count > self._lap_data_client_count
+                or now - self._lap_data_sent_at >= LAP_DATA_RESEND_INTERVAL_S):
+            payload["lap_times"] = self._precomputed_lap_times
+            payload["status_laps"] = self._precomputed_status_laps
+            self._lap_data_sent_at = now
+        self._lap_data_client_count = client_count
 
         self.telemetry_stream.broadcast(payload)
 
