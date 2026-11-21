@@ -170,8 +170,12 @@ class F1TVLoginDialog(QDialog):
 
     def _on_success(self):
         self._set_busy(False)
-        self.message_label.setText("Sign-in successful.")
         self._refresh_status()
+        parent = self.parentWidget()
+        self.accept()
+        from PySide6.QtWidgets import QMessageBox
+        QMessageBox.information(parent, "F1TV sign-in",
+                                "Sign-in successful. You are now signed in to F1TV.")
 
     def _on_failure(self, message):
         self._set_busy(False)
