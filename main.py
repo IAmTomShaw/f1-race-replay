@@ -66,6 +66,11 @@ def main(year=None, round_number=None, playback_speed=1, session_type='R', visib
   enable_cache()
 
   print(f"Loading F1 {year} Round {round_number} Session '{session_type}'")
+  from src.gui.f1tv_login_dialog import needs_sign_in, SIGN_IN_HINT, DISCLAIMER
+  if needs_sign_in():
+    print(f"{SIGN_IN_HINT} Sign in via the GUI's 'F1TV Sign-in' button and try again.")
+    print(DISCLAIMER)
+    return
   session = load_session(year, round_number, session_type)
   if session is None:
     print(f"Unable to load session '{session_type}'.")
