@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime, timezone
 from src.f1_data import get_race_weekends_by_year, get_race_weekends_by_place, get_all_unique_race_names, load_session
 from src.gui.settings_dialog import SettingsDialog
-from src.gui.f1tv_login_dialog import F1TVLoginDialog
+from src.gui.f1tv_login_dialog import F1TVLoginDialog, prompt_sign_in
 from src.lib.season import get_season
 
 # Worker thread to fetch schedule without blocking UI
@@ -52,6 +52,7 @@ class RaceSelectionWindow(QMainWindow):
         self.resize(1000, 700)
         self.setMinimumSize(800, 600)
         self.setWindowState(self.windowState())
+        QTimer.singleShot(0, lambda: prompt_sign_in(self))
 
     def _setup_ui(self):
         central_widget = QWidget()
@@ -343,6 +344,9 @@ class RaceSelectionWindow(QMainWindow):
         `--sprint-qualifying`, `--sprint`. Runs the command detached so the
         Qt UI remains responsive.
         """
+        if not prompt_sign_in(self):
+            return
+
         try:
             year = ev.get("year") or self.selected_year
         except Exception:

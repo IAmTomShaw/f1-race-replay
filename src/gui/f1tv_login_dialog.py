@@ -33,6 +33,39 @@ def get_auth_status():
     return True, f"Signed in (expires {expiry:%Y-%m-%d %H:%M})"
 
 
+def needs_sign_in():
+    """True if this FastF1 requires sign-in and there is no valid token."""
+    if _f1account() is None:
+        return False
+    return not get_auth_status()[0]
+
+
+SIGN_IN_HINT = ("You are not signed in to F1TV. FastF1 requires an F1TV account "
+                "to load session data.")
+
+
+DISCLAIMER = ("This requirement was introduced by Formula 1 (via FastF1), not by the "
+              "F1 Race Replay developers, who had no part in the decision.")
+
+
+def prompt_sign_in(parent=None):
+    """Ask the user to sign in if needed. Returns True if they may proceed."""
+    from PySide6.QtWidgets import QMessageBox
+    if not needs_sign_in():
+        return True
+    box = QMessageBox(parent)
+    box.setIcon(QMessageBox.Warning)
+    box.setWindowTitle("F1TV sign-in required")
+    box.setText(SIGN_IN_HINT)
+    box.setInformativeText(f"{DISCLAIMER}\n\nSign in now? Loading a session without signing in will fail.")
+    sign_in = box.addButton("Sign in", QMessageBox.AcceptRole)
+    box.addButton("Not now", QMessageBox.RejectRole)
+    box.exec()
+    if box.clickedButton() is sign_in:
+        F1TVLoginDialog(parent).exec()
+    return not needs_sign_in()
+
+
 class LoginWorker(QThread):
     success = Signal()
     failure = Signal(str)
@@ -84,6 +117,10 @@ class F1TVLoginDialog(QDialog):
         self.message_label = QLabel()
         self.message_label.setWordWrap(True)
         layout.addWidget(self.message_label)
+
+        disclaimer = QLabel(DISCLAIMER)
+        disclaimer.setWordWrap(True)
+        layout.addWidget(disclaimer)
 
         note = QLabel("Your password is only used to sign in and is not stored. "
                       "FastF1 keeps the resulting session token on this computer.")
