@@ -1247,11 +1247,6 @@ class ConstructorsChampionshipOverlay:
                     12
                 )
 
-            y -= 20
-
-            if pos >= 11:
-                break
-
             previous_pos = list(self.current_constructors_standings.keys()).index(team) + 1 if team in self.current_constructors_standings else pos
             delta = previous_pos - pos
 
@@ -1272,6 +1267,11 @@ class ConstructorsChampionshipOverlay:
             arrow_color,
             12
         )
+
+            y -= 20
+
+            if pos >= 11:
+                break
         
 class DriversChampionshipOverlay:
 
@@ -1362,11 +1362,6 @@ class DriversChampionshipOverlay:
                     12
                 )
 
-            y -= 20
-
-            if pos >= 22:
-                break
-
             previous_pos = list(self.current_driver_standings.keys()).index(driver) + 1 if driver in self.current_driver_standings else pos
             delta = previous_pos - pos
 
@@ -1387,6 +1382,11 @@ class DriversChampionshipOverlay:
             arrow_color,
             12
         )
+
+            y -= 20
+
+            if pos >= 22:
+                break
 
 class SessionInfoComponent(BaseComponent):
     """
