@@ -161,7 +161,9 @@ class WeatherComponent(BaseComponent):
                     texture_path = os.path.join(weather_folder, filename)
                     self._weather_icon_textures[texture_name] = arcade.load_texture(texture_path)
 
-        self._text = arcade.Text("", self.left + 12, 0, arcade.color.LIGHT_GRAY, 14, anchor_y="top")
+        # Persistent Text objects with fixed styles, so they are only re-laid out when their text changes
+        self._title_text = arcade.Text("Weather", self.left + 12, 0, arcade.color.WHITE, 18, bold=True, anchor_y="top")
+        self._line_texts = [arcade.Text("", self.left + 38, 0, arcade.color.LIGHT_GRAY, 14, anchor_y="top") for _ in range(5)]
 
     def set_info(self, info: Optional[dict]):
         self.info = info
@@ -194,7 +196,6 @@ class WeatherComponent(BaseComponent):
         panel_top = window.height - self.top_offset
         if not self.info and not getattr(window, "has_weather", False):
             return
-        arcade.Text("Weather", self.left + 12, panel_top - 10, arcade.color.WHITE, 18, bold=True, anchor_y="top").draw()
         def _fmt(val, suffix="", precision=1):
             return f"{val:.{precision}f}{suffix}" if val is not None else "N/A"
         info = self.info or {}
@@ -210,10 +211,8 @@ class WeatherComponent(BaseComponent):
         start_y = panel_top - 36
         last_y = start_y
 
-        self._text.font_size = 18; self._text.bold = True; self._text.color = arcade.color.WHITE
-        self._text.text = "Weather"
-        self._text.x = self.left + 12; self._text.y = panel_top - 10
-        self._text.draw()
+        self._title_text.x = self.left + 12; self._title_text.y = panel_top - 10
+        self._title_text.draw()
 
         for idx, (label, value, icon_key) in enumerate(weather_lines):
             line_y = start_y - idx * 22
@@ -236,10 +235,10 @@ class WeatherComponent(BaseComponent):
 
             line_text = f"{label}: {value}"
             
-            self._text.font_size = 14; self._text.bold = False; self._text.color = arcade.color.LIGHT_GRAY
-            self._text.text = line_text
-            self._text.x = self.left + 38; self._text.y = line_y
-            self._text.draw()
+            line = self._line_texts[idx]
+            line.text = line_text
+            line.x = self.left + 38; line.y = line_y
+            line.draw()
 
         # Track the bottom of the weather panel so info boxes can stack below it
         window.weather_bottom = last_y - 20
@@ -1396,7 +1395,9 @@ class SessionInfoComponent(BaseComponent):
     def __init__(self, visible=True):
         self.visible = visible
         self.session_info = {}
-        self._text = arcade.Text("", 0, 0, arcade.color.WHITE, 14)
+        # One persistent Text per line, so the (static) banner isn't re-laid out every frame
+        self._line1_text = arcade.Text("", 0, 0, arcade.color.WHITE, 16, bold=True, anchor_x="center", anchor_y="center")
+        self._line2_text = arcade.Text("", 0, 0, arcade.color.LIGHT_GRAY, 13, anchor_x="center", anchor_y="center")
         
     def set_info(self, event_name: str = "", circuit_name: str = "", country: str = "",
                  year: int = None, round_num: int = None, date: str = "", total_laps: int = None):
@@ -1466,22 +1467,15 @@ class SessionInfoComponent(BaseComponent):
         line2 = " | ".join(line2_parts)
         
         # Draw text lines
-        self._text.font_size = 16
-        self._text.bold = True
-        self._text.color = arcade.color.WHITE
-        self._text.text = line1
-        self._text.x = center_x
-        self._text.y = top_y - 18
-        self._text.anchor_x = "center"
-        self._text.anchor_y = "center"
-        self._text.draw()
-        
-        self._text.font_size = 13
-        self._text.bold = False
-        self._text.color = arcade.color.LIGHT_GRAY
-        self._text.text = line2
-        self._text.y = top_y - 40
-        self._text.draw()
+        self._line1_text.text = line1
+        self._line1_text.x = center_x
+        self._line1_text.y = top_y - 18
+        self._line1_text.draw()
+
+        self._line2_text.text = line2
+        self._line2_text.x = center_x
+        self._line2_text.y = top_y - 40
+        self._line2_text.draw()
 
 
 # Feature: race progress bar with event markers
