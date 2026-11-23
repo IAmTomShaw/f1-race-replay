@@ -20,5 +20,8 @@ still_frame.png
 
 # OS / IDE files
 .DS_Store
+desktop.ini
+Thumbs.db
 .idea/
 .vscode/
+
