@@ -15,6 +15,7 @@ from src.ui_components import (
 from src.f1_data import get_driver_quali_telemetry
 from src.f1_data import FPS
 from src.lib.time import format_time
+from src.lib.lap_delta import compute_time_delta
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
@@ -83,6 +84,8 @@ class QualifyingReplay(arcade.Window):
 
         self.chart_active = False
         self.show_comparison_telemetry = True
+        self.comparison_driver_code = None  # None = pole lap (Q3); set by TAB / SHIFT+TAB
+        self._delta_cache = None            # (key, rel_dist, delta, axis_limit) for the time-delta panel
 
         self.loaded_driver_code = None
         self.loaded_driver_segment = None
@@ -97,10 +100,12 @@ class QualifyingReplay(arcade.Window):
             ("R", "Restart"),
             ("D", "Toggle DRS Zones"),
             ("C", "Toggle Comparison Telemetry"),
+            ("TAB", "Next Comparison Driver"),
+            ("SHIFT+TAB", "Previous Comparison Driver"),
             ("H", "Toggle Help Popup"),
             ("ESC", "Close Window"),
         ])
-        self.controls_popup_comp.set_size(340, 250)
+        self.controls_popup_comp.set_size(340, 300)
         self.controls_popup_comp.set_font_sizes(header_font_size=16, body_font_size=13)
 
         # Build the track layout from an example lap
@@ -223,10 +228,10 @@ class QualifyingReplay(arcade.Window):
         if self.chart_active and self.loaded_telemetry:
             frames = self.loaded_telemetry.get("frames") if isinstance(self.loaded_telemetry, dict) else None
             if frames:
-                fastest_driver = self.data.get("results", [])[0] if isinstance(self.data.get("results", []), list) and len(self.data.get("results", [])) > 0 else None
-                # Get comparison telemetry if available
-                comparison_data = self.data.get("telemetry", {}).get(fastest_driver.get("code")) if fastest_driver and self.show_comparison_telemetry else None
-                comparison_telemetry = comparison_data.get("Q3").get("frames", []) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                # Get comparison telemetry if available (pole lap by default, cycle with TAB)
+                comparison = self._resolve_comparison()
+                comp_driver_code, comp_segment, comparison_telemetry, comp_sector_times = comparison if comparison else (None, None, None, None)
+                fastest_driver = {"code": comp_driver_code} if comparison else None
 
                 # right-hand area (to the right of leaderboard)
                 area_left = self.leaderboard.x + getattr(self.leaderboard, "width", 240) + 40
@@ -249,15 +254,25 @@ class QualifyingReplay(arcade.Window):
                 # - Top 50% of the chart area: Speed
                 # - Next 25%: Gears
                 # - Bottom 25%: Brake + Throttle
+                # While a comparison lap is shown a 4th panel (time delta) is added and the
+                # split becomes 40% / 20% / 20% / 20%.
 
                 M = 30 # margin between charts
                 VP = 5 # vertical padding between charts
-                total_margin = 2 * M
+                has_delta = bool(comparison_telemetry)
+                total_margin = (3 if has_delta else 2) * M
                 effective_h = max(0, chart_h - total_margin)
 
-                speed_h = int(effective_h * 0.5)
-                gear_h = int(effective_h * 0.25)
-                ctrl_h = effective_h - speed_h - gear_h
+                if has_delta:
+                    speed_h = int(effective_h * 0.4)
+                    gear_h = int(effective_h * 0.2)
+                    ctrl_h = int(effective_h * 0.2)
+                    delta_h = effective_h - speed_h - gear_h - ctrl_h
+                else:
+                    speed_h = int(effective_h * 0.5)
+                    gear_h = int(effective_h * 0.25)
+                    ctrl_h = effective_h - speed_h - gear_h
+                    delta_h = 0
 
                 speed_top = chart_top
                 speed_bottom = speed_top - speed_h
@@ -265,8 +280,10 @@ class QualifyingReplay(arcade.Window):
                 gear_bottom = gear_top - gear_h
                 ctrl_top = gear_bottom - M
                 ctrl_bottom = ctrl_top - ctrl_h
+                delta_top = ctrl_bottom - M
+                delta_bottom = delta_top - delta_h
 
-                map_top = ctrl_bottom - 8
+                map_top = (delta_bottom if has_delta else ctrl_bottom) - 8
                 map_bottom = area_bottom
                 map_left = area_left
                 map_right = area_right
@@ -315,12 +332,10 @@ class QualifyingReplay(arcade.Window):
                     comp_key_y = speed_top + 10 + (comp_key_size * 0.5)
                     comp_square_x = chart_right - comp_key_padding_right - (comp_key_size / 2)
 
-                    comp_driver_code = fastest_driver.get("code") if fastest_driver else "N/A"
-
                     comp_key_rect = arcade.XYWH(comp_square_x, comp_key_y, comp_key_size, 3)
                     arcade.draw_rect_filled(comp_key_rect, arcade.color.YELLOW)
                     arcade.Text(
-                        f"Comparison Driver: {comp_driver_code} - Q3",
+                        f"Comparison Driver: {comp_driver_code} - {comp_segment}",
                         comp_square_x + (comp_key_size * 0.5) + 6,
                         comp_key_y,
                         arcade.color.ANTI_FLASH_WHITE,
@@ -556,12 +571,22 @@ class QualifyingReplay(arcade.Window):
                         arcade.draw_line_strip(brake_pts, arcade.color.RED, 2)
                 except Exception as e:
                     print("Chart draw error (controls):", e)
-                
+
+                if has_delta:
+                    try:
+                        self._draw_delta_panel(
+                            frames, comparison_telemetry, comp_driver_code, comp_segment,
+                            chart_left, chart_w, delta_top, delta_bottom, delta_h,
+                            full_d_min, full_d_max, VP,
+                        )
+                    except Exception as e:
+                        print("Chart draw error (delta):", e)
+
                 # Draw qualifying lap time component at top of map area
                 self.qualifying_lap_time_comp.x = map_left
                 self.qualifying_lap_time_comp.y = map_top
                 self.qualifying_lap_time_comp.fastest_driver = fastest_driver
-                self.qualifying_lap_time_comp.fastest_driver_sector_times = comparison_data.get("Q3").get("sector_times", {}) if comparison_data and self.show_comparison_telemetry and fastest_driver and ((fastest_driver.get("code") != self.loaded_driver_code) or (fastest_driver.get("code") == self.loaded_driver_code and self.loaded_driver_segment != "Q3")) else None
+                self.qualifying_lap_time_comp.fastest_driver_sector_times = comp_sector_times if comparison else None
                 self.qualifying_lap_time_comp.draw(self)
 
                 y_offset = map_top - 48
@@ -750,6 +775,111 @@ class QualifyingReplay(arcade.Window):
                 return tel[k]
         return None
 
+    def _resolve_comparison(self):
+        """Return (code, segment, frames, sector_times) for the lap to compare against, or None.
+
+        Default is the pole sitter's Q3 lap. After TAB, the chosen driver's lap in the
+        same segment as the loaded lap is preferred, falling back to Q3 -> Q2 -> Q1
+        (drivers knocked out early have no Q3 lap). The loaded lap itself is never returned.
+        """
+        if not self.show_comparison_telemetry:
+            return None
+        results = self.data.get("results", [])
+        if self.comparison_driver_code:
+            code = self.comparison_driver_code
+            segments = [self.loaded_driver_segment, "Q3", "Q2", "Q1"]
+        elif results:
+            code = results[0].get("code")
+            segments = ["Q3"]
+        else:
+            return None
+        driver_data = self.data.get("telemetry", {}).get(code) or {}
+        for segment in segments:
+            seg = driver_data.get(segment) if segment else None
+            if not isinstance(seg, dict) or not seg.get("frames"):
+                continue
+            if code == self.loaded_driver_code and segment == self.loaded_driver_segment:
+                continue
+            return code, segment, seg["frames"], seg.get("sector_times", {})
+        return None
+
+    def _cycle_comparison_driver(self, step: int):
+        """Move the comparison driver along the qualifying order (step=+1 next, -1 previous)."""
+        results = self.data.get("results", [])
+        telemetry = self.data.get("telemetry", {})
+        codes = [
+            r.get("code") for r in results
+            if any((telemetry.get(r.get("code")) or {}).get(s, {}).get("frames") for s in ("Q1", "Q2", "Q3"))
+        ]
+        if not codes:
+            return
+        previous = self.comparison_driver_code
+        current = previous or codes[0]
+        start = codes.index(current) if current in codes else 0
+        self.show_comparison_telemetry = True
+        for n in range(1, len(codes) + 1):
+            self.comparison_driver_code = codes[(start + step * n) % len(codes)]
+            if self._resolve_comparison() is not None:
+                return
+        self.comparison_driver_code = previous  # nothing usable to switch to
+
+    def _get_time_delta(self, frames, comparison_frames, comp_code, comp_segment):
+        """Cached (rel_dist, delta, axis_limit) for the loaded lap vs the comparison lap, or None.
+
+        The delta is computed once per lap pair; axis_limit is fixed for the whole lap so the
+        panel's scale does not jump while the replay plays.
+        """
+        key = (self.loaded_driver_code, self.loaded_driver_segment, comp_code, comp_segment)
+        if self._delta_cache is None or self._delta_cache[0] != key:
+            result = compute_time_delta(frames, comparison_frames)
+            if result is None:
+                self._delta_cache = (key, None, None, None)
+            else:
+                rel_dist, delta = result
+                peak = float(np.nanmax(np.abs(delta))) if not np.isnan(delta).all() else 0.0
+                axis_limit = max(0.2, np.ceil(peak * 10) / 10)  # round up to the next 0.1s, at least +/-0.2s
+                self._delta_cache = (key, rel_dist, delta, axis_limit)
+        _, rel_dist, delta, axis_limit = self._delta_cache
+        return None if rel_dist is None else (rel_dist, delta, axis_limit)
+
+    def _draw_delta_panel(self, frames, comparison_frames, comp_code, comp_segment,
+                          chart_left, chart_w, panel_top, panel_bottom, panel_h,
+                          full_d_min, full_d_max, vpad):
+        """Time delta vs the comparison lap, drawn up to the current frame (positive = behind)."""
+        arcade.draw_rect_filled(
+            arcade.XYWH(chart_left + chart_w * 0.5, panel_bottom + panel_h * 0.5, chart_w, panel_h),
+            (40, 40, 40, 230),
+        )
+        arcade.Text(f"Time Delta vs {comp_code} (s)", chart_left + 10, panel_top + 10,
+                    arcade.color.ANTI_FLASH_WHITE, 14).draw()
+        arcade.Text("+ behind   - ahead", chart_left + chart_w - 10, panel_top + 10,
+                    arcade.color.LIGHT_GRAY, 12, anchor_x="right").draw()
+
+        result = self._get_time_delta(frames, comparison_frames, comp_code, comp_segment)
+        if result is None:
+            return
+        rel_dist, delta, limit = result
+
+        mid_y = panel_bottom + panel_h * 0.5
+        half_h = panel_h * 0.5 - vpad
+        arcade.draw_line(chart_left, mid_y, chart_left + chart_w, mid_y, (120, 120, 120), 1)
+        arcade.Text(f"+{limit:.1f}", chart_left + 4, panel_top - 14, arcade.color.LIGHT_GRAY, 10).draw()
+        arcade.Text(f"-{limit:.1f}", chart_left + 4, panel_bottom + 3, arcade.color.LIGHT_GRAY, 10).draw()
+
+        last = min(self.frame_index, len(delta) - 1)
+        pts = []
+        for d, v in zip(rel_dist[:last + 1], delta[:last + 1]):
+            if np.isnan(d) or np.isnan(v):
+                continue
+            nx = (d - full_d_min) / (full_d_max - full_d_min)
+            pts.append((chart_left + nx * chart_w, mid_y + max(-1.0, min(1.0, v / limit)) * half_h))
+        if len(pts) > 1:
+            arcade.draw_line_strip(pts, arcade.color.ANTI_FLASH_WHITE, 2)
+        if pts:
+            current = float(delta[last]) if not np.isnan(delta[last]) else 0.0
+            colour = (255, 110, 110) if current > 0 else (110, 255, 140)
+            arcade.Text(f"{current:+.3f}s", pts[-1][0] + 10, pts[-1][1] + 5, colour, 12).draw()
+
     def on_mouse_press(self, x: float, y: float, button: int, modifiers: int):
         # If the segment-selector modal is visible (a driver selected), give it first chance
         # to handle the click (so its close button can work). If it handled the click,
@@ -770,9 +900,11 @@ class QualifyingReplay(arcade.Window):
         # Fallback: let the leaderboard handle the click (select drivers)
         self.leaderboard.on_mouse_press(self, x, y, button, modifiers)
         
-        # Only allow race controls interaction if lap is not complete
-        if not self.is_lap_complete():
-            self.race_controls_comp.on_mouse_press(self, x, y, button, modifiers)
+        # Only allow race controls interaction if lap is not complete; the rewind button stays
+        # active at the end so the replay can be scrubbed back
+        controls = self.race_controls_comp
+        if not self.is_lap_complete() or controls._point_in_rect(x, y, controls.rewind_rect):
+            controls.on_mouse_press(self, x, y, button, modifiers)
 
     def is_lap_complete(self):
         """Check if the current lap has finished playing."""
@@ -795,6 +927,10 @@ class QualifyingReplay(arcade.Window):
             # Toggle the ability to see the comparison driver's telemetry
             self.show_comparison_telemetry = not self.show_comparison_telemetry
             return
+        elif symbol == arcade.key.TAB:
+            # Cycle which driver's lap is used as the comparison (SHIFT+TAB goes backwards)
+            self._cycle_comparison_driver(-1 if modifiers & arcade.key.MOD_SHIFT else 1)
+            return
         elif symbol == arcade.key.D:
             # Toggle DRS zones on track map
             self.toggle_drs_zones = not self.toggle_drs_zones
@@ -811,10 +947,10 @@ class QualifyingReplay(arcade.Window):
                 self.controls_popup_comp.show_over(left_pos, top_pos)
             return
         
-        # Disable other controls when lap is complete
-        if self.is_lap_complete():
+        # Disable other controls when lap is complete, except rewinding (so the replay can be scrubbed back)
+        if self.is_lap_complete() and symbol != arcade.key.LEFT:
             return
-        
+
         if symbol == arcade.key.SPACE:
             self.paused = not self.paused
             self.race_controls_comp.flash_button('play_pause')
@@ -1003,6 +1139,9 @@ class QualifyingReplay(arcade.Window):
         if self._times is not None and len(self._times) > 0:
             # clamp play_time into available range
             clamped = min(max(self.play_time, float(self._times[0])), float(self._times[-1]))
+            # Keep play_time itself in range too: otherwise holding forward at the end lets it
+            # run past the last frame and a later rewind appears to do nothing until it catches up
+            self.play_time = clamped
             idx = int(np.searchsorted(self._times, clamped, side="right") - 1)
             self.frame_index = max(0, min(idx, len(self._times) - 1))
 
