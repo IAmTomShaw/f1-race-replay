@@ -355,11 +355,30 @@ class F1RaceReplayWindow(arcade.Window):
                 "rotation_deg": self.circuit_rotation,
             }
 
-        # Send pre-computed data continuously. It's just a Python dictionary reference 
-        # (O(1) memory overhead in local publish/subscribe) and ensures windows 
+        # Send pre-computed data continuously. It's just a Python dictionary reference
+        # (O(1) memory overhead in local publish/subscribe) and ensures windows
         # opened after the race has finished still receive the data.
         payload["lap_times"] = self._precomputed_lap_times
         payload["status_laps"] = self._precomputed_status_laps
+
+        # Drivers selected on the leaderboard, so insight windows can follow them.
+        selected = list(getattr(self, "selected_drivers", None) or [])
+        if not selected and getattr(self, "selected_driver", None):
+            selected = [self.selected_driver]
+        payload["selected_drivers"] = selected
+
+        # Tyre-model outputs per driver (model predictions, not telemetry).
+        # The integrator caches them per lap, so this is cheap to send every frame.
+        if self.degradation_integrator is not None and current_frame:
+            tyre_model = {}
+            for code, pos in current_frame["drivers"].items():
+                try:
+                    outputs = self.degradation_integrator.get_model_outputs(code, int(pos.get("lap", 1)))
+                except (TypeError, ValueError):
+                    outputs = None
+                if outputs:
+                    tyre_model[code] = outputs
+            payload["tyre_model"] = tyre_model
 
         self.telemetry_stream.broadcast(payload)
 
@@ -1743,6 +1762,8 @@ class F1RaceReplayWindow(arcade.Window):
             if self.selected_driver:
                 self.show_drivers_championship = False
                 self.show_constructors_championship = False
+            # Let insight windows follow the new selection even while paused
+            self._broadcast_telemetry_state()
             return
         if self.legend_comp.on_mouse_press(self, x, y, button, modifiers):
             return

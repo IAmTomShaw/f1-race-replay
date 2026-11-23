@@ -57,6 +57,7 @@ class InsightsMenu(QMainWindow):
             [
                 ("Telemetry Stream Viewer", "View raw telemetry data", self.launch_telemetry_viewer),
                 ("Driver Live Telemetry", "Speed, gear, throttle & braking for a selected driver", self.launch_driver_telemetry),
+                ("Car Detail", "One car at a glance: telemetry, tyres & pace, tagged LIVE / EST / AI", self.launch_car_detail),
                 ("Live Tyre Strategy", "Live tyre stints and pit stop timeline per driver", self.launch_tyre_strategy),
             ]
         ))
@@ -192,6 +193,13 @@ class InsightsMenu(QMainWindow):
         print("🚀 Launching: Driver Live Telemetry")
         from src.insights.driver_telemetry_window import DriverTelemetryWindow
         window = DriverTelemetryWindow()
+        window.show()
+        self.opened_windows.append(window)
+
+    def launch_car_detail(self):
+        print("🚀 Launching: Car Detail")
+        from src.insights.car_detail_window import CarDetailWindow
+        window = CarDetailWindow()
         window.show()
         self.opened_windows.append(window)
 
