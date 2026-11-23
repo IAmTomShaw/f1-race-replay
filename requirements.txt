@@ -4,6 +4,8 @@ matplotlib
 numpy
 arcade
 pyglet
-pyside6
+# PySide6 6.12.0 crashes on Python < 3.12 (refcount bug), so keep those versions on 6.11
+pyside6<6.12; python_version < "3.12"
+pyside6; python_version >= "3.12"
 questionary
 rich
