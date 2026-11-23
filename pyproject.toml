@@ -1,0 +1,10 @@
+[project]
+name = "f1-race-replay"
+version = "0.1.0"
+description = "A Python application for visualizing Formula 1 race telemetry and replaying race events with interactive controls and a graphical interface."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "arcade>=2.3.15",
+    "fastf1>=3.3.9",
+]
