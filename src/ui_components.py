@@ -1,4 +1,7 @@
 import arcade
+import threading
+import time
+from arcade.texture_atlas import DefaultTextureAtlas
 from typing import List, Literal, Tuple, Optional
 from typing import Sequence, Optional, Tuple
 from src.lib.time import format_time
@@ -26,6 +29,110 @@ class BaseComponent:
     def on_resize(self, window): pass
     def draw(self, window): pass
     def on_mouse_press(self, window, x: float, y: float, button: int, modifiers: int) -> bool: return False
+
+
+class MapUnderlayComponent(BaseComponent):
+    """
+    Real-world map (OpenStreetMap) drawn underneath the track.
+
+    The map is built on a background thread (downloaded once per circuit,
+    then cached in the computed data folder), so the replay starts straight
+    away and the map fades in when it's ready. Drawing it costs a single
+    textured rectangle per frame. Toggle with M.
+
+    The window must expose ``world_scale``, ``tx`` and ``ty`` (the same values
+    ``world_to_screen`` uses); the map image is already rendered in the
+    window's rotated world frame.
+    """
+
+    FADE_IN_S = 0.6
+
+    def __init__(self, visible: bool = True):
+        self.visible = visible
+        self._pending = None       # TrackMapImage handed over by the worker thread
+        self._texture = None
+        self._atlas = None
+        self._bounds = None        # (x0, x1, y0, y1) in the rotated world frame
+        self._shown_at = 0.0       # when the map arrived, for the fade-in
+        self._credit = ""
+        self._status = None        # shown bottom-right when the map can't be shown
+        self._attribution = arcade.Text(
+            "", 0, 0, (190, 190, 190, 210), 10, anchor_x="right", anchor_y="bottom"
+        )
+
+    @property
+    def ready(self) -> bool:
+        return self._texture is not None
+
+    def toggle_visibility(self) -> bool:
+        self.visible = not self.visible
+        return self.visible
+
+    def load_async(self, **kwargs) -> None:
+        """Build the map in the background. kwargs go to ``build_track_map``."""
+        def worker():
+            try:
+                from src.services.circuit_map import build_track_map
+                result = build_track_map(**kwargs)
+            except Exception as exc:  # offline, server busy, unexpected data...
+                print(f"Map underlay unavailable: {exc}")
+                self._status = "Real-world map unavailable (offline or map server busy)"
+                return
+            if result is None:
+                print("Map underlay: no real-world outline matches this layout, skipping")
+                self._status = "No real-world map for this track layout"
+                return
+            print(f"Map underlay ready: {result.circuit_name} (fit error {result.residual_m:.1f} m)")
+            self._pending = result
+
+        threading.Thread(target=worker, name="map-underlay", daemon=True).start()
+
+    def _upload(self) -> None:
+        # Texture creation touches OpenGL, so it has to happen on the main thread.
+        result, self._pending = self._pending, None
+        image = result.image
+        self._texture = arcade.Texture(image, hash=f"osm-map-{result.circuit_id}-{id(image)}")
+        self._atlas = DefaultTextureAtlas((image.width + 4, image.height + 4), border=2, auto_resize=False)
+        self._bounds = result.bounds
+        self._credit = result.attribution
+        self._shown_at = time.monotonic()
+
+    def draw(self, window):
+        try:
+            if self._texture is None and self._pending is not None:
+                self._upload()
+            if not self.visible or self._texture is None:
+                return
+            x0, x1, y0, y1 = self._bounds
+            s, tx, ty = window.world_scale, window.tx, window.ty
+            rect = arcade.LRBT(s * x0 + tx, s * x1 + tx, s * y0 + ty, s * y1 + ty)
+            alpha = min(255, int(255 * (time.monotonic() - self._shown_at) / self.FADE_IN_S))
+            arcade.draw_texture_rect(self._texture, rect, alpha=alpha, atlas=self._atlas)
+        except Exception as exc:  # GPU/driver or Arcade API problem: never break the replay
+            print(f"Map underlay disabled, drawing failed: {exc}")
+            self._texture, self._pending = None, None
+            self._status = "Real-world map couldn't be drawn on this system"
+
+    def draw_attribution(self, window):
+        """
+        Bottom-right map line. With the map on: the OpenStreetMap credit (its
+        licence requires it) plus the key that hides the map. With the map
+        off: how to bring it back, so the shortcut is always discoverable.
+        """
+        if self._texture is None:
+            if self._status:
+                self._attribution.text = self._status
+                self._attribution.x = window.width - 10
+                self._attribution.y = 6
+                self._attribution.draw()
+            return
+        if self.visible:
+            self._attribution.text = f"{self._credit}   ·   Press M to hide the map"
+        else:
+            self._attribution.text = "Press M to show the real-world map"
+        self._attribution.x = window.width - 10
+        self._attribution.y = 6
+        self._attribution.draw()
 
 class LegendComponent(BaseComponent):
     def __init__(self, x: int = 20, y: int = 220, visible=True): # Increased y to 220 to fit all lines
@@ -1037,6 +1144,7 @@ class ControlsPopupComponent(BaseComponent):
             ("D", "Toggle DRS Zones"),
             ("B", "Toggle Progress Bar"),
             ("L", "Toggle Driver Labels"),
+            ("M", "Toggle Real-World Map"),
             ("H", "Toggle Help Popup"),
             ("C", "Toggle Drivers points table"),
             ("A", "Toggle Constructors points table")

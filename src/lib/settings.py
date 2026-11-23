@@ -16,6 +16,9 @@ class SettingsManager:
     DEFAULTS = {
         "cache_location": ".fastf1-cache",
         "computed_data_location": "computed_data",
+        # Draw a real-world OpenStreetMap map under the track (downloaded once
+        # per circuit). Turn off to make no map-related network requests.
+        "osm_map_enabled": True,
     }
 
     _instance: Optional["SettingsManager"] = None
@@ -120,6 +123,16 @@ class SettingsManager:
     def computed_data_location(self, value: str) -> None:
         """Set the computed data location."""
         self.set("computed_data_location", value)
+
+    @property
+    def osm_map_enabled(self) -> bool:
+        """Whether to show the real-world map under the track."""
+        return bool(self.get("osm_map_enabled"))
+
+    @osm_map_enabled.setter
+    def osm_map_enabled(self, value: bool) -> None:
+        """Enable or disable the real-world map under the track."""
+        self.set("osm_map_enabled", bool(value))
 
 
 # Global convenience function to get the settings instance
