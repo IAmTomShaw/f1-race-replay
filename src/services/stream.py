@@ -110,11 +110,15 @@ class TelemetryStreamClient(QThread):
         self._receive_data()
       except Exception as e:
         self.error_occurred.emit(f"Connection error: {str(e)}")
-        if self.socket:
-          self.socket.close()
-        self.connected = False
+
+      # The connection failed or was closed, so close the socket before reconnecting
+      if self.socket:
+        self.socket.close()
+      self.connected = False
+
+      if self.running:
         self.connection_status.emit("Disconnected")
-        
+
         # Wait before attempting to reconnect
         self.sleep(2)
               
