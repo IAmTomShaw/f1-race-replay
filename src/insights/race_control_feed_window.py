@@ -84,7 +84,8 @@ def _clean_sector(val):
 _WAITING_TEXT = "Waiting for race control messages..."
 _NO_DATA_TEXT = (
     "No race control data in cache.\n\n"
-    "Delete the .pkl file in computed_data/\n"
+
+    "Delete the .pkl file in your computed data folder\n"
     "and re-run the session to regenerate."
 )
 

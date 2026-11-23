@@ -6,6 +6,7 @@ from PySide6.QtWidgets import (
 from PySide6.QtGui import QFont, QPainter, QColor, QPen, QBrush, QLinearGradient
 from PySide6.QtCore import Qt, QRect, QTimer
 from src.gui.pit_wall_window import PitWallWindow
+from src.lib.settings import get_settings
 
 
 TYRE_COLOURS = {
@@ -204,8 +205,9 @@ class TyreStrategyWindow(PitWallWindow):
     def _load_state(self):
         try:
             import json, os
-            if os.path.exists("computed_data/tyre_state.json"):
-                with open("computed_data/tyre_state.json") as f:
+            state_path = os.path.join(get_settings().computed_data_location, "tyre_state.json")
+            if os.path.exists(state_path):
+                with open(state_path) as f:
                     saved = json.load(f)
                     self.stints      = saved.get("stints", {})
                     self.positions   = saved.get("positions", {})
@@ -223,9 +225,9 @@ class TyreStrategyWindow(PitWallWindow):
     def _save_state(self):
         try:
             import json, os
-            if not os.path.exists("computed_data"):
-                os.makedirs("computed_data")
-            with open("computed_data/tyre_state.json", "w") as f:
+            computed_dir = get_settings().computed_data_location
+            os.makedirs(computed_dir, exist_ok=True)
+            with open(os.path.join(computed_dir, "tyre_state.json"), "w") as f:
                 json.dump({
                     "stints":      self.stints,
                     "positions":   self.positions,
