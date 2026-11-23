@@ -1,0 +1,49 @@
+@import "tailwindcss";
+
+@theme {
+  --font-display: var(--font-chakra-petch), sans-serif;
+  --font-mono: var(--font-jetbrains-mono), monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #07090e;
+  color: #f1f5f9;
+  overflow: hidden;
+}
+
+/* Subtle telemetry grid backdrop */
+.pitwall-backdrop {
+  background-color: #07090e;
+  background-image:
+    radial-gradient(circle at 50% 42%, rgba(225, 6, 0, 0.055), transparent 62%),
+    linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px);
+  background-size: 100% 100%, 36px 36px, 36px 36px;
+}
+
+/* Slim Pit Wall scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.14);
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+}

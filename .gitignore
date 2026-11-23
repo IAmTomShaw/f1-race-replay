@@ -22,3 +22,11 @@ still_frame.png
 .DS_Store
 .idea/
 .vscode/
+
+# Web app build & dependencies
+web/node_modules/
+web/.next/
+web/out/
+web/.vercel/
+web/*.tsbuildinfo
+web/next-env.d.ts

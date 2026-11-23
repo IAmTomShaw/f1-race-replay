@@ -1,6 +1,12 @@
 import sys
 from collections import deque
 
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
+    QLabel, QComboBox
+)
+from PySide6.QtGui import QFont
+
 import matplotlib
 matplotlib.use("QtAgg")
 import matplotlib.pyplot as plt
@@ -8,11 +14,6 @@ import matplotlib.gridspec as gridspec
 import matplotlib.ticker as ticker
 from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg as FigureCanvas
 
-from PySide6.QtWidgets import (
-    QApplication, QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QComboBox
-)
-from PySide6.QtGui import QFont
 from src.gui.pit_wall_window import PitWallWindow
 
 _TIME_WINDOW = 30        # seconds kept in rolling-time mode
